@@ -152,3 +152,5 @@ pnpm run doctor
 Read `PROJECT_MEMORY.md` before changing architecture, domain terminology, security rules, or component conventions. Update it when a durable decision changes.
 
 See `ARCHITECTURE.md` for component boundaries, request flows, API routes, data ownership, and the production checklist. See `DESIGN_SYSTEM.md` for the visual direction and UI rules.
+
+See `DEPLOYMENT.md` for the Supabase, Render, and Expo environment wiring used by this repository.
