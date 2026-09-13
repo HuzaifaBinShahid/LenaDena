@@ -1,0 +1,23 @@
+{
+  "name": "oweyaar",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=22.13.0",
+    "pnpm": ">=11 <12"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @oweyaar/frontend --filter @oweyaar/backend dev",
+    "dev:frontend": "pnpm --filter @oweyaar/frontend dev",
+    "dev:backend": "pnpm --filter @oweyaar/backend dev",
+    "dev:worker": "pnpm --filter @oweyaar/backend worker:dev",
+    "worker": "pnpm --filter @oweyaar/backend worker",
+    "build": "pnpm build:backend && pnpm build:web",
+    "build:backend": "pnpm --filter @oweyaar/backend build",
+    "build:web": "pnpm --filter @oweyaar/frontend exec expo export --platform web --output-dir dist-web",
+    "doctor": "pnpm --filter @oweyaar/frontend run doctor",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  }
+}

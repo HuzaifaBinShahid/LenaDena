@@ -1,0 +1,9 @@
+packages:
+  - frontend
+  - backend
+onlyBuiltDependencies:
+  - esbuild
+allowBuilds:
+  esbuild: true
+minimumReleaseAgeExclude:
+  - nodemailer@10.0.9

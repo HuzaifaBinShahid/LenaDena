@@ -1,0 +1,38 @@
+{
+  "name": "@oweyaar/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "worker": "node dist/worker.js",
+    "worker:dev": "tsx watch src/worker.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@fastify/helmet": "^13.1.1",
+    "@fastify/multipart": "^10.1.1",
+    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/sensible": "^6.0.5",
+    "@fastify/swagger": "^9.8.1",
+    "@fastify/swagger-ui": "^6.1.1",
+    "@fastify/type-provider-typebox": "^6.1.0",
+    "@sinclair/typebox": "^0.34.52",
+    "@supabase/supabase-js": "^2.116.0",
+    "fastify": "^5.12.4",
+    "fastify-plugin": "^6.0.0",
+    "nodemailer": "^10.0.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "pino-pretty": "^13.1.3",
+    "tsx": "^4.23.13",
+    "typescript": "~5.9.2",
+    "vitest": "^4.0.18"
+  }
+}

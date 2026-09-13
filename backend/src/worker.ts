@@ -1,0 +1,65 @@
+import { randomUUID } from "node:crypto";
+import nodemailer from "nodemailer";
+import { createClient } from "@supabase/supabase-js";
+import { loadNotificationConfig } from "./notifications/config.js";
+import { renderNotification } from "./notifications/templates.js";
+
+type ClaimedNotification = {
+  id: string;
+  eventType: string;
+  recipientEmail: string;
+  recipientName: string;
+  groupName: string;
+  tone: "friendly" | "cheeky" | "chaos" | "quiet";
+  payload: Record<string, unknown>;
+};
+
+const config = loadNotificationConfig();
+const workerId = randomUUID();
+const supabase = createClient(config.supabaseUrl, config.supabaseSecretKey, { auth: { autoRefreshToken: false, persistSession: false } });
+const mailer = config.smtpHost
+  ? nodemailer.createTransport({
+      host: config.smtpHost,
+      port: config.smtpPort,
+      secure: config.smtpSecure,
+      ...((config.smtpUser && config.smtpPassword) ? { auth: { user: config.smtpUser, pass: config.smtpPassword } } : {}),
+    })
+  : nodemailer.createTransport({ jsonTransport: true });
+
+async function finish(id: string, values: Record<string, unknown>) {
+  const { error } = await supabase.from("notification_outbox").update(values).eq("id", id).eq("locked_by", workerId);
+  if (error) throw error;
+}
+
+async function runBatch() {
+  await supabase.rpc("app_enqueue_due_reminders");
+  const { data, error } = await supabase.rpc("app_claim_notifications", { p_worker: workerId, p_limit: 25 });
+  if (error) throw error;
+  for (const item of (data ?? []) as ClaimedNotification[]) {
+    try {
+      if (!(item.tone === "quiet" && item.eventType === "debt_reminder")) {
+        const message = renderNotification(item);
+        const result = await mailer.sendMail({ from: config.smtpFrom, to: item.recipientEmail, ...message });
+        if (!config.smtpHost) process.stdout.write(`${JSON.stringify(result)}\n`);
+      }
+      await finish(item.id, { sent_at: new Date().toISOString(), locked_at: null, locked_by: null, last_error: null });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      await finish(item.id, { locked_at: null, locked_by: null, last_error: message.slice(0, 1000), available_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() });
+    }
+  }
+}
+
+async function main() {
+  for (;;) {
+    try {
+      await runBatch();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      process.stderr.write(`${message}\n`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, config.intervalMs));
+  }
+}
+
+void main();

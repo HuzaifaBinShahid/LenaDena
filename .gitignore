@@ -1,0 +1,14 @@
+node_modules/
+.pnpm-store/
+.DS_Store
+.env
+.env.local
+.expo/
+dist/
+coverage/
+frontend/ios/
+frontend/android/
+frontend/.expo/
+backend/dist/
+frontend/dist-web/
+*.log

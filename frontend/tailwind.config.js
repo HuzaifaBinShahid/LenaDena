@@ -1,0 +1,37 @@
+module.exports = {
+  darkMode: "class",
+  content: ["./src/**/*.{js,jsx,ts,tsx}"],
+  presets: [require("nativewind/preset")],
+  theme: {
+    extend: {
+      colors: {
+        ink: "#171129",
+        "ink-soft": "#271B4B",
+        plum: "#1B103B",
+        canvas: "#F5F2FA",
+        raised: "#FCFAFF",
+        surface: "#EAE4F4",
+        violet: "#7657F6",
+        "violet-strong": "#4B2AA4",
+        "violet-soft": "#EEE9FF",
+        lavender: "#B5A5FF",
+        "lavender-soft": "#F0ECFF",
+        lime: "#A9F0D6",
+        "lime-soft": "#E8FAF4",
+        mint: "#139A78",
+        "mint-soft": "#E5F7F1",
+        coral: "#E86383",
+        "coral-soft": "#FDECF1",
+        gold: "#C78A35",
+        "gold-soft": "#FFF3E2",
+        slate: "#6E6880",
+        muted: "#A39CAF",
+        line: "#E3DDEC",
+      },
+      borderRadius: {
+        card: "20px",
+      },
+    },
+  },
+  plugins: [],
+};
