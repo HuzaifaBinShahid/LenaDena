@@ -5,6 +5,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SectionHeader } from "@/components/layout/SectionHeader";
 import { Button } from "@/components/ui/Button";
+import { Avatar } from "@/components/ui/Avatar";
 import { Icon } from "@/components/ui/Icon";
 import { Screen } from "@/components/ui/Screen";
 import { useLedger } from "@/features/ledger/LedgerProvider";
@@ -30,7 +31,7 @@ export default function GroupDetailScreen() {
       const invite = await createInvite(group.id);
       await Share.share({
         title: `Join ${group.name}`,
-        message: `Join ${group.name} on OweYaar: ${invite.url}`,
+        message: `Join ${group.name} on LenaDena: ${invite.url}`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Please try again.";
@@ -60,9 +61,7 @@ export default function GroupDetailScreen() {
           <View className="rounded-card border border-line bg-raised px-4 shadow-sm shadow-black/5">
             {group.members.map((member, index) => (
               <View key={member.id} className={`flex-row items-center gap-3 py-4 ${index < group.members.length - 1 ? "border-b border-line" : ""}`}>
-                <View className="h-11 w-11 items-center justify-center rounded-[15px] bg-violet-soft">
-                  <Text className="font-bold text-violet">{member.name.slice(0, 1).toUpperCase()}</Text>
-                </View>
+                <Avatar name={member.name} uri={member.avatarUrl} size="sm" accent={group.accent} />
                 <View className="flex-1">
                   <Text className="font-bold text-ink">{member.name}</Text>
                   <Text className="mt-1 text-xs text-slate">{member.email}</Text>

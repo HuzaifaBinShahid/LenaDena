@@ -15,6 +15,7 @@ import type {
   Settlement,
   SettlementStatus,
   TransactionItem,
+  UpdateProfileInput,
   UploadKind,
 } from "../domain/types.js";
 import type { LedgerRepository } from "./LedgerRepository.js";
@@ -22,9 +23,9 @@ import type { LedgerRepository } from "./LedgerRepository.js";
 type StoredGroup = Omit<Group, "balanceMinor">;
 type StoredPersonalTransaction = TransactionItem & { userId: string };
 
-const demoUser: Member = { id: "demo-user", name: "Huzaifa", email: "huzaifa@example.com" };
-const sara: Member = { id: "sara", name: "Sara", email: "sara@example.com" };
-const hamza: Member = { id: "hamza", name: "Hamza", email: "hamza@example.com" };
+const demoUser: Member = { id: "demo-user", name: "Huzaifa", email: "huzaifa@example.com", createdAt: "2026-09-01T09:00:00.000Z" };
+const sara: Member = { id: "sara", name: "Sara", email: "sara@example.com", createdAt: "2026-09-04T09:00:00.000Z" };
+const hamza: Member = { id: "hamza", name: "Hamza", email: "hamza@example.com", createdAt: "2026-09-03T09:00:00.000Z" };
 
 export class MemoryLedgerRepository implements LedgerRepository {
   private readonly users = new Map<string, Member>([
@@ -93,17 +94,28 @@ export class MemoryLedgerRepository implements LedgerRepository {
   ];
   private readonly idempotency = new Map<string, unknown>();
   private readonly invites = new Map<string, { groupId: string; email?: string; expiresAt: string; accepted: boolean }>();
+  private readonly lastSeenAt = new Map<string, string>([[demoUser.id, new Date().toISOString()], [hamza.id, new Date().toISOString()]]);
 
   async getPlan(userId: string): Promise<Plan> {
     const user = this.users.get(userId);
     if (!user) {
       throw new NotFoundError("Profile not found");
     }
+    this.lastSeenAt.set(userId, new Date().toISOString());
     const groups = Array.from(this.groups.values())
       .filter((group) => group.members.some((member) => member.id === userId))
       .map((group) => ({ ...group, role: group.members[0]?.id === userId ? "owner" as const : "member" as const, balanceMinor: this.getGroupBalance(group.id, userId) }));
     const groupIds = new Set(groups.map((group) => group.id));
     const reviews = this.settlements.filter((settlement) => settlement.recipient.id === userId && settlement.status === "awaiting_review");
+    const claims = this.settlements
+      .filter((settlement) => settlement.debtor.id === userId && settlement.status === "awaiting_review")
+      .map((settlement) => {
+        const recipientHasOpenedApp = this.lastSeenAt.has(settlement.recipient.id);
+        const selfSettleAvailableAt = recipientHasOpenedApp
+          ? new Date(Date.parse(settlement.createdAt) + 72 * 60 * 60 * 1000).toISOString()
+          : settlement.createdAt;
+        return { ...settlement, recipientHasOpenedApp, selfSettleAvailableAt, canSelfSettle: Date.now() >= Date.parse(selfSettleAvailableAt) };
+      });
     const activity = this.activity.filter((item) => groupIds.has(item.groupId)).map(({ groupId: _groupId, ...item }) => item);
     const expenseTransactions: TransactionItem[] = this.expenses
       .filter((expense) => groupIds.has(expense.groupId) && (expense.paidByMemberId === userId || expense.shares.some((share) => share.memberId === userId)))
@@ -138,7 +150,7 @@ export class MemoryLedgerRepository implements LedgerRepository {
         source: "group" as const,
         groupId: settlement.groupId,
         groupName: groups.find((item) => item.id === settlement.groupId)?.name ?? "Group",
-        title: "Payment completed",
+        title: settlement.confirmationMethod === "claimant_fallback" ? "Payment marked settled by payer" : "Payment completed",
         eventDate: settlement.createdAt.slice(0, 10),
         amountMinor: settlement.amountMinor,
         currency: settlement.currency,
@@ -157,7 +169,20 @@ export class MemoryLedgerRepository implements LedgerRepository {
       oweMinor: groups.filter((group) => group.currency === currency).reduce((sum, group) => sum + Math.max(0, -group.balanceMinor), 0),
       owedMinor: groups.filter((group) => group.currency === currency).reduce((sum, group) => sum + Math.max(0, group.balanceMinor), 0),
     }));
-    return { user, totals, groups, reviews, activity, transactions };
+    return { user, totals, groups, reviews, claims, activity, transactions };
+  }
+
+  async updateProfile(userId: string, input: UpdateProfileInput): Promise<Member> {
+    const user = this.users.get(userId);
+    if (!user) throw new NotFoundError("Profile not found");
+    const name = input.name.trim();
+    if (!name) throw new DomainError("Enter your name");
+    user.name = name;
+    if (Object.hasOwn(input, "avatarPath")) {
+      if (input.avatarPath) user.avatarUrl = input.avatarPath;
+      else delete user.avatarUrl;
+    }
+    return { ...user };
   }
 
   async getGroup(userId: string, groupId: string): Promise<Group> {
@@ -300,6 +325,7 @@ export class MemoryLedgerRepository implements LedgerRepository {
     if (settlement.status !== "awaiting_review") throw new ConflictError("This payment has already been reviewed");
     settlement.status = decision;
     if (note) settlement.note = note;
+    if (decision === "confirmed") settlement.confirmationMethod = "recipient_review";
     this.idempotency.set(key, true);
     this.activity.unshift({
       id: randomUUID(),
@@ -312,6 +338,31 @@ export class MemoryLedgerRepository implements LedgerRepository {
     });
   }
 
+  async selfConfirmSettlement(userId: string, settlementId: string, idempotencyKey: string): Promise<void> {
+    const key = `${userId}:${idempotencyKey}`;
+    if (this.idempotency.has(key)) return;
+    const settlement = this.settlements.find((item) => item.id === settlementId);
+    if (!settlement) throw new NotFoundError("Settlement not found");
+    if (settlement.debtor.id !== userId) throw new ForbiddenError("Only the payer can use fallback settlement");
+    if (settlement.status !== "awaiting_review") throw new ConflictError("This payment has already been resolved");
+    const recipientHasOpenedApp = this.lastSeenAt.has(settlement.recipient.id);
+    const availableAt = recipientHasOpenedApp ? Date.parse(settlement.createdAt) + 72 * 60 * 60 * 1000 : Date.parse(settlement.createdAt);
+    if (Date.now() < availableAt) throw new ConflictError(`Recipient review is available until ${new Date(availableAt).toISOString()}`);
+    settlement.status = "confirmed";
+    settlement.confirmationMethod = "claimant_fallback";
+    settlement.note = settlement.note ? `${settlement.note} · Marked settled by payer` : "Marked settled by payer";
+    this.idempotency.set(key, true);
+    this.activity.unshift({
+      id: randomUUID(),
+      groupId: settlement.groupId,
+      icon: "check-circle",
+      title: "Payment marked settled by payer",
+      detail: `${(settlement.amountMinor / 100).toFixed(2)} ${settlement.currency}`,
+      createdAt: new Date().toISOString(),
+      tone: "warning",
+    });
+  }
+
   async storeImage(_userId: string, _kind: UploadKind, _contentType: string, _bytes: Buffer): Promise<{ path: string }> {
     throw new DomainError("Private uploads require Supabase mode", 501, "upload_unavailable");
   }
@@ -321,7 +372,7 @@ export class MemoryLedgerRepository implements LedgerRepository {
     const token = `${randomUUID()}${randomUUID().replaceAll("-", "")}`;
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     this.invites.set(token, { groupId, ...(email ? { email: email.toLowerCase() } : {}), expiresAt, accepted: false });
-    return { url: `oweyaar://invite/${token}`, expiresAt };
+    return { url: `lenadena://invite/${token}`, expiresAt };
   }
 
   async acceptInvite(userId: string, token: string): Promise<Group> {

@@ -1,4 +1,4 @@
-# OweYaar Architecture
+# LenaDena Architecture
 
 ## System shape
 
@@ -22,7 +22,7 @@ Fastify API
 Supabase
   ├─ Auth
   ├─ PostgreSQL ledger and RLS
-  ├─ private receipts and payment proofs
+  ├─ private receipts, payment proofs, and profile photos
   └─ notification outbox
             │ locked batches
             ▼
@@ -53,14 +53,14 @@ supabase/migrations/       schema, RLS, storage, and transactional RPCs
 
 There is one exported `Button`, `Input`, `Field`, `TopTabs`, and `Spinner`. Every screen composes these primitives. `Touch` is the internal interaction engine used by the primitives and tappable cards; it centralizes reduced-motion-aware opacity, scale timing, and optional haptics. `Icon` is the single semantic adapter over Ionicons, while `GroupAvatar` and `SectionHeader` keep list identity and section hierarchy consistent.
 
-Interaction targets are at least 44 points. Top-level tabs use four equal 54-point targets so badges and label length cannot collapse spacing. Animations use opacity and transform only. The splash takes 680 ms and drops to 80 ms when reduced motion is enabled. A single static gradient may be used for hierarchy; runtime blur and looping decoration remain excluded. OCR, uploads, and network mutations expose loading states without blocking navigation rendering.
+Interaction targets are at least 44 points. Top-level tabs use four equal 54-point targets so badges and label length cannot collapse spacing. `Avatar` is the single person-photo and initials fallback component used by account, member, and payment views. Animations use opacity and transform only. The splash takes 680 ms and drops to 80 ms when reduced motion is enabled. A single static gradient may be used for hierarchy; runtime blur and looping decoration remain excluded. OCR, uploads, and network mutations expose loading states without blocking navigation rendering.
 
 ## Ledger invariants
 
 - Amounts are integer minor units; percentages are integer basis points.
 - The personal plan aggregates owe and owed totals separately for each currency.
 - Individual expenses and loans remain owner-private and do not alter group balances.
-- Transaction history projects group expenses to the current user's owed/owing share. Private individual obligations start open and remain in history after settlement; group payment movement appears only after recipient confirmation.
+- Transaction history projects group expenses to the current user's owed/owing share. Private individual obligations start open and remain in history after settlement; group payment movement appears after recipient confirmation or an eligible audited payer fallback.
 - Expense shares must add up exactly to the expense amount.
 - Percentage shares must add up to 10,000 basis points.
 - Event name and event date are required.
@@ -68,6 +68,8 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 - A debtor may claim no more than the currently open direct balance.
 - A pending claim pauses reminders and reserves its amount.
 - Only the intended recipient may confirm or flag a payment.
+- A payer may self-settle immediately when the recipient has never opened LenaDena, or after 72 hours without review for an active recipient.
+- A fallback stores `claimant_fallback`, the confirming account, an activity event, and a recipient notification; it is never represented as recipient confirmation.
 - Only confirmed settlements change the ledger.
 - Financial commands carry an idempotency key.
 
@@ -91,6 +93,16 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 3. Reminders for that pair pause.
 4. The recipient receives a review email and a short-lived signed proof URL inside the app only.
 5. `Money received` posts the confirmed ledger event. `Needs attention` reopens the amount and keeps wording neutral.
+6. The payer tracks the claim under Payments. Fallback settlement is immediate for a recipient with no recorded app visit and unlocks after 72 hours for an active recipient who does not review it.
+7. Fallback settlement changes the balance, remains explicitly attributed to the payer in the Activity transaction and audit event, and notifies the recipient.
+
+### Account and profile
+
+1. Supabase passwordless authentication verifies the email and creates one profile through the auth trigger.
+2. Fastify resolves the bearer token to the immutable profile ID used by every owned record.
+3. The Account screen updates the display name and may upload a square image to the private `avatars` bucket.
+4. Plan responses receive short-lived signed avatar URLs; changing identity presentation never rewrites financial ownership or history.
+5. Opening the authenticated plan updates `last_seen_at`, which is used only to choose the fallback review window.
 
 ### Invite
 
@@ -105,28 +117,30 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 | --- | --- | --- |
 | GET | `/health` | Liveness and version |
 | GET | `/v1/me/plan` | Private member dashboard |
+| PATCH | `/v1/me/profile` | Update display name and optional profile photo |
 | GET | `/v1/groups/:id` | Authorized group summary |
 | POST | `/v1/groups` | Create a group and email invites |
 | POST | `/v1/groups/:id/invites` | Generate an optional email-bound invite |
 | POST | `/v1/invites/:token/accept` | Accept a single-use invite |
-| POST | `/v1/uploads/:kind` | Store a private receipt or proof image |
+| POST | `/v1/uploads/:kind` | Store a private receipt, proof, or profile image |
 | POST | `/v1/expenses` | Create an expense and shares |
 | POST | `/v1/personal-transactions` | Create a private individual expense or loan |
 | POST | `/v1/personal-transactions/:id/settle` | Mark the owner's private individual obligation as settled |
 | POST | `/v1/settlements` | Claim an external payment |
 | POST | `/v1/settlements/:id/confirm` | Confirm receipt |
 | POST | `/v1/settlements/:id/attention` | Flag a payment for private follow-up |
+| POST | `/v1/settlements/:id/self-confirm` | Use an eligible audited payer fallback |
 
 ## Notification behavior
 
-The database creates outbox rows for invites, new expenses, payment claims, confirmations, attention states, and due reminders. Reminder generation is throttled to one row per member and group every 72 hours and skips payment pairs under review.
+The database creates outbox rows for invites, new expenses, payment claims, recipient confirmations, payer-fallback settlements, attention states, and due reminders. Reminder generation is throttled to one row per member and group every 72 hours and skips payment pairs under review.
 
 The worker claims rows with `FOR UPDATE SKIP LOCKED`, a worker UUID, and a five-minute stale-lock timeout. SMTP failures are released and delayed for five minutes. Friendly, cheeky, chaos, and quiet templates are supported; quiet suppresses recurring reminders. Emails never contain receipt or proof content.
 
 ## Production checklist
 
 - Apply the migration to a fresh Supabase project and inspect the Security Advisor.
-- Configure redirect URLs for `oweyaar://` and the invite deep-link path.
+- Configure redirect URLs for `lenadena://` and the invite deep-link path.
 - Set frontend publishable values and backend secret values separately.
 - Configure a verified SMTP sender and run one or more worker instances.
 - Replace demo app identifiers before store submission.

@@ -56,7 +56,7 @@ export function newIdempotencyKey() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export async function uploadPrivateImage(kind: "receipt" | "payment-proof", uri: string) {
+export async function uploadPrivateImage(kind: "receipt" | "payment-proof" | "avatar", uri: string) {
   if (!supabase) return uri;
   const match = uri.toLowerCase().match(/\.(png|webp|jpe?g)(?:\?|$)/);
   const extension = match?.[1] === "png" ? "png" : match?.[1] === "webp" ? "webp" : "jpg";

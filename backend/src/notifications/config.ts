@@ -28,7 +28,7 @@ export function loadNotificationConfig(): NotificationConfig {
     smtpSecure: process.env.SMTP_SECURE === "true",
     ...(smtpUser ? { smtpUser } : {}),
     ...(smtpPassword ? { smtpPassword } : {}),
-    smtpFrom: process.env.SMTP_FROM ?? "OweYaar <hello@example.com>",
+    smtpFrom: process.env.SMTP_FROM ?? "LenaDena <hello@example.com>",
     intervalMs: Math.max(5000, Number(process.env.NOTIFICATION_INTERVAL_MS ?? 30000)),
     production,
   };

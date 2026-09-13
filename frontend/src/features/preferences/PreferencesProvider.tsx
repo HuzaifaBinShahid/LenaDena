@@ -25,7 +25,7 @@ type PreferencesValue = {
 };
 
 const PreferencesContext = createContext<PreferencesValue | null>(null);
-const storageKey = "oweyaar.preferences.v1";
+const storageKey = "lenadena.preferences.v1";
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
   const systemScheme = useColorScheme();

@@ -39,7 +39,11 @@ export default function ClaimPaymentScreen() {
     setSaving(true);
     try {
       await claimSettlement({ groupId: group.id, recipientMemberId: recipientId, amountMinor, note: note.trim() || undefined, proofUri });
-      Alert.alert("Payment sent for review", "Reminders are paused while the recipient checks it.", [{ text: "Done", onPress: () => router.replace("/") }]);
+      Alert.alert(
+        "Payment sent for review",
+        "Track it in Payments. If the recipient has never opened LenaDena you can settle it yourself now; otherwise fallback unlocks after 72 hours.",
+        [{ text: "View payment", onPress: () => router.replace({ pathname: "/", params: { tab: "reviews" } }) }],
+      );
     } catch (error) {
       Alert.alert("Could not submit payment", error instanceof Error ? error.message : "Please try again.");
     } finally {
@@ -49,11 +53,11 @@ export default function ClaimPaymentScreen() {
 
   return (
     <Screen>
-      <PageHeader title="I paid" subtitle="Money moves outside OweYaar" />
+      <PageHeader title="I paid" subtitle="Money moves outside LenaDena" />
       <View className="gap-6">
         <View className="rounded-card bg-gold-soft p-5">
           <Text className="font-bold text-ink">This is a payment claim</Text>
-          <Text className="mt-2 text-sm leading-5 text-slate">Your balance changes only after the recipient taps Money received.</Text>
+          <Text className="mt-2 text-sm leading-5 text-slate">The recipient can confirm it. If they are not active or do not respond, LenaDena gives you a clearly labeled fallback settlement.</Text>
         </View>
         <Field label="Paid to" required>
           <TopTabs tabs={recipients.map((member) => ({ key: member.id, label: member.name }))} value={recipientId} onChange={setRecipientId} />

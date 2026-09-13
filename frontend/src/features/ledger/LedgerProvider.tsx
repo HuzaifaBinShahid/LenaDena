@@ -12,6 +12,7 @@ const emptyPlan: Plan = {
   totals: [],
   groups: [],
   reviews: [],
+  claims: [],
   activity: [],
   transactions: [],
 };
@@ -24,8 +25,10 @@ type LedgerContextValue = {
   createExpense: (input: CreateExpenseInput) => Promise<void>;
   createPersonalTransaction: (input: CreatePersonalTransactionInput) => Promise<void>;
   settlePersonalTransaction: (id: string) => Promise<void>;
+  updateProfile: (input: { name: string; avatarUri?: string | null }) => Promise<void>;
   claimSettlement: (input: { groupId: string; recipientMemberId: string; amountMinor: number; note?: string; proofUri?: string }) => Promise<void>;
   reviewSettlement: (id: string, status: Extract<SettlementStatus, "confirmed" | "needs_attention">, note?: string) => Promise<void>;
+  selfConfirmSettlement: (id: string) => Promise<void>;
   createInvite: (groupId: string, email?: string) => Promise<InviteLink>;
   acceptInvite: (token: string) => Promise<Group>;
 };
@@ -88,6 +91,15 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     await refresh();
   }, [refresh]);
 
+  const updateProfile = useCallback(async (input: { name: string; avatarUri?: string | null }) => {
+    const body: { name: string; avatarPath?: string | null } = { name: input.name };
+    if (Object.hasOwn(input, "avatarUri")) {
+      body.avatarPath = input.avatarUri ? await uploadPrivateImage("avatar", input.avatarUri) : null;
+    }
+    await apiRequest("/v1/me/profile", { method: "PATCH", body });
+    await refresh();
+  }, [refresh]);
+
   const claimSettlement = useCallback(async (input: { groupId: string; recipientMemberId: string; amountMinor: number; note?: string; proofUri?: string }) => {
     const proofUri = input.proofUri ? await uploadPrivateImage("payment-proof", input.proofUri) : undefined;
     await apiRequest("/v1/settlements", {
@@ -110,6 +122,14 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const selfConfirmSettlement = useCallback(async (id: string) => {
+    await apiRequest(`/v1/settlements/${id}/self-confirm`, {
+      method: "POST",
+      idempotencyKey: newIdempotencyKey(),
+    });
+    await refresh();
+  }, [refresh]);
+
   const createInvite = useCallback(async (groupId: string, email?: string) => apiRequest<InviteLink>(`/v1/groups/${groupId}/invites`, {
     method: "POST",
     body: { email },
@@ -122,8 +142,8 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const value = useMemo(
-    () => ({ plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, settlePersonalTransaction, claimSettlement, reviewSettlement, createInvite, acceptInvite }),
-    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, settlePersonalTransaction, claimSettlement, reviewSettlement, createInvite, acceptInvite],
+    () => ({ plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, settlePersonalTransaction, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite }),
+    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, settlePersonalTransaction, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite],
   );
 
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;

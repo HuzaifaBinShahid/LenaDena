@@ -1,6 +1,6 @@
 export type SplitMethod = "equal" | "exact" | "percentage";
 export type SettlementStatus = "awaiting_review" | "confirmed" | "needs_attention";
-export type UploadKind = "receipt" | "payment-proof";
+export type UploadKind = "receipt" | "payment-proof" | "avatar";
 export type TransactionKind = "expense" | "loan" | "payment";
 export type TransactionDirection = "incoming" | "outgoing";
 export type TransactionStatus = "open" | "settled";
@@ -14,6 +14,8 @@ export type Member = {
   id: string;
   name: string;
   email: string;
+  avatarUrl?: string;
+  createdAt?: string;
 };
 
 export type Group = {
@@ -59,6 +61,10 @@ export type Settlement = {
   note?: string;
   eventName?: string;
   eventDate?: string;
+  recipientHasOpenedApp?: boolean;
+  canSelfSettle?: boolean;
+  selfSettleAvailableAt?: string;
+  confirmationMethod?: "recipient_review" | "claimant_fallback";
   createdAt: string;
 };
 
@@ -95,6 +101,7 @@ export type Plan = {
   totals: Array<{ currency: string; oweMinor: number; owedMinor: number }>;
   groups: Group[];
   reviews: Settlement[];
+  claims: Settlement[];
   activity: Omit<ActivityItem, "groupId">[];
   transactions: TransactionItem[];
 };
@@ -135,4 +142,9 @@ export type CreateSettlementInput = {
   amountMinor: number;
   note?: string;
   proofUri?: string;
+};
+
+export type UpdateProfileInput = {
+  name: string;
+  avatarPath?: string | null;
 };

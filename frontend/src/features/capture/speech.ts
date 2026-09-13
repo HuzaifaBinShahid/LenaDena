@@ -21,7 +21,7 @@ export type SpeechSession = {
 
 export function speechUnavailableMessage() {
   if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
-    return "Voice transcription is not included in Expo Go. Open OweYaar in a development build to use on-device speech.";
+    return "Voice transcription is not included in Expo Go. Open LenaDena in a development build to use on-device speech.";
   }
   return null;
 }

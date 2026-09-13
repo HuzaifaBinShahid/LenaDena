@@ -26,9 +26,9 @@ export default function HomeScreen() {
   const tabs = useMemo(() => [
     { key: "plan" as const, label: "Plan", icon: "wallet" as const },
     { key: "groups" as const, label: "Groups", icon: "users" as const },
-    { key: "reviews" as const, label: "Reviews", icon: "check-circle" as const, badge: plan.reviews.length },
+    { key: "reviews" as const, label: "Reviews", icon: "check-circle" as const, badge: plan.reviews.length + plan.claims.filter((claim) => claim.canSelfSettle).length },
     { key: "activity" as const, label: "Activity", icon: "pulse" as const },
-  ], [plan.reviews.length]);
+  ], [plan.claims, plan.reviews.length]);
 
   useEffect(() => {
     if (params.tab === "plan" || params.tab === "groups" || params.tab === "reviews" || params.tab === "activity") setTab(params.tab);
@@ -43,32 +43,36 @@ export default function HomeScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-ink" style={{ backgroundColor: palette.header }} edges={["top"]}>
+    <View className="flex-1 bg-ink" style={{ backgroundColor: palette.header }}>
       <StatusBar style="light" />
       <LinearGradient colors={[palette.header, palette.headerEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
         <View pointerEvents="none" style={styles.headerGlowLarge} />
         <View pointerEvents="none" style={styles.headerGlowSmall} />
-        <AppHeader name={plan.user.name} connection={connection} />
+        <SafeAreaView edges={["top"]}>
+          <AppHeader name={plan.user.name} avatarUrl={plan.user.avatarUrl} connection={connection} />
+        </SafeAreaView>
       </LinearGradient>
-      <View className="flex-1 overflow-hidden rounded-t-[32px] bg-canvas" style={{ backgroundColor: palette.screen }}>
-        <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 112 + insets.bottom }} showsVerticalScrollIndicator={false}>
-          {tab === "plan" ? <PlanView /> : null}
-          {tab === "groups" ? <GroupsView /> : null}
-          {tab === "reviews" ? <ReviewsView /> : null}
-          {tab === "activity" ? <ActivityView /> : null}
-        </ScrollView>
+      <View style={[styles.workspaceShell, { backgroundColor: palette.screen, shadowColor: palette.header }]}>
+        <View className="flex-1 overflow-hidden rounded-t-[32px] bg-canvas" style={[styles.workspace, { backgroundColor: palette.screen }]}>
+          <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 112 + insets.bottom }} showsVerticalScrollIndicator={false}>
+            {tab === "plan" ? <PlanView /> : null}
+            {tab === "groups" ? <GroupsView /> : null}
+            {tab === "reviews" ? <ReviewsView /> : null}
+            {tab === "activity" ? <ActivityView /> : null}
+          </ScrollView>
+        </View>
       </View>
       <View pointerEvents="box-none" style={[styles.navigationDock, { bottom: Math.max(insets.bottom, 12) }]}> 
         <TopTabs tabs={tabs} value={tab} onChange={setTab} appearance="navigation" />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   header: {
     overflow: "hidden",
-    paddingBottom: 8,
+    paddingBottom: 24,
   },
   headerGlowLarge: {
     position: "absolute",
@@ -87,6 +91,20 @@ const styles = StyleSheet.create({
     bottom: -48,
     borderRadius: 46,
     backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  workspaceShell: {
+    flex: 1,
+    marginTop: -24,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  workspace: {
+    borderTopWidth: 1,
+    borderColor: "rgba(255,255,255,0.72)",
   },
   navigationDock: {
     position: "absolute",

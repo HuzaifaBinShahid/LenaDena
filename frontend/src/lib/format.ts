@@ -24,6 +24,18 @@ export function formatLongDate(value: string) {
   return day && month && year ? `${day} ${month} ${year}` : value;
 }
 
+export function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export function dateFromIso(value: string) {
   return new Date(`${value}T12:00:00`);
 }

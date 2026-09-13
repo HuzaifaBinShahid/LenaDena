@@ -1,7 +1,7 @@
 import type { Plan } from "@/features/ledger/types";
 
 export const demoPlan: Plan = {
-  user: { id: "demo-user", name: "Huzaifa", email: "huzaifa@example.com" },
+  user: { id: "demo-user", name: "Huzaifa", email: "huzaifa@example.com", createdAt: "2026-09-01T09:00:00.000Z" },
   totals: [{ currency: "PKR", oweMinor: 240000, owedMinor: 110000 }],
   groups: [
     {
@@ -45,6 +45,7 @@ export const demoPlan: Plan = {
       createdAt: "2026-09-12T11:32:00.000Z",
     },
   ],
+  claims: [],
   activity: [
     {
       id: "activity-1",

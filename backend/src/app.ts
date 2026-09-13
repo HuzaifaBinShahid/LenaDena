@@ -37,7 +37,7 @@ export async function buildApp(options: BuildOptions = {}) {
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute", keyGenerator: (request) => request.authUser?.id ?? request.ip });
   await app.register(swagger, {
     openapi: {
-      info: { title: "OweYaar API", version: "0.1.0", description: "Verified friend-group expense ledger" },
+      info: { title: "LenaDena API", version: "0.1.0", description: "Verified friend-group expense ledger" },
       components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" } } },
     },
   });

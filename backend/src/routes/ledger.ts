@@ -14,6 +14,8 @@ import {
   InviteLinkSchema,
   PlanSchema,
   ReviewSettlementSchema,
+  MemberSchema,
+  UpdateProfileSchema,
   UploadParamsSchema,
   UploadResponseSchema,
   TokenParamsSchema,
@@ -55,6 +57,15 @@ export const ledgerRoutes: FastifyPluginAsyncTypebox = async (fastify) => {
       response: { 200: PlanSchema, 401: ErrorSchema },
     },
   }, async (request) => fastify.ledger.getPlan(request.authUser.id));
+
+  fastify.patch("/me/profile", {
+    schema: {
+      tags: ["profile"],
+      security: [{ bearerAuth: [] }],
+      body: UpdateProfileSchema,
+      response: { 200: MemberSchema, ...mutationResponses },
+    },
+  }, async (request) => fastify.ledger.updateProfile(request.authUser.id, request.body));
 
   fastify.get("/groups/:id", {
     schema: {
@@ -177,6 +188,19 @@ export const ledgerRoutes: FastifyPluginAsyncTypebox = async (fastify) => {
     },
   }, async (request, reply) => {
     await fastify.ledger.reviewSettlement(request.authUser.id, request.params.id, "needs_attention", request.body.note, request.headers["idempotency-key"]);
+    return reply.code(204).send(null);
+  });
+
+  fastify.post("/settlements/:id/self-confirm", {
+    schema: {
+      tags: ["settlements"],
+      security: [{ bearerAuth: [] }],
+      headers: IdempotencyHeaderSchema,
+      params: IdParamsSchema,
+      response: { 204: Type.Null(), ...mutationResponses },
+    },
+  }, async (request, reply) => {
+    await fastify.ledger.selfConfirmSettlement(request.authUser.id, request.params.id, request.headers["idempotency-key"]);
     return reply.code(204).send(null);
   });
 };

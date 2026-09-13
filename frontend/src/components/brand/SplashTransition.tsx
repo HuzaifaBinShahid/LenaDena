@@ -109,7 +109,7 @@ export function SplashTransition({ onFinish }: SplashTransitionProps) {
     createElement(
       Animated.View,
       { style: [styles.copy, copyStyle] },
-      createElement(NativeText, { style: styles.name }, "OweYaar"),
+      createElement(NativeText, { style: styles.name }, "LenaDena"),
       createElement(NativeText, { style: styles.tagline }, "Shared money, minus the awkward."),
     ),
     createElement(

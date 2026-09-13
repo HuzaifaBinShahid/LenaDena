@@ -258,7 +258,7 @@ begin
       insert into public.group_invites (group_id, invited_by, email, token_hash, expires_at)
       values (new_group, p_actor, lower(invite_email), encode(digest(invite_token, 'sha256'), 'hex'), now() + interval '7 days');
       insert into public.notification_outbox (recipient_email, group_id, event_type, payload)
-      values (lower(invite_email), new_group, 'group_invite', jsonb_build_object('url', concat('oweyaar://invite/', invite_token)));
+      values (lower(invite_email), new_group, 'group_invite', jsonb_build_object('url', concat('lenadena://invite/', invite_token)));
     end if;
   end loop;
   insert into public.activity_events (group_id, actor_id, kind, title, detail, tone)
@@ -284,9 +284,9 @@ begin
   values (p_group, p_actor, nullif(lower(trim(p_email)), ''), encode(digest(invite_token, 'sha256'), 'hex'), invite_expiry);
   if nullif(trim(p_email), '') is not null then
     insert into public.notification_outbox (recipient_email, group_id, event_type, payload)
-    values (lower(trim(p_email)), p_group, 'group_invite', jsonb_build_object('url', concat('oweyaar://invite/', invite_token)));
+    values (lower(trim(p_email)), p_group, 'group_invite', jsonb_build_object('url', concat('lenadena://invite/', invite_token)));
   end if;
-  return jsonb_build_object('url', concat('oweyaar://invite/', invite_token), 'expiresAt', invite_expiry);
+  return jsonb_build_object('url', concat('lenadena://invite/', invite_token), 'expiresAt', invite_expiry);
 end;
 $$;
 

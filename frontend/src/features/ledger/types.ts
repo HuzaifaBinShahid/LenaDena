@@ -14,6 +14,8 @@ export type Member = {
   id: string;
   name: string;
   email: string;
+  avatarUrl?: string;
+  createdAt?: string;
 };
 
 export type Group = {
@@ -59,6 +61,10 @@ export type Settlement = {
   note?: string;
   eventName?: string;
   eventDate?: string;
+  recipientHasOpenedApp?: boolean;
+  canSelfSettle?: boolean;
+  selfSettleAvailableAt?: string;
+  confirmationMethod?: "recipient_review" | "claimant_fallback";
   createdAt: string;
 };
 
@@ -94,6 +100,7 @@ export type Plan = {
   totals: Array<{ currency: string; oweMinor: number; owedMinor: number }>;
   groups: Group[];
   reviews: Settlement[];
+  claims: Settlement[];
   activity: ActivityItem[];
   transactions: TransactionItem[];
 };

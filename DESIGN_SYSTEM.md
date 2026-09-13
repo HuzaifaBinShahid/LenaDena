@@ -1,8 +1,10 @@
-# OweYaar Design System
+# LenaDena Design System
 
 ## Direction
 
-OweYaar uses a mixed dark-and-light interface: a near-black plum shell flows into saturated violet, translucent bordered surfaces create a lightweight glass effect, and pale lavender working surfaces keep financial information readable. Positive green, negative coral, and warning amber remain semantic colors rather than brand decoration.
+LenaDena uses a mixed dark-and-light interface: a near-black plum shell flows into saturated violet, translucent bordered surfaces create a lightweight glass effect, and pale lavender working surfaces keep financial information readable. Positive green, negative coral, and warning amber remain semantic colors rather than brand decoration.
+
+The home gradient must continue behind the status-bar safe area. The pale workspace overlaps the gradient with a 32-point rounded top edge, a subtle highlight, and a restrained upward shadow so the transition feels layered rather than segmented.
 
 The direction borrows proven information patterns without copying another product:
 
@@ -47,12 +49,13 @@ The direction borrows proven information patterns without copying another produc
 - `TopTabs` has a floating glass bottom-navigation appearance and a compact segmented-control appearance. Badges are absolutely positioned so they never push labels together.
 - `Icon` maps semantic names to one rounded Ionicons family. Screens never import an icon pack directly.
 - `GroupAvatar` gives imageless crews a consistent people glyph tinted with the chosen group accent.
+- `Avatar` renders a private signed profile image when present and a consistent two-initial fallback otherwise. Person photos are never recreated ad hoc in feature screens.
 - `Spinner` is the only loading indicator.
 - `Text` owns the bundled Manrope family and maps the shared weight classes to exact font files.
 - `Touch` is the shared low-cost press engine for tappable cards and component internals. It uses a raw native `Pressable`, keeps Reanimated transforms on its outer wrapper, and places optional NativeWind visuals on a non-interactive inner view.
 
 ## Financial hierarchy
 
-The personal plan leads with one net position, then shows owe and owed totals as supporting values. Red and green are accompanied by labels and signs. The next actions are visible without scrolling. Group rows prioritize name, membership, and personal position in that order. Payment claims use amber until the recipient makes a decision.
+The personal plan leads with one net position, then shows owe and owed totals as supporting values. Red and green are accompanied by labels and signs. The next actions are visible without scrolling. Group rows prioritize name, membership, and personal position in that order. Incoming payment claims use amber until the recipient makes a decision; sent claims use a neutral waiting state and a labeled green state only when payer fallback is available.
 
 Activity uses filled green downward arrows for amounts owed to the user and filled coral upward arrows for amounts the user owes. Filters stay collapsed until requested and expose date window, personal/group source, transaction type, balance side, and status without leaving the timeline. Individual rows use a clear `Mark settled` action and remain visible as history afterward.

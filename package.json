@@ -1,5 +1,5 @@
 {
-  "name": "oweyaar",
+  "name": "lenadena",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@11.19.0",
@@ -8,15 +8,15 @@
     "pnpm": ">=11 <12"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @oweyaar/frontend --filter @oweyaar/backend dev",
-    "dev:frontend": "pnpm --filter @oweyaar/frontend dev",
-    "dev:backend": "pnpm --filter @oweyaar/backend dev",
-    "dev:worker": "pnpm --filter @oweyaar/backend worker:dev",
-    "worker": "pnpm --filter @oweyaar/backend worker",
+    "dev": "pnpm --parallel --filter @lenadena/frontend --filter @lenadena/backend dev",
+    "dev:frontend": "pnpm --filter @lenadena/frontend dev",
+    "dev:backend": "pnpm --filter @lenadena/backend dev",
+    "dev:worker": "pnpm --filter @lenadena/backend worker:dev",
+    "worker": "pnpm --filter @lenadena/backend worker",
     "build": "pnpm build:backend && pnpm build:web",
-    "build:backend": "pnpm --filter @oweyaar/backend build",
-    "build:web": "pnpm --filter @oweyaar/frontend exec expo export --platform web --output-dir dist-web",
-    "doctor": "pnpm --filter @oweyaar/frontend run doctor",
+    "build:backend": "pnpm --filter @lenadena/backend build",
+    "build:web": "pnpm --filter @lenadena/frontend exec expo export --platform web --output-dir dist-web",
+    "doctor": "pnpm --filter @lenadena/frontend run doctor",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test"
   }

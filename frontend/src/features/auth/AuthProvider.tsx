@@ -51,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     session,
     ready,
     configured: hasSupabaseConfig,
-    sendMagicLink: async (email, name, redirectTo = "oweyaar://") => {
+    sendMagicLink: async (email, name, redirectTo = "lenadena://") => {
       if (!supabase) {
         return;
       }

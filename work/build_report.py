@@ -622,7 +622,7 @@ add_bullets(doc, [
     ("Smart entry  ", "On device speech, receipt OCR, and share sheet photo intake that suggest field values but never save financial data without review."),
     ("Frontend system  ", "NativeWind supplies Tailwind style utilities over shared design tokens, with exactly one base Button, Input, and Spinner component."),
     ("Default visual theme  ", "Dusk Blend, with a charcoal summary band, warm off white working surfaces, mint actions, coral debt states, and amber humor accents."),
-    ("Working name  ", "OweYaar, pending trademark, domain, social handle, and app store clearance."),
+    ("Working name  ", "LenaDena, pending trademark, domain, social handle, and app store clearance."),
 ])
 
 doc.add_heading("Contents", level=1)
@@ -867,14 +867,14 @@ new_page(doc)
 doc.add_heading("WhatsApp and native share import", level=1)
 add_para(
     doc,
-    "Treat WhatsApp as an example source application, not as a data integration. A member opens a receipt photo in WhatsApp, taps the operating system Share action, chooses OweYaar, and continues in an Import expense screen. The app receives only that selected image through the iOS share extension or Android share intent. It does not request chat access, infer the people in the conversation, read message history, or require a Meta or WhatsApp API key.",
+    "Treat WhatsApp as an example source application, not as a data integration. A member opens a receipt photo in WhatsApp, taps the operating system Share action, chooses LenaDena, and continues in an Import expense screen. The app receives only that selected image through the iOS share extension or Android share intent. It does not request chat access, infer the people in the conversation, read message history, or require a Meta or WhatsApp API key.",
     citations=[36, 37, 38],
 )
 add_figure(doc, ASSETS / "share_import_flow.png", 7.0, "A shared WhatsApp photo becomes a local draft and reaches the ledger only after the member verifies every financial field")
 
 doc.add_heading("Import journey", level=2)
 share_journey_rows = [
-    ["Share", "In WhatsApp, open one receipt photo, tap Share, and select OweYaar", "The app accepts one JPEG, PNG, or WebP image in the MVP"],
+    ["Share", "In WhatsApp, open one receipt photo, tap Share, and select LenaDena", "The app accepts one JPEG, PNG, or WebP image in the MVP"],
     ["Receive", "Copy the granted image into an application cache entry with a short local expiry", "Do not upload, create an expense, or retain the source URI automatically"],
     ["Unlock", "If the app is locked, preserve the local draft while the member verifies email or unlocks the app", "Show the image only after local authentication; expire abandoned drafts"],
     ["Review image", "Preview, rotate, crop, replace, discard, or choose Keep as receipt", "Warn when the image may contain chat names, phone numbers, bank details, or unrelated text"],
@@ -963,7 +963,7 @@ add_para(doc, "Feature screens compose these primitives; they do not copy their 
 doc.add_heading("Lightweight animated splash", level=2)
 add_para(
     doc,
-    "Show an immediate native Expo splash using the Ink background and a static OweYaar mark, then cross fade into a short React Native handoff animation after the first application frame. The motion should use only logo opacity, a small scale from 0.96 to 1.00, and at most one mint accent translation. Target 650 to 900 milliseconds and enforce a 1.2 second ceiling. Expo recommends hiding the native splash as soon as the application is ready and testing the final behavior in a release build because Expo Go and development builds do not fully reproduce the installed splash experience.",
+    "Show an immediate native Expo splash using the Ink background and a static LenaDena mark, then cross fade into a short React Native handoff animation after the first application frame. The motion should use only logo opacity, a small scale from 0.96 to 1.00, and at most one mint accent translation. Target 650 to 900 milliseconds and enforce a 1.2 second ceiling. Expo recommends hiding the native splash as soon as the application is ready and testing the final behavior in a release build because Expo Go and development builds do not fully reproduce the installed splash experience.",
     citations=[40],
 )
 add_para(
@@ -1262,10 +1262,10 @@ add_para(doc, "Run the beta with a mix of one trip group, one flat or household 
 
 new_page(doc)
 doc.add_heading("Naming recommendations", level=1)
-add_para(doc, "OweYaar is the strongest working name. It is short, sounds like the familiar expression oh yaar, states the debt concept through owe, and supports both warm and chaotic reminder copy. A preliminary web search did not surface an obvious exact product collision, but this is not trademark, company registry, domain, social handle, or app store clearance.")
+add_para(doc, "LenaDena is the selected working name. It feels natural between friends, directly expresses give-and-take, and fits both personal balances and shared group costs. Trademark, company registry, domain, social handle, and app store clearance are still required before release.")
 
 name_rows = [
-    ["OweYaar", "Recommended", "Warm, memorable, directly tied to owing, strong South Asian friend group personality", "May feel regional if global expansion is immediate"],
+    ["LenaDena", "Selected", "Friendly, memorable, and directly tied to money moving between people", "May feel regional if global expansion is immediate"],
     ["TabToli", "Strong alternate", "Tab plus a group of friends; playful and group centered", "Meaning of toli may need explanation outside South Asia"],
     ["PaidNa", "Cheeky alternate", "Feels like a real reminder between friends", "Question like name can feel nagging and is less clear in search"],
     ["HisabScene", "Descriptive alternate", "Connects shared accounts with casual plans", "Longer and culturally specific"],
@@ -1286,7 +1286,7 @@ add_numbered(doc, [
     "Have counsel clear the final candidate before paying for identity design or publishing stores.",
 ])
 
-doc.add_heading("Early voice ideas for OweYaar", level=2)
+doc.add_heading("Early voice ideas for LenaDena", level=2)
 add_bullets(doc, [
     "Product descriptor: Shared expenses with proof and confirmation",
     "Friendly completion line: Settled, yaar",

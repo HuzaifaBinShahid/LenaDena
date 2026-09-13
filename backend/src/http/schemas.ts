@@ -11,6 +11,8 @@ export const MemberSchema = Type.Object({
   id: Type.String(),
   name: Type.String(),
   email: Type.String(),
+  avatarUrl: Type.Optional(Type.String()),
+  createdAt: Type.Optional(Type.String()),
 });
 
 export const GroupSchema = Type.Object({
@@ -35,6 +37,10 @@ export const SettlementSchema = Type.Object({
   note: Type.Optional(Type.String()),
   eventName: Type.Optional(Type.String()),
   eventDate: Type.Optional(Type.String()),
+  recipientHasOpenedApp: Type.Optional(Type.Boolean()),
+  canSelfSettle: Type.Optional(Type.Boolean()),
+  selfSettleAvailableAt: Type.Optional(Type.String({ format: "date-time" })),
+  confirmationMethod: Type.Optional(Type.Union([Type.Literal("recipient_review"), Type.Literal("claimant_fallback")])),
   createdAt: Type.String(),
 });
 
@@ -70,13 +76,14 @@ export const PlanSchema = Type.Object({
   totals: Type.Array(Type.Object({ currency: Type.String(), oweMinor: Type.Integer(), owedMinor: Type.Integer() })),
   groups: Type.Array(GroupSchema),
   reviews: Type.Array(SettlementSchema),
+  claims: Type.Array(SettlementSchema),
   activity: Type.Array(ActivitySchema),
   transactions: Type.Array(TransactionSchema),
 });
 
 export const IdResponseSchema = Type.Object({ id: Type.String() });
 export const UploadResponseSchema = Type.Object({ path: Type.String() });
-export const UploadParamsSchema = Type.Object({ kind: Type.Union([Type.Literal("receipt"), Type.Literal("payment-proof")]) });
+export const UploadParamsSchema = Type.Object({ kind: Type.Union([Type.Literal("receipt"), Type.Literal("payment-proof"), Type.Literal("avatar")]) });
 export const InviteBodySchema = Type.Object({ email: Type.Optional(Type.String({ format: "email", maxLength: 254 })) }, { additionalProperties: false });
 export const InviteLinkSchema = Type.Object({ url: Type.String(), expiresAt: Type.String({ format: "date-time" }) });
 export const TokenParamsSchema = Type.Object({ token: Type.String({ minLength: 32, maxLength: 200 }) });
@@ -127,6 +134,11 @@ export const CreateSettlementSchema = Type.Object({
 
 export const ReviewSettlementSchema = Type.Object({
   note: Type.Optional(Type.String({ maxLength: 500 })),
+}, { additionalProperties: false });
+
+export const UpdateProfileSchema = Type.Object({
+  name: Type.String({ minLength: 1, maxLength: 80 }),
+  avatarPath: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 2048 }), Type.Null()])),
 }, { additionalProperties: false });
 
 export const IdParamsSchema = Type.Object({ id: Type.String({ minLength: 1 }) });

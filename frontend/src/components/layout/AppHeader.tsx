@@ -3,22 +3,22 @@ import { Text } from "@/components/ui/Text";
 import { router } from "expo-router";
 import { Icon } from "@/components/ui/Icon";
 import { Touch } from "@/components/ui/Touch";
+import { Avatar } from "@/components/ui/Avatar";
 import { colors } from "@/theme/tokens";
 
 type AppHeaderProps = {
   name: string;
+  avatarUrl?: string;
   connection: "loading" | "live" | "demo" | "error";
 };
 
-export function AppHeader({ name, connection }: AppHeaderProps) {
+export function AppHeader({ name, avatarUrl, connection }: AppHeaderProps) {
   const status = connection === "live" ? "Synced" : connection === "loading" ? "Connecting" : connection === "error" ? "Offline" : "Demo";
   const statusColor = connection === "live" ? colors.mint : connection === "error" ? colors.coral : colors.lime;
   return (
     <View className="flex-row items-center justify-between px-5 pb-4 pt-2">
       <View className="flex-row items-center gap-3">
-        <View className="h-11 w-11 items-center justify-center rounded-[16px] border border-white/20 bg-white/15 shadow-lg shadow-black/10">
-          <Text className="text-base font-bold text-white">{name.trim().slice(0, 1).toUpperCase()}</Text>
-        </View>
+        <Avatar name={name} uri={avatarUrl} size="sm" inverted />
         <Text className="text-[22px] font-bold tracking-tight text-white">{name}</Text>
       </View>
       <View className="flex-row items-center gap-2">

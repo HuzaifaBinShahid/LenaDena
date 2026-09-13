@@ -1,28 +1,30 @@
-# OweYaar
+# LenaDena
 
-OweYaar tracks open balances between friends: what you owe, what is owed to you, and what has already been settled. Groups support shared costs and verified payments, while private individual entries work without creating a group.
+LenaDena tracks open balances between friends: what you owe, what is owed to you, and what has already been settled. Groups support shared costs and verified payments, while private individual entries work without creating a group.
 
 The repository contains two applications:
 
 - `frontend/` — Expo and React Native mobile app using NativeWind.
 - `backend/` — Node.js and Fastify API using Supabase when configured and a safe in-memory demo store otherwise.
 
+The canonical technical identifiers are `lenadena` for the Expo slug and deep-link scheme, `com.lenadena.app` for iOS and Android, and `@lenadena/*` for workspace packages. The app icon and animated splash use the shared violet LD monogram.
+
 ## What is implemented
 
-- Passwordless-ready account flow with a no-credentials demo path.
+- Passwordless email accounts with persistent profiles, editable names, private profile-photo uploads, and a no-credentials demo path.
 - Personal My plan dashboard.
 - Individual expense and loan balances that do not require a group or invite.
 - User-created groups with invites, balances, and activity.
 - Hashed, expiring, single-use invite links with email-bound acceptance when an address is supplied.
 - Equal, exact-value, and percentage expense splits.
 - Required event name and system-picked event date displayed in day–full month–year order.
-- Payment claims with optional proof, recipient review, confirmation, and needs-attention handling.
+- Payment claims with optional proof, recipient review, confirmation, needs-attention handling, and an audited payer fallback when the recipient has never opened the app or leaves a claim unreviewed for 72 hours.
 - WhatsApp/native share intake route for receipt photos.
 - Receipt selection, OCR adapter, multilingual on-device voice adapter, and manual fallbacks.
-- Private receipt and proof uploads through Fastify into Supabase Storage.
+- Private receipt, proof, and profile-photo uploads through Fastify into Supabase Storage.
 - Persisted Dusk, Cloud, Midnight, and system-following themes.
 - Friendly, cheeky, chaos, and quiet notification tones.
-- Reusable `Button`, `Input`, `Field`, `TopTabs`, `Spinner`, `Text`, semantic `Icon`, and group-avatar primitives.
+- Reusable `Button`, `Input`, `Field`, `TopTabs`, `Spinner`, `Text`, semantic `Icon`, person-avatar, and group-avatar primitives.
 - A compact modern design system with floating bottom navigation, purple glass surfaces, strong financial hierarchy, and a readable pale workspace.
 - A three-stage expense flow that keeps Details, Split, and Finish short, with Note placed last.
 - An Add entry chooser with focused Individual and Group paths.
@@ -80,7 +82,7 @@ pnpm dev:frontend
 After a NativeWind, Metro, font, or navigation-shell change, restart Expo once with a clean cache:
 
 ```bash
-pnpm --filter @oweyaar/frontend exec expo start --clear
+pnpm --filter @lenadena/frontend exec expo start --clear
 ```
 
 Expo Router owns the root navigation container through `src/app/_layout.tsx`; do not add a second `NavigationContainer` around the app.
@@ -109,6 +111,8 @@ Leave Supabase values empty and keep `AUTH_MODE=demo` in `backend/.env`. The app
 
 The frontend uses Supabase only for authentication. Financial mutations go through Fastify with the bearer token. Never place the Supabase secret key in the frontend.
 
+Supabase Auth creates one profile per verified email account. Financial rows continue to reference the immutable account ID when a user changes their display name or photo. `last_seen_at` distinguishes a recipient who has never opened LenaDena from an active recipient who still has a 72-hour review window.
+
 `SMTP_HOST` is optional in development, where the worker renders messages to JSON instead of sending them. It is required when `NODE_ENV=production`. Any normal SMTP provider can be used; no AI service or AI API key is involved.
 
 ## Device features
@@ -117,7 +121,7 @@ The frontend uses Supabase only for authentication. Financial mutations go throu
 - Expo Go does not include the speech-recognition native module. The microphone control displays a development-build prompt there without loading the unavailable package or interrupting the form.
 - The system date picker is included in Expo Go; the database and API continue to receive timezone-safe `YYYY-MM-DD` calendar values.
 - OCR runs on the device and only suggests receipt fields; the user reviews event name, event date, and amount before saving.
-- A WhatsApp image shared to OweYaar opens the import route and continues into the same expense form.
+- A WhatsApp image shared to LenaDena opens the import route and continues into the same expense form.
 - Voice, OCR, and inbound sharing need a development build. The manual workflow remains available when a native module or language model is unavailable.
 
 ## Native development build

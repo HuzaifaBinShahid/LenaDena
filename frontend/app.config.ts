@@ -1,20 +1,20 @@
 import type { ExpoConfig } from "expo/config";
 
 const config: ExpoConfig = {
-  name: "OweYaar",
-  slug: "oweyaar",
+  name: "LenaDena",
+  slug: "lenadena",
   version: "0.1.0",
   orientation: "portrait",
-  scheme: "oweyaar",
+  scheme: "lenadena",
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
   icon: "./assets/icon.png",
   ios: {
     supportsTablet: true,
-    bundleIdentifier: "com.oweyaar.app",
+    bundleIdentifier: "com.lenadena.app",
   },
   android: {
-    package: "com.oweyaar.app",
+    package: "com.lenadena.app",
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#1A1037",
@@ -39,8 +39,8 @@ const config: ExpoConfig = {
     [
       "expo-image-picker",
       {
-        photosPermission: "Choose a receipt image to prepare an expense.",
-        cameraPermission: "Take a receipt photo to prepare an expense.",
+        photosPermission: "Choose a receipt, payment proof, or profile photo for LenaDena.",
+        cameraPermission: "Take a receipt, payment proof, or profile photo for LenaDena.",
         microphonePermission: false,
       },
     ],

@@ -14,7 +14,7 @@ afterEach(async () => {
   await Promise.all(openApps.splice(0).map((app) => app.close()));
 });
 
-describe("OweYaar API", () => {
+describe("LenaDena API", () => {
   it("reports health without authentication", async () => {
     const app = await createApp();
     const response = await app.inject({ method: "GET", url: "/health" });
@@ -28,6 +28,7 @@ describe("OweYaar API", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().totals).toEqual([{ currency: "PKR", oweMinor: 240000, owedMinor: 110000 }]);
     expect(response.json().groups).toHaveLength(2);
+    expect(response.json().claims).toEqual([]);
     expect(response.json().transactions).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "expense-1", amountMinor: 240000, direction: "outgoing" }),
       expect.objectContaining({ id: "expense-2", amountMinor: 110000, direction: "incoming" }),
@@ -169,6 +170,82 @@ describe("OweYaar API", () => {
       payload: {},
     });
     expect(confirmed.statusCode).toBe(204);
+  });
+
+  it("updates the authenticated profile without changing record ownership", async () => {
+    const app = await createApp();
+    const updated = await app.inject({
+      method: "PATCH",
+      url: "/v1/me/profile",
+      headers: { "x-user-id": "demo-user" },
+      payload: { name: "Huz", avatarPath: "demo-user/avatar.jpg" },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({ id: "demo-user", name: "Huz", avatarUrl: "demo-user/avatar.jpg" });
+
+    const plan = await app.inject({ method: "GET", url: "/v1/me/plan", headers: { "x-user-id": "demo-user" } });
+    expect(plan.json().user).toMatchObject({ id: "demo-user", name: "Huz", avatarUrl: "demo-user/avatar.jpg" });
+    expect(plan.json().transactions).toEqual(expect.arrayContaining([expect.objectContaining({ id: "expense-1" })]));
+  });
+
+  it("lets the payer settle immediately when the recipient has never opened the app", async () => {
+    const app = await createApp();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/settlements",
+      headers: { "x-user-id": "demo-user", "idempotency-key": "fallback-create-0001" },
+      payload: { groupId: "weekend-crew", recipientMemberId: "sara", amountMinor: 240000 },
+    });
+    expect(created.statusCode).toBe(201);
+    const settlementId = created.json().id;
+
+    const waitingPlan = await app.inject({ method: "GET", url: "/v1/me/plan", headers: { "x-user-id": "demo-user" } });
+    expect(waitingPlan.json().claims).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: settlementId, recipientHasOpenedApp: false, canSelfSettle: true }),
+    ]));
+
+    const recipientAttempt = await app.inject({
+      method: "POST",
+      url: `/v1/settlements/${settlementId}/self-confirm`,
+      headers: { "x-user-id": "sara", "idempotency-key": "fallback-wrong-user-0001" },
+    });
+    expect(recipientAttempt.statusCode).toBe(403);
+
+    const settled = await app.inject({
+      method: "POST",
+      url: `/v1/settlements/${settlementId}/self-confirm`,
+      headers: { "x-user-id": "demo-user", "idempotency-key": "fallback-settle-0001" },
+    });
+    expect(settled.statusCode).toBe(204);
+
+    const settledPlan = await app.inject({ method: "GET", url: "/v1/me/plan", headers: { "x-user-id": "demo-user" } });
+    expect(settledPlan.json().claims).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: settlementId })]));
+    expect(settledPlan.json().transactions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: settlementId, title: "Payment marked settled by payer", kind: "payment", direction: "outgoing" }),
+    ]));
+  });
+
+  it("keeps the 72-hour review window for an active recipient", async () => {
+    const app = await createApp();
+    const recipientPlan = await app.inject({ method: "GET", url: "/v1/me/plan", headers: { "x-user-id": "sara" } });
+    expect(recipientPlan.statusCode).toBe(200);
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/settlements",
+      headers: { "x-user-id": "demo-user", "idempotency-key": "active-review-create-0001" },
+      payload: { groupId: "weekend-crew", recipientMemberId: "sara", amountMinor: 240000 },
+    });
+    const settlementId = created.json().id;
+    const waitingPlan = await app.inject({ method: "GET", url: "/v1/me/plan", headers: { "x-user-id": "demo-user" } });
+    expect(waitingPlan.json().claims).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: settlementId, recipientHasOpenedApp: true, canSelfSettle: false }),
+    ]));
+    const early = await app.inject({
+      method: "POST",
+      url: `/v1/settlements/${settlementId}/self-confirm`,
+      headers: { "x-user-id": "demo-user", "idempotency-key": "active-review-settle-0001" },
+    });
+    expect(early.statusCode).toBe(409);
   });
 
   it("reserves an amount while a payment claim is under review", async () => {

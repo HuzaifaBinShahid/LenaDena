@@ -32,7 +32,7 @@ export default function AcceptInviteScreen() {
       <View className="items-center pb-8 pt-10"><BrandMark size="lg" /></View>
       <View className="rounded-card border border-line bg-raised p-6">
         <Text className="text-2xl font-bold text-ink">You have been invited</Text>
-        <Text className="mt-3 text-base leading-6 text-slate">Join this OweYaar group to see only your own plan, add shared expenses, and settle balances with receipt confirmation.</Text>
+        <Text className="mt-3 text-base leading-6 text-slate">Join this LenaDena group to see only your own plan, add shared expenses, and settle balances with receipt confirmation.</Text>
         <View className="mt-7">
           {configured && !session ? (
             <Button label="Sign in to join" icon="mail" size="lg" fullWidth onPress={() => router.push({ pathname: "/auth", params: { next: `/invite/${token}` } })} />

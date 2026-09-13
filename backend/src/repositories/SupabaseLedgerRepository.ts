@@ -1,25 +1,59 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { DomainError, NotFoundError } from "../domain/errors.js";
-import type { CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreateSettlementInput, Group, InviteLink, Plan, SettlementStatus, TransactionItem, UploadKind } from "../domain/types.js";
+import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../domain/errors.js";
+import type { CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreateSettlementInput, Group, InviteLink, Member, Plan, SettlementStatus, TransactionItem, UpdateProfileInput, UploadKind } from "../domain/types.js";
 import type { LedgerRepository } from "./LedgerRepository.js";
 
 export class SupabaseLedgerRepository implements LedgerRepository {
   constructor(private readonly client: SupabaseClient) {}
 
   async getPlan(userId: string): Promise<Plan> {
+    const { error: touchError } = await this.client.rpc("app_touch_profile", { p_actor: userId });
+    if (touchError) throw new DomainError(touchError.message, 500, "database_error");
     const { data, error } = await this.client.rpc("app_get_plan", { p_actor: userId });
     if (error) throw new DomainError(error.message, 500, "database_error");
     if (!data) throw new NotFoundError("Profile not found");
     const { data: transactionData, error: transactionError } = await this.client.rpc("app_get_transactions", { p_actor: userId });
     if (transactionError) throw new DomainError(transactionError.message, 500, "database_error");
-    const plan = { ...(data as Omit<Plan, "transactions">), transactions: (transactionData ?? []) as TransactionItem[] };
-    await Promise.all(plan.reviews.map(async (review) => {
+    const basePlan = data as Omit<Plan, "transactions" | "claims"> & { claims?: Plan["claims"] };
+    const plan: Plan = { ...basePlan, claims: basePlan.claims ?? [], transactions: (transactionData ?? []) as TransactionItem[] };
+    await Promise.all([...plan.reviews, ...plan.claims].map(async (review) => {
       if (!review.proofUri) return;
       const { data: signed, error: signedError } = await this.client.storage.from("payment-proofs").createSignedUrl(review.proofUri, 300);
       if (!signedError && signed?.signedUrl) review.proofUri = signed.signedUrl;
     }));
+    const members: Member[] = [plan.user, ...plan.groups.flatMap((group) => group.members), ...plan.reviews.flatMap((review) => [review.debtor, review.recipient]), ...plan.claims.flatMap((claim) => [claim.debtor, claim.recipient])];
+    const paths = Array.from(new Set(members.map((member) => member.avatarUrl).filter((value): value is string => Boolean(value))));
+    const signedAvatars = new Map<string, string>();
+    await Promise.all(paths.map(async (path) => {
+      const { data: signed, error: signedError } = await this.client.storage.from("avatars").createSignedUrl(path, 3600);
+      if (!signedError && signed?.signedUrl) signedAvatars.set(path, signed.signedUrl);
+    }));
+    for (const member of members) {
+      if (!member.avatarUrl) continue;
+      const signedUrl = signedAvatars.get(member.avatarUrl);
+      if (signedUrl) member.avatarUrl = signedUrl;
+    }
     return plan;
+  }
+
+  async updateProfile(userId: string, input: UpdateProfileInput): Promise<Member> {
+    const updatesAvatar = Object.hasOwn(input, "avatarPath");
+    const { data: existingProfile } = updatesAvatar
+      ? await this.client.from("profiles").select("avatar_path").eq("id", userId).maybeSingle()
+      : { data: null };
+    const { error } = await this.client.rpc("app_update_profile", {
+      p_actor: userId,
+      p_name: input.name,
+      p_avatar_path: input.avatarPath ?? null,
+      p_update_avatar: updatesAvatar,
+    });
+    if (error) throw new DomainError(error.message, 400, "database_error");
+    const previousPath = typeof existingProfile?.avatar_path === "string" ? existingProfile.avatar_path : undefined;
+    if (previousPath && previousPath !== input.avatarPath) {
+      await this.client.storage.from("avatars").remove([previousPath]);
+    }
+    return (await this.getPlan(userId)).user;
   }
 
   async getGroup(userId: string, groupId: string): Promise<Group> {
@@ -92,9 +126,23 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     if (error) throw new DomainError(error.message, 400, "database_error");
   }
 
+  async selfConfirmSettlement(userId: string, settlementId: string, idempotencyKey: string): Promise<void> {
+    const { error } = await this.client.rpc("app_self_confirm_settlement", {
+      p_actor: userId,
+      p_settlement: settlementId,
+      p_idempotency_key: idempotencyKey,
+    });
+    if (error) {
+      if (error.message.includes("only the payer")) throw new ForbiddenError("Only the payer can use fallback settlement");
+      if (error.message.includes("window is open") || error.message.includes("already been resolved")) throw new ConflictError(error.message);
+      if (error.message.includes("not found")) throw new NotFoundError("Settlement not found");
+      throw new DomainError(error.message, 400, "database_error");
+    }
+  }
+
   async storeImage(userId: string, kind: UploadKind, contentType: string, bytes: Buffer): Promise<{ path: string }> {
     const extension = contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
-    const bucket = kind === "receipt" ? "receipts" : "payment-proofs";
+    const bucket = kind === "receipt" ? "receipts" : kind === "avatar" ? "avatars" : "payment-proofs";
     const path = `${userId}/${randomUUID()}.${extension}`;
     const { error } = await this.client.storage.from(bucket).upload(path, bytes, { contentType, cacheControl: "3600", upsert: false });
     if (error) throw new DomainError(error.message, 500, "upload_error");
