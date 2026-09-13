@@ -1,6 +1,6 @@
 # LenaDena Project Memory
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 
 ## Product contract
 
@@ -73,6 +73,7 @@ Last updated: 2026-09-13
 
 - Demo mode uses an in-memory repository with deterministic seed data and the `demo-user` identity.
 - Supabase mode activates only when backend credentials exist and `AUTH_MODE=supabase`.
+- Backend development, start, and worker scripts load the ignored `backend/.env` through Node's built-in environment-file support.
 - Missing optional native modules degrade to typed or manual entry without blocking the main expense flow.
 - Expo Go is detected before the speech-recognition package is loaded, preventing a missing-native-module crash and directing the user to a development build.
 
@@ -84,14 +85,16 @@ Last updated: 2026-09-13
 - Mobile navigation, design system, core screens, store, API client, share handler, speech adapter, and OCR adapter are implemented.
 - Fastify health, plan, profile, group, invite, upload, group expense, individual obligation create/settle, payment claim, recipient review, and payer-fallback routes are implemented.
 - Supabase schema, storage buckets, transactional RPCs, notification outbox, and RLS policies are implemented.
+- The hosted LenaDena Supabase project is provisioned in Singapore, all four migrations are applied, and `lenadena://` authentication redirects are configured. Local ignored environment files point the frontend and backend to it.
+- Render deployment is prepared but deferred because card verification was declined; local development continues against the hosted Supabase project.
 - SMTP worker, tone templates, reminder throttling, retry scheduling, and quiet-mode suppression are implemented.
 - Strict type checks and 26 automated tests pass; backend compilation, Expo configuration, web export, iOS bundle export, and local API/UI smoke checks are part of the verification workflow.
 - Expo dependency validation reports all SDK packages current and all 21 Expo Doctor checks pass in the configured local toolchain.
 
 ## External production inputs
 
-- Supabase project URL, publishable key, and secret key must be supplied.
 - SMTP host credentials, a verified sender address, and a worker deployment target must be supplied.
+- A backend hosting target still needs to be activated before remote/mobile testing outside the local Fastify server.
 - App Store and Play Store identifiers, signing, and privacy disclosures must be finalized.
 - OCR and speech locale coverage require a real-device matrix.
 - Payment proof retention defaults to 30 days after confirmation but remains a product/legal configuration choice.
