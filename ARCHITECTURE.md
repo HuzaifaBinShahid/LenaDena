@@ -6,7 +6,8 @@
 Expo React Native client
   ├─ Expo Router screens
   ├─ NativeWind design system
-  ├─ Supabase passwordless session
+  ├─ Supabase session (instant email sign-in in development, email links otherwise)
+  ├─ biometric app lock and app-wide toasts
   ├─ on-device OCR and speech
   └─ WhatsApp/native share intake
             │ HTTPS + bearer token
@@ -37,10 +38,11 @@ The client never receives the Supabase secret key. Supabase Auth creates the ses
 frontend/
   src/app/                 route screens and native intent handling
   src/components/ui/       the single reusable primitives
-  src/features/            auth, capture, ledger, preferences, home views
+  src/features/            auth, security (app lock), capture, ledger, preferences, home views
   src/lib/                 API, formatting, Supabase client
 backend/
-  src/routes/              transport contracts
+  src/routes/              transport contracts (public auth helpers and financial routes)
+  src/auth/                Supabase Auth admin gateway for instant sign-in
   src/plugins/             auth and repository composition
   src/domain/              money rules and shared domain types
   src/repositories/        in-memory and Supabase adapters
@@ -51,7 +53,7 @@ supabase/migrations/       schema, RLS, storage, and transactional RPCs
 
 ## Reusable UI rule
 
-There is one exported `Button`, `Input`, `Field`, `TopTabs`, and `Spinner`. Every screen composes these primitives. `Touch` is the internal interaction engine used by the primitives and tappable cards; it centralizes reduced-motion-aware opacity, scale timing, and optional haptics. `Icon` is the single semantic adapter over Ionicons, while `GroupAvatar` and `SectionHeader` keep list identity and section hierarchy consistent.
+There is one exported `Button`, `Input`, `Field`, `TopTabs`, `Switch`, `Spinner`, and `Toast` provider. Every screen composes these primitives. Result, error, and hint feedback goes through `useToast()`; native `Alert` is reserved for two-choice confirmations. `Touch` is the internal interaction engine used by the primitives and tappable cards; it centralizes reduced-motion-aware opacity, scale timing, and optional haptics. `Icon` is the single semantic adapter over Ionicons, while `GroupAvatar` and `SectionHeader` keep list identity and section hierarchy consistent.
 
 Interaction targets are at least 44 points. Top-level tabs use four equal 54-point targets so badges and label length cannot collapse spacing. `Avatar` is the single person-photo and initials fallback component used by account, member, and payment views. Animations use opacity and transform only. The splash takes 680 ms and drops to 80 ms when reduced motion is enabled. A single static gradient may be used for hierarchy; runtime blur and looping decoration remain excluded. OCR, uploads, and network mutations expose loading states without blocking navigation rendering.
 
@@ -98,11 +100,24 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 
 ### Account and profile
 
-1. Supabase passwordless authentication verifies the email and creates one profile through the auth trigger.
-2. Fastify resolves the bearer token to the immutable profile ID used by every owned record.
-3. The Account screen updates the display name and may upload a square image to the private `avatars` bucket.
-4. Plan responses receive short-lived signed avatar URLs; changing identity presentation never rewrites financial ownership or history.
-5. Opening the authenticated plan updates `last_seen_at`, which is used only to choose the fallback review window.
+1. The auth screen asks `GET /v1/auth/options` whether instant sign-in is on.
+2. Instant sign-up (development only, `ALLOW_INSTANT_AUTH=true`): name and email go to `POST /v1/auth/instant`. Fastify creates an already-confirmed Supabase user with `metadata.name`, then issues a single-use `recovery` link token hash, which the client exchanges with `verifyOtp({ type: "email" })` for a session. The auth trigger creates the profile from the name.
+3. Instant sign-in issues the same token only for an existing account; a `recovery` link answers `user_not_found` instead of creating an account for a mistyped email. Signing up with a registered email returns `account_exists`.
+4. When instant sign-in is off (always in production), the client falls back to Supabase email links (`signInWithOtp`).
+5. Fastify resolves the bearer token to the immutable profile ID used by every owned record. A 401 from the plan read signs the device out locally, so a deleted or revoked account returns to sign-in.
+6. The Account screen updates the display name and may upload a square image to the private `avatars` bucket.
+7. Plan responses receive short-lived signed avatar URLs; changing identity presentation never rewrites financial ownership or history.
+8. Opening the authenticated plan updates `last_seen_at`, which is used only to choose the fallback review window.
+
+### App lock
+
+1. Settings turns on unlock with Face ID, Touch ID, fingerprint, or face unlock after a successful device check; turning it off needs a check too. The per-account preference and lock delay (immediately, 1 minute, 5 minutes) live in SecureStore.
+2. An account with the lock on stays locked until it passes a biometric check in the current run: a session restored at launch, one that reappears after an offline token refresh, and an email-only sign-in all meet the lock. Unlocking, turning the lock on, and biometric sign-in record the check; signing out forgets every check. Returning from the background after the delay locks again, and a clock moved backwards counts as time away.
+3. The lock is an overlay above the navigation stack, so screens and half-filled forms survive locking. Native modals hide while it shows, the Android back button is consumed, and a privacy cover hides balances from the iOS app switcher.
+4. Leaving through something LenaDena opened (photo picker, share sheet, permission dialog, the passcode screen of a biometric prompt) gets a three-minute grace period instead of an immediate lock; staying away longer still locks.
+5. If the phone's passcode and biometrics are removed, no check can pass, so the lock screen and Settings offer to turn the lock off (removing a passcode already requires the owner).
+6. The account that turned on biometric unlock is remembered on the device and offered as a biometric sign-in shortcut on the auth screen while instant sign-in is available; its email is never prefilled.
+7. Expo Go on iOS has no `NSFaceIDUsageDescription`, so iOS asks for the passcode there; Face ID needs a development build.
 
 ### Invite
 
@@ -116,6 +131,8 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 | Method | Route | Purpose |
 | --- | --- | --- |
 | GET | `/health` | Liveness and version |
+| GET | `/v1/auth/options` | Public: whether instant email sign-in is enabled |
+| POST | `/v1/auth/instant` | Public, development only: create an account or sign in with an email and receive a one-time session token hash |
 | GET | `/v1/me/plan` | Private member dashboard |
 | PATCH | `/v1/me/profile` | Update display name and optional profile photo |
 | GET | `/v1/groups/:id` | Authorized group summary |
@@ -139,7 +156,9 @@ The worker claims rows with `FOR UPDATE SKIP LOCKED`, a worker UUID, and a five-
 
 ## Production checklist
 
-- Apply the migration to a fresh Supabase project and inspect the Security Advisor.
+- Apply the migrations to a fresh Supabase project and inspect the Security Advisor. `202609140005_pgcrypto_search_path.sql` is required on Supabase, where pgcrypto lives in the `extensions` schema.
+- Keep `ALLOW_INSTANT_AUTH` unset in any shared or production environment, and replace email-only sign-in with passwords, one-time codes, or passkeys before real users.
+- Test Face ID, Touch ID, and Android biometric unlock in development builds on physical devices.
 - Configure redirect URLs for `lenadena://` and the invite deep-link path.
 - Set frontend publishable values and backend secret values separately.
 - Configure a verified SMTP sender and run one or more worker instances.

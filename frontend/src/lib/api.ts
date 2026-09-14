@@ -12,10 +12,19 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly code?: string,
     readonly details?: unknown,
   ) {
     super(message);
   }
+}
+
+/** A user-facing sentence for any thrown value; fetch failures become a connection hint. */
+export function errorMessage(error: unknown, fallback = "Please try again.") {
+  if (error instanceof TypeError && /network request failed|failed to fetch|load failed/i.test(error.message)) {
+    return "LenaDena can't reach its server. Check your connection and try again.";
+  }
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 async function authHeaders() {
@@ -44,10 +53,10 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
-  const payload = (await response.json().catch(() => null)) as T | { message?: string; details?: unknown } | null;
+  const payload = (await response.json().catch(() => null)) as T | { message?: string; code?: string; details?: unknown } | null;
   if (!response.ok) {
-    const error = payload as { message?: string; details?: unknown } | null;
-    throw new ApiError(error?.message ?? "Request failed", response.status, error?.details);
+    const error = payload as { message?: string; code?: string; details?: unknown } | null;
+    throw new ApiError(error?.message ?? "Request failed", response.status, error?.code, error?.details);
   }
   return payload as T;
 }
@@ -73,10 +82,10 @@ export async function uploadPrivateImage(kind: "receipt" | "payment-proof" | "av
     headers: await authHeaders(),
     body: form,
   });
-  const payload = await response.json().catch(() => null) as { path?: string; message?: string } | null;
+  const payload = await response.json().catch(() => null) as { path?: string; message?: string; code?: string } | null;
   if (response.status === 501) return uri;
   if (!response.ok || !payload?.path) {
-    throw new ApiError(payload?.message ?? "Image upload failed", response.status, payload);
+    throw new ApiError(payload?.message ?? "Image upload failed", response.status, payload?.code, payload);
   }
   return payload.path;
 }

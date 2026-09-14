@@ -1,6 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { apiRequest, newIdempotencyKey, uploadPrivateImage } from "@/lib/api";
+import { isAuthRetryableFetchError } from "@supabase/supabase-js";
+import { ApiError, apiRequest, newIdempotencyKey, uploadPrivateImage } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 import { demoPlan } from "@/features/ledger/demo-data";
 import type { CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, Group, InviteLink, Plan, SettlementStatus } from "@/features/ledger/types";
 import { useAuth } from "@/features/auth/AuthProvider";
@@ -39,13 +41,35 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   const { configured, ready, session } = useAuth();
   const [plan, setPlan] = useState<Plan>(configured ? emptyPlan : demoPlan);
   const [connection, setConnection] = useState<ConnectionState>("loading");
+  const userId = session?.user.id;
+  const activeUserId = useRef(userId);
+
+  // Never show one account's balances to the next account that signs in on this device.
+  useEffect(() => {
+    activeUserId.current = userId;
+    if (!configured) return;
+    setPlan(emptyPlan);
+    setConnection("loading");
+  }, [configured, userId]);
 
   const refresh = useCallback(async () => {
+    const requestedFor = activeUserId.current;
     try {
       const value = await apiRequest<Plan>("/v1/me/plan");
+      if (activeUserId.current !== requestedFor) return;
       setPlan(value);
       setConnection("live");
-    } catch {
+    } catch (error) {
+      if (activeUserId.current !== requestedFor) return;
+      // A deleted or revoked account keeps a signed-looking session until it expires. Confirm with Supabase
+      // before leaving for sign-in, so an API or network hiccup never signs a valid account out.
+      if (configured && supabase && error instanceof ApiError && error.status === 401) {
+        const { error: userError } = await supabase.auth.getUser();
+        if (userError && !isAuthRetryableFetchError(userError)) {
+          await supabase.auth.signOut({ scope: "local" });
+          return;
+        }
+      }
       if (!configured) setPlan(demoPlan);
       setConnection(configured ? "error" : "demo");
     }
@@ -56,11 +80,13 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   }, [configured, ready, refresh, session]);
 
   const createGroup = useCallback(async (input: CreateGroupInput) => {
+    const requestedFor = activeUserId.current;
     const group = await apiRequest<Plan["groups"][number]>("/v1/groups", {
       method: "POST",
       body: input,
       idempotencyKey: newIdempotencyKey(),
     });
+    if (activeUserId.current !== requestedFor) return;
     setPlan((current) => ({ ...current, groups: [group, ...current.groups] }));
   }, []);
 
@@ -111,11 +137,13 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const reviewSettlement = useCallback(async (id: string, status: Extract<SettlementStatus, "confirmed" | "needs_attention">, note?: string) => {
+    const requestedFor = activeUserId.current;
     await apiRequest(`/v1/settlements/${id}/${status === "confirmed" ? "confirm" : "attention"}`, {
       method: "POST",
       body: { note },
       idempotencyKey: newIdempotencyKey(),
     });
+    if (activeUserId.current !== requestedFor) return;
     setPlan((current) => ({
       ...current,
       reviews: current.reviews.filter((review) => review.id !== id),

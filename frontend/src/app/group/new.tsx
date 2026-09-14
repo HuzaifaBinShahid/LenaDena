@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { Alert, View } from "react-native";
-import { Text } from "@/components/ui/Text";
+import { View } from "react-native";
 import { router } from "expo-router";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
@@ -10,13 +9,16 @@ import { Input } from "@/components/ui/Input";
 import { Screen } from "@/components/ui/Screen";
 import { TopTabs } from "@/components/ui/TopTabs";
 import { Touch } from "@/components/ui/Touch";
+import { useToast } from "@/components/ui/Toast";
 import { useLedger } from "@/features/ledger/LedgerProvider";
+import { errorMessage } from "@/lib/api";
 import { colors } from "@/theme/tokens";
 
 const accents = ["#6657E8", "#168AAD", "#16A77E", "#E88B3D", "#EC6075"];
 
 export default function CreateGroupScreen() {
   const { createGroup } = useLedger();
+  const toast = useToast();
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState<"PKR" | "USD" | "EUR">("PKR");
   const [emails, setEmails] = useState("");
@@ -31,16 +33,16 @@ export default function CreateGroupScreen() {
       return;
     }
     setSaving(true);
+    const inviteEmails = emails.split(/[\s,]+/).map((email) => email.trim().toLowerCase()).filter(Boolean);
     try {
-      await createGroup({
-        name: name.trim(),
-        currency,
-        accent,
-        inviteEmails: emails.split(/[\s,]+/).map((email) => email.trim().toLowerCase()).filter(Boolean),
-      });
+      await createGroup({ name: name.trim(), currency, accent, inviteEmails });
       router.back();
+      toast.success(
+        `${name.trim()} is ready`,
+        inviteEmails.length ? `Invites are on their way to ${inviteEmails.length} ${inviteEmails.length === 1 ? "person" : "people"}.` : "Invite friends from the group whenever you're ready.",
+      );
     } catch (error) {
-      Alert.alert("Could not create group", error instanceof Error ? error.message : "Please try again.");
+      toast.error("Couldn't create the group", errorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -82,10 +84,6 @@ export default function CreateGroupScreen() {
             ))}
           </View>
         </Field>
-        <View className="rounded-card bg-violet-soft p-5">
-          <Text className="font-bold text-ink">You stay in control</Text>
-          <Text className="mt-2 text-sm leading-5 text-slate">You can invite members, appoint an admin, archive the group, or transfer ownership later.</Text>
-        </View>
         <Button label="Create group" icon="users" size="lg" fullWidth loading={saving} onPress={save} />
       </View>
     </Screen>

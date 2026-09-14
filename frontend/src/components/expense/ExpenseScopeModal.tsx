@@ -1,6 +1,7 @@
 import { Modal, Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { Button } from "@/components/ui/Button";
+import { useScreenObscured } from "@/components/ui/ScreenObscured";
 import { Text } from "@/components/ui/Text";
 import { colors } from "@/theme/tokens";
 
@@ -12,8 +13,9 @@ type ExpenseScopeModalProps = {
 };
 
 export function ExpenseScopeModal({ visible, onClose, onIndividual, onGroup }: ExpenseScopeModalProps) {
+  const obscured = useScreenObscured();
   return (
-    <Modal visible={visible} transparent animationType="fade" presentationStyle="overFullScreen" onRequestClose={onClose}>
+    <Modal visible={visible && !obscured} transparent animationType="fade" presentationStyle="overFullScreen" onRequestClose={onClose}>
       <View style={styles.root} accessibilityViewIsModal>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close expense options" />
         <Animated.View entering={FadeInDown.duration(220)} style={styles.sheet}>

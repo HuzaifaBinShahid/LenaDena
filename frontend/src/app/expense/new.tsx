@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Platform, View } from "react-native";
+import { Image, Platform, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "@/components/ui/Button";
@@ -9,11 +9,14 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Screen } from "@/components/ui/Screen";
 import { Text } from "@/components/ui/Text";
 import { TopTabs } from "@/components/ui/TopTabs";
+import { useToast } from "@/components/ui/Toast";
 import { recognizeReceipt } from "@/features/capture/ocr";
 import { speechUnavailableMessage, startOnDeviceSpeech, type SpeechSession } from "@/features/capture/speech";
 import { calculateShares } from "@/features/ledger/split";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import type { SplitMethod } from "@/features/ledger/types";
+import { useAppLock } from "@/features/security/AppLockProvider";
+import { errorMessage } from "@/lib/api";
 import { dateFromIso, dateToIso, formatLongDate, formatMoney, toMinorUnits, todayDate } from "@/lib/format";
 import { usePreferences } from "@/features/preferences/PreferencesProvider";
 
@@ -31,6 +34,8 @@ export default function NewExpenseScreen() {
   const params = useLocalSearchParams<{ groupId?: string; receiptUri?: string }>();
   const { plan, createExpense } = useLedger();
   const { speechLocale } = usePreferences();
+  const { runWithoutLocking } = useAppLock();
+  const toast = useToast();
   const [step, setStep] = useState<FormStep>("details");
   const [groupId, setGroupId] = useState(params.groupId ?? plan.groups[0]?.id ?? "");
   const group = plan.groups.find((item) => item.id === groupId) ?? plan.groups[0];
@@ -73,24 +78,25 @@ export default function NewExpenseScreen() {
     }
     const unavailableMessage = speechUnavailableMessage();
     if (unavailableMessage) {
-      Alert.alert("Development build required", unavailableMessage);
+      toast.info("Voice needs a development build", unavailableMessage);
       return;
     }
     let reportedError = false;
     setListeningField(field);
-    const session = await startOnDeviceSpeech(
+    // Android pauses the app for the microphone permission dialog; that must not trigger the app lock.
+    const session = await runWithoutLocking(() => startOnDeviceSpeech(
       speechLocale,
       (text) => field === "event" ? setEventName(text) : setNote(text),
       () => setListeningField(null),
       (message) => {
         reportedError = true;
         setListeningField(null);
-        Alert.alert("Voice input", message);
+        toast.warning("Voice input stopped", message);
       },
-    );
+    ));
     if (!session) {
       setListeningField(null);
-      if (!reportedError) Alert.alert("On-device voice unavailable", "Use the keyboard, or run a development build on a device with a downloaded speech model.");
+      if (!reportedError) toast.info("On-device voice unavailable", "Use the keyboard, or a development build on a device with a downloaded speech model.");
     }
     speech.current = session;
   };
@@ -100,12 +106,15 @@ export default function NewExpenseScreen() {
     const result = await recognizeReceipt(uri);
     setScanning(false);
     if (!result.available) {
-      Alert.alert("OCR unavailable", "The receipt is attached. Enter the amount and date manually, or use a development build with the OCR module.");
+      toast.info("Receipt attached", "Scanning isn't available here, so enter the amount and date yourself.");
       return;
     }
-    if (result.suggestions.amount) setAmount(result.suggestions.amount);
-    if (result.suggestions.date) setEventDate(result.suggestions.date);
-    if (result.suggestions.eventName) setEventName(result.suggestions.eventName);
+    const { amount: suggestedAmount, date, eventName: suggestedName } = result.suggestions;
+    if (suggestedAmount) setAmount(suggestedAmount);
+    if (date) setEventDate(date);
+    if (suggestedName) setEventName(suggestedName);
+    if (suggestedAmount || date || suggestedName) toast.success("Receipt scanned", "Check the suggested details before saving.");
+    else toast.info("Couldn't read this receipt", "It's attached. Enter the details yourself.");
   };
 
   useEffect(() => {
@@ -115,7 +124,7 @@ export default function NewExpenseScreen() {
   useEffect(() => () => speech.current?.cancel(), []);
 
   const chooseReceipt = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8, allowsEditing: true });
+    const result = await runWithoutLocking(() => ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8, allowsEditing: true }));
     if (!result.canceled && result.assets[0]?.uri) {
       const uri = result.assets[0].uri;
       setReceiptUri(uri);
@@ -164,8 +173,9 @@ export default function NewExpenseScreen() {
         receiptUri,
       });
       router.replace("/");
+      toast.success("Expense saved", `${eventName.trim()} · ${formatMoney(amountMinor, group.currency)} split with ${participants.length} ${participants.length === 1 ? "person" : "people"}.`);
     } catch (error) {
-      Alert.alert("Could not save expense", error instanceof Error ? error.message : "Please try again.");
+      toast.error("Couldn't save the expense", errorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -261,7 +271,7 @@ export default function NewExpenseScreen() {
                 </View>
               </Field>
             ) : null}
-            <View className="rounded-2xl bg-violet-soft px-4 py-3">
+            <View className="rounded-2xl border border-line bg-canvas px-4 py-3">
               <Text className="text-sm font-semibold text-ink">{participants.length} {participants.length === 1 ? "person" : "people"} · {method === "equal" ? "Equal split" : method === "exact" ? "Exact values" : "Percentage split"}</Text>
             </View>
           </View>
@@ -275,7 +285,7 @@ export default function NewExpenseScreen() {
       {step === "finish" ? (
         <View className="gap-4">
           <View className="gap-5 rounded-[24px] border border-line bg-raised p-4 shadow-sm shadow-violet/5">
-            <View className="rounded-[20px] bg-violet-soft p-4">
+            <View className="rounded-[20px] border border-line bg-canvas p-4">
               <View className="flex-row items-start justify-between gap-4">
                 <View className="flex-1">
                   <Text className="text-base font-bold text-ink">{eventName}</Text>

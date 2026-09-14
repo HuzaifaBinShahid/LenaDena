@@ -22,6 +22,11 @@ export const colors = {
   muted: "#A39CAF",
   line: "#E3DDEC",
   white: "#FFFFFF",
+  // Brighter semantic tints for icons and text on the dark plum shell (toasts, auth, lock screen).
+  mintBright: "#6FE0B8",
+  coralBright: "#FF8DA6",
+  goldBright: "#F4C27A",
+  night: "#0D0720",
 } as const;
 
 export const motion = {

@@ -5,6 +5,7 @@ import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/d
 import Animated, { interpolateColor, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { Button } from "@/components/ui/Button";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { useScreenObscured } from "@/components/ui/ScreenObscured";
 import { colors } from "@/theme/tokens";
 import { Touch } from "@/components/ui/Touch";
 
@@ -13,6 +14,8 @@ type InputProps = TextInputProps & {
   trailingIcon?: IconName;
   onTrailingPress?: () => void;
   invalid?: boolean;
+  /** `dark` sits on the plum space backdrop used by sign-in and the app lock. */
+  appearance?: "light" | "dark";
   datePicker?: {
     value: Date;
     onChange: (value: Date) => void;
@@ -23,16 +26,21 @@ type InputProps = TextInputProps & {
 };
 
 export const Input = forwardRef<TextInput, InputProps>(function Input(
-  { leadingIcon, trailingIcon, onTrailingPress, invalid = false, datePicker, className: _className, onFocus, onBlur, style, multiline, ...props },
+  { leadingIcon, trailingIcon, onTrailingPress, invalid = false, appearance = "light", datePicker, className: _className, onFocus, onBlur, style, multiline, ...props },
   ref,
 ) {
   const focusProgress = useSharedValue(0);
   const reduceMotion = useReducedMotion();
   const [pickerVisible, setPickerVisible] = useState(false);
   const [draftDate, setDraftDate] = useState(() => datePicker?.value ?? new Date());
+  const obscured = useScreenObscured();
+  const dark = appearance === "dark";
+  const restingBorder = dark ? "rgba(255,255,255,0.1)" : colors.line;
+  const focusBorder = dark ? colors.lavender : colors.violet;
+  const iconColor = invalid ? (dark ? colors.coralBright : colors.coral) : dark ? colors.lavender : colors.violet;
   const focusStyle = useAnimatedStyle(() => ({
-    borderColor: interpolateColor(focusProgress.value, [0, 1], [colors.line, colors.violet]),
-    shadowOpacity: focusProgress.value * 0.12,
+    borderColor: interpolateColor(focusProgress.value, [0, 1], [restingBorder, focusBorder]),
+    shadowOpacity: focusProgress.value * (dark ? 0.3 : 0.12),
     elevation: focusProgress.value * 2,
   }));
 
@@ -54,17 +62,18 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
 
   const frame = createElement(
     Animated.View,
-    { style: [styles.frame, focusStyle, invalid && styles.invalid] },
-    leadingIcon ? <Icon name={leadingIcon} size={19} color={invalid ? colors.coral : colors.violet} /> : null,
+    { style: [styles.frame, dark && styles.frameDark, focusStyle, invalid && (dark ? styles.invalidDark : styles.invalid)] },
+    leadingIcon ? <Icon name={leadingIcon} size={19} color={iconColor} /> : null,
     createElement(TextInput, {
+      keyboardAppearance: dark ? "dark" : "default",
       ...props,
       ref,
       multiline,
       editable: datePicker ? false : props.editable,
       caretHidden: datePicker ? true : props.caretHidden,
-      style: [styles.input, leadingIcon && styles.inputWithLeading, multiline && styles.multiline, style],
-      placeholderTextColor: colors.slate,
-      selectionColor: colors.violet,
+      style: [styles.input, dark && styles.inputDark, leadingIcon && styles.inputWithLeading, multiline && styles.multiline, style],
+      placeholderTextColor: dark ? "rgba(236,232,255,0.42)" : colors.slate,
+      selectionColor: focusBorder,
       onFocus: (event) => {
         focusProgress.value = withTiming(1, { duration: reduceMotion ? 0 : 140 });
         onFocus?.(event);
@@ -83,7 +92,7 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
         accessibilityLabel={onTrailingPress ? "Input action" : undefined}
         hitSlop={4}
       >
-        <Icon name={trailingIcon} size={19} color={invalid ? colors.coral : colors.violet} />
+        <Icon name={trailingIcon} size={19} color={iconColor} />
       </Touch>
     ) : null,
   );
@@ -105,7 +114,7 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
     Platform.OS === "ios" ? createElement(
       Modal,
       {
-        visible: pickerVisible,
+        visible: pickerVisible && !obscured,
         transparent: true,
         animationType: "fade",
         presentationStyle: "overFullScreen",
@@ -167,8 +176,17 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     shadowRadius: 14,
   },
+  frameDark: {
+    borderRadius: 16,
+    borderColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(12,6,34,0.86)",
+    shadowColor: colors.lavender,
+  },
   invalid: {
     borderColor: colors.coral,
+  },
+  invalidDark: {
+    borderColor: colors.coralBright,
   },
   input: {
     flex: 1,
@@ -177,6 +195,9 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontFamily: "Manrope_500Medium",
     fontSize: 15,
+  },
+  inputDark: {
+    color: colors.white,
   },
   inputWithLeading: {
     marginLeft: 12,

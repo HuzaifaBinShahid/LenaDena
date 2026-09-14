@@ -1,24 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Image, View } from "react-native";
+import { Image, View } from "react-native";
 import { Text } from "@/components/ui/Text";
 import { router } from "expo-router";
 import { useIncomingShare } from "expo-sharing";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Screen } from "@/components/ui/Screen";
+import { Icon } from "@/components/ui/Icon";
 import { Spinner } from "@/components/ui/Spinner";
+import { useToast } from "@/components/ui/Toast";
 import { recognizeReceipt } from "@/features/capture/ocr";
+import { colors } from "@/theme/tokens";
 
 export default function ShareScreen() {
   const { resolvedSharedPayloads, isResolving, error, clearSharedPayloads } = useIncomingShare();
+  const toast = useToast();
   const [scanning, setScanning] = useState(false);
   const image = useMemo(() => resolvedSharedPayloads.find((payload) => payload.contentType === "image" && payload.contentUri), [resolvedSharedPayloads]);
 
   useEffect(() => {
-    if (error) {
-      Alert.alert("Could not import photo", error.message);
-    }
-  }, [error]);
+    if (error) toast.error("Couldn't import the photo", error.message);
+  }, [error, toast]);
 
   const continueToExpense = async () => {
     if (!image?.contentUri) {
@@ -38,9 +40,9 @@ export default function ShareScreen() {
       {!isResolving && image?.contentUri ? (
         <View className="gap-6">
           <Image source={{ uri: image.contentUri }} className="h-80 w-full rounded-card bg-gray-100" resizeMode="contain" />
-          <View className="rounded-card bg-mint-soft p-5">
-            <Text className="font-bold text-ink">Only this image was received</Text>
-            <Text className="mt-2 text-sm leading-5 text-slate">LenaDena does not receive the WhatsApp chat, contact list, or conversation name. Nothing is uploaded until you save the reviewed expense.</Text>
+          <View className="flex-row items-start gap-3 px-1">
+            <Icon name="lock-closed" size={17} color={colors.slate} />
+            <Text className="flex-1 text-[13px] leading-5 text-slate">Only this image was received, never the chat, contacts or conversation name. Nothing uploads until you save the expense.</Text>
           </View>
           <Button label="Continue to division" icon="arrow-right" iconSide="right" size="lg" fullWidth loading={scanning} onPress={continueToExpense} />
           <Button label="Discard" icon="trash-2" variant="ghost" fullWidth onPress={() => { clearSharedPayloads(); router.replace("/"); }} />

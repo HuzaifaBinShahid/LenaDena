@@ -127,7 +127,9 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
+    // Above the app lock (45) so launch reads splash -> lock; below toasts.
     zIndex: 50,
+    elevation: 50,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",

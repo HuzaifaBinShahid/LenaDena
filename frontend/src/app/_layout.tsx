@@ -5,7 +5,7 @@ import { Manrope_600SemiBold } from "@expo-google-fonts/manrope/600SemiBold";
 import { Manrope_700Bold } from "@expo-google-fonts/manrope/700Bold";
 import { Manrope_800ExtraBold } from "@expo-google-fonts/manrope/800ExtraBold";
 import { useFonts } from "expo-font";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -15,11 +15,15 @@ import { AuthProvider } from "@/features/auth/AuthProvider";
 import { LedgerProvider } from "@/features/ledger/LedgerProvider";
 import { SplashTransition } from "@/components/brand/SplashTransition";
 import { PreferencesProvider } from "@/features/preferences/PreferencesProvider";
+import { AppLockProvider } from "@/features/security/AppLockProvider";
+import { ToastProvider } from "@/components/ui/Toast";
+import { colors } from "@/theme/tokens";
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 export default function RootLayout() {
   const [showTransition, setShowTransition] = useState(true);
+  const finishTransition = useCallback(() => setShowTransition(false), []);
   const [fontsLoaded, fontError] = useFonts({
     Manrope_400Regular,
     Manrope_500Medium,
@@ -37,15 +41,21 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <PreferencesProvider>
-          <AuthProvider>
-            <LedgerProvider>
-              <StatusBar style="auto" />
-              <Stack screenOptions={{ headerShown: false, animation: "fade_from_bottom", contentStyle: { backgroundColor: "#F6F7FA" } }} />
-              {showTransition ? <SplashTransition onFinish={() => setShowTransition(false)} /> : null}
-            </LedgerProvider>
-          </AuthProvider>
-        </PreferencesProvider>
+        <ToastProvider>
+          <PreferencesProvider>
+            <AuthProvider>
+              <LedgerProvider>
+                <AppLockProvider canPrompt={!showTransition}>
+                  <StatusBar style="auto" />
+                  <Stack screenOptions={{ headerShown: false, animation: "fade_from_bottom", contentStyle: { backgroundColor: "#F6F7FA" } }}>
+                    <Stack.Screen name="auth" options={{ animation: "fade", contentStyle: { backgroundColor: colors.night } }} />
+                  </Stack>
+                </AppLockProvider>
+              </LedgerProvider>
+            </AuthProvider>
+          </PreferencesProvider>
+          {showTransition ? <SplashTransition onFinish={finishTransition} /> : null}
+        </ToastProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

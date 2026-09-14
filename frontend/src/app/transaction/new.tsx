@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Platform, View } from "react-native";
+import { Platform, View } from "react-native";
 import { router } from "expo-router";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
@@ -8,11 +8,14 @@ import { Input } from "@/components/ui/Input";
 import { Screen } from "@/components/ui/Screen";
 import { Text } from "@/components/ui/Text";
 import { TopTabs } from "@/components/ui/TopTabs";
+import { useToast } from "@/components/ui/Toast";
 import { speechUnavailableMessage, startOnDeviceSpeech, type SpeechSession } from "@/features/capture/speech";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import type { TransactionDirection, TransactionKind } from "@/features/ledger/types";
 import { usePreferences } from "@/features/preferences/PreferencesProvider";
-import { dateFromIso, dateToIso, formatLongDate, toMinorUnits, todayDate } from "@/lib/format";
+import { useAppLock } from "@/features/security/AppLockProvider";
+import { errorMessage } from "@/lib/api";
+import { dateFromIso, dateToIso, formatLongDate, formatMoney, toMinorUnits, todayDate } from "@/lib/format";
 
 type PersonalKind = Extract<TransactionKind, "expense" | "loan">;
 type VoiceField = "title" | "note";
@@ -20,6 +23,8 @@ type VoiceField = "title" | "note";
 export default function NewPersonalTransactionScreen() {
   const { plan, createPersonalTransaction } = useLedger();
   const { speechLocale } = usePreferences();
+  const { runWithoutLocking } = useAppLock();
+  const toast = useToast();
   const [kind, setKind] = useState<PersonalKind>("expense");
   const [direction, setDirection] = useState<TransactionDirection>("outgoing");
   const [title, setTitle] = useState("");
@@ -46,24 +51,25 @@ export default function NewPersonalTransactionScreen() {
     }
     const unavailableMessage = speechUnavailableMessage();
     if (unavailableMessage) {
-      Alert.alert("Development build required", unavailableMessage);
+      toast.info("Voice needs a development build", unavailableMessage);
       return;
     }
     let reportedError = false;
     setListeningField(field);
-    const session = await startOnDeviceSpeech(
+    // Android pauses the app for the microphone permission dialog; that must not trigger the app lock.
+    const session = await runWithoutLocking(() => startOnDeviceSpeech(
       speechLocale,
       (value) => field === "title" ? setTitle(value) : setNote(value),
       () => setListeningField(null),
       (message) => {
         reportedError = true;
         setListeningField(null);
-        Alert.alert("Voice input", message);
+        toast.warning("Voice input stopped", message);
       },
-    );
+    ));
     if (!session) {
       setListeningField(null);
-      if (!reportedError) Alert.alert("On-device voice unavailable", "Use the keyboard, or run a development build with a downloaded speech model.");
+      if (!reportedError) toast.info("On-device voice unavailable", "Use the keyboard, or a development build with a downloaded speech model.");
     }
     speech.current = session;
   };
@@ -84,8 +90,12 @@ export default function NewPersonalTransactionScreen() {
         ...(note.trim() ? { note: note.trim() } : {}),
       });
       router.replace({ pathname: "/", params: { tab: "activity" } });
+      toast.success(
+        direction === "outgoing" ? `You owe ${counterparty.trim()}` : `${counterparty.trim()} owes you`,
+        `${formatMoney(amountMinor, currency)} for ${title.trim()} is now open in Activity.`,
+      );
     } catch (error) {
-      Alert.alert("Could not save entry", error instanceof Error ? error.message : "Please try again.");
+      toast.error("Couldn't save the entry", errorMessage(error));
     } finally {
       setSaving(false);
     }

@@ -1,4 +1,5 @@
 import type { ComponentProps } from "react";
+import { View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 const icons = {
@@ -19,8 +20,11 @@ const icons = {
   download: "download-outline",
   "file-text": "receipt-outline",
   filter: "funnel-outline",
+  "finger-print": "finger-print-outline",
   grid: "grid-outline",
   image: "image-outline",
+  info: "information-circle-outline",
+  "lock-closed": "lock-closed-outline",
   "log-out": "log-out-outline",
   mail: "mail-outline",
   maximize: "scan-outline",
@@ -30,6 +34,7 @@ const icons = {
   pulse: "pulse-outline",
   scan: "scan-outline",
   send: "paper-plane-outline",
+  "shield-check": "shield-checkmark-outline",
   sparkles: "sparkles",
   square: "stop",
   star: "star",
@@ -38,9 +43,13 @@ const icons = {
   "user-plus": "person-add-outline",
   users: "people-outline",
   wallet: "wallet-outline",
+  warning: "warning-outline",
 } as const satisfies Record<string, ComponentProps<typeof Ionicons>["name"]>;
 
-export type IconName = keyof typeof icons;
+/** Glyphs Ionicons does not provide, drawn to match its rounded outline weight. */
+type CustomIconName = "face-id";
+
+export type IconName = keyof typeof icons | CustomIconName;
 
 type IconProps = {
   name: IconName;
@@ -49,5 +58,53 @@ type IconProps = {
 };
 
 export function Icon({ name, size = 20, color }: IconProps) {
+  if (name === "face-id") return <FaceIdGlyph size={size} color={color} />;
   return <Ionicons name={icons[name]} size={size} color={color} />;
+}
+
+function FaceIdGlyph({ size, color }: { size: number; color: string }) {
+  const stroke = Math.max(1.5, size * 0.075);
+  const inset = size * 0.06;
+  const corner = size * 0.27;
+  const radius = size * 0.15;
+  const cornerBase = { position: "absolute" as const, width: corner, height: corner, borderColor: color };
+  return (
+    <View style={{ width: size, height: size }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <View style={[cornerBase, { left: inset, top: inset, borderLeftWidth: stroke, borderTopWidth: stroke, borderTopLeftRadius: radius }]} />
+      <View style={[cornerBase, { right: inset, top: inset, borderRightWidth: stroke, borderTopWidth: stroke, borderTopRightRadius: radius }]} />
+      <View style={[cornerBase, { left: inset, bottom: inset, borderLeftWidth: stroke, borderBottomWidth: stroke, borderBottomLeftRadius: radius }]} />
+      <View style={[cornerBase, { right: inset, bottom: inset, borderRightWidth: stroke, borderBottomWidth: stroke, borderBottomRightRadius: radius }]} />
+      <View style={{ position: "absolute", left: size * 0.34 - stroke / 2, top: size * 0.33, width: stroke, height: size * 0.13, borderRadius: stroke, backgroundColor: color }} />
+      <View style={{ position: "absolute", left: size * 0.66 - stroke / 2, top: size * 0.33, width: stroke, height: size * 0.13, borderRadius: stroke, backgroundColor: color }} />
+      <View
+        style={{
+          position: "absolute",
+          left: size * 0.44,
+          top: size * 0.35,
+          width: size * 0.09,
+          height: size * 0.19,
+          borderRightWidth: stroke,
+          borderBottomWidth: stroke,
+          borderBottomRightRadius: size * 0.05,
+          borderColor: color,
+        }}
+      />
+      <View
+        style={{
+          position: "absolute",
+          left: size * 0.31,
+          top: size * 0.56,
+          width: size * 0.38,
+          height: size * 0.15,
+          borderWidth: stroke,
+          borderTopColor: "transparent",
+          borderLeftColor: "transparent",
+          borderRightColor: "transparent",
+          borderBottomColor: color,
+          borderBottomLeftRadius: size * 0.19,
+          borderBottomRightRadius: size * 0.19,
+        }}
+      />
+    </View>
+  );
 }

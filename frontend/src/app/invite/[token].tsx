@@ -1,17 +1,20 @@
 import { useState } from "react";
-import { Alert, View } from "react-native";
+import { View } from "react-native";
 import { Text } from "@/components/ui/Text";
 import { router, useLocalSearchParams } from "expo-router";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { Button } from "@/components/ui/Button";
 import { Screen } from "@/components/ui/Screen";
+import { useToast } from "@/components/ui/Toast";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { useLedger } from "@/features/ledger/LedgerProvider";
+import { errorMessage } from "@/lib/api";
 
 export default function AcceptInviteScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
   const { configured, session } = useAuth();
   const { acceptInvite } = useLedger();
+  const toast = useToast();
   const [joining, setJoining] = useState(false);
 
   const join = async () => {
@@ -20,8 +23,9 @@ export default function AcceptInviteScreen() {
     try {
       const group = await acceptInvite(token);
       router.replace({ pathname: "/group/[id]", params: { id: group.id } });
+      toast.success(`You joined ${group.name}`, "Shared expenses and balances for this group now appear in your plan.");
     } catch (error) {
-      Alert.alert("Could not join group", error instanceof Error ? error.message : "The invite may be invalid or expired.");
+      toast.error("Couldn't join the group", errorMessage(error, "The invite may be invalid or expired."));
     } finally {
       setJoining(false);
     }

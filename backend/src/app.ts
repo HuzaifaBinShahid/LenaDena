@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createClient } from "@supabase/supabase-js";
 import Fastify, { LogController } from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
@@ -8,6 +9,8 @@ import sensible from "@fastify/sensible";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import type { LedgerRepository } from "./repositories/LedgerRepository.js";
+import { SupabaseInstantAuthGateway } from "./auth/InstantAuthGateway.js";
+import type { InstantAuthGateway } from "./auth/InstantAuthGateway.js";
 import type { AppConfig } from "./config.js";
 import { loadConfig } from "./config.js";
 import { DomainError } from "./domain/errors.js";
@@ -15,11 +18,19 @@ import { authPlugin } from "./plugins/auth.js";
 import { repositoryPlugin } from "./plugins/repository.js";
 import { healthRoutes } from "./routes/health.js";
 import { ledgerRoutes } from "./routes/ledger.js";
+import { authRoutes } from "./routes/auth.js";
 
 type BuildOptions = {
   config?: Partial<AppConfig>;
   repository?: LedgerRepository;
+  instantAuthGateway?: InstantAuthGateway;
 };
+
+function createInstantAuthGateway(config: AppConfig, override?: InstantAuthGateway) {
+  if (override) return override;
+  if (!config.allowInstantAuth || config.authMode !== "supabase" || !config.supabaseUrl || !config.supabaseSecretKey) return undefined;
+  return new SupabaseInstantAuthGateway(createClient(config.supabaseUrl, config.supabaseSecretKey, { auth: { autoRefreshToken: false, persistSession: false } }));
+}
 
 export async function buildApp(options: BuildOptions = {}) {
   const config = loadConfig(options.config);
@@ -62,7 +73,12 @@ export async function buildApp(options: BuildOptions = {}) {
   await app.register(repositoryPlugin, options.repository ? { config, repository: options.repository } : { config });
   await app.register(authPlugin, config);
   await app.register(healthRoutes);
+  const instantAuthGateway = createInstantAuthGateway(config, options.instantAuthGateway);
+  await app.register(authRoutes, instantAuthGateway ? { prefix: "/v1", config, gateway: instantAuthGateway } : { prefix: "/v1", config });
   await app.register(ledgerRoutes, { prefix: "/v1" });
+  if (config.allowInstantAuth && config.authMode === "supabase") {
+    app.log.warn("Instant email sign-in is ON: anyone who can reach this API and knows an email address can open that account. Development only.");
+  }
 
   return { app, config };
 }

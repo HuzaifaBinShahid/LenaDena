@@ -14,6 +14,23 @@ The direction borrows proven information patterns without copying another produc
 - [Apple layout guidance](https://developer.apple.com/design/human-interface-guidelines/layout) emphasizes alignment, safe areas, visual hierarchy, and adequate space around controls.
 - [Apple tab-bar guidance](https://developer.apple.com/design/human-interface-guidelines/tab-bars) treats top-level navigation as a stable control layer and recommends fewer, consistently available tabs.
 - The supplied [Weather App UI Design](https://www.figma.com/design/t4RGh4IOycjzrwngdZ7BEr/Weather-App-UI-Design--Community-?node-id=2-2214) establishes the plum, violet, lavender, and translucent-control visual reference.
+- The supplied [Login / SignUp Web & Mobile App Design](https://www.figma.com/design/Iw7efQu0M9cFdaHizEifaM/Login---SignUp-Web---Mobile-App-Design--Community-?node-id=1-4) establishes the sign-up, sign-in, and app-lock composition.
+
+## Authentication and lock screens
+
+These screens follow the Login / SignUp reference, translated into LenaDena's palette:
+
+- A deep night-to-plum sky fills the screen. `SpaceBackdrop` draws the scene in SVG: a mint-teal planet (the monogram's exchange dot) bleeding off the top right with marbled cloud bands and a tilted orbit ring, a lavender moon cropped at the left edge, violet nebula glow, stars, sparkles, and one shooting streak. The mint dot rides the near ring.
+- The header pairs the light `BrandMark` with an uppercase, letter-spaced mode link: `Have an account? Sign in` / `New here? Sign up`. Narrow phones drop the wordmark.
+- An oversized uppercase Manrope ExtraBold heading (`Sign up`, `Sign in`, `Welcome back,` with the name in lavender) sits below the scene, followed by one short label, dark inputs, and the violet-to-blue `gradient` button.
+- The reference's "Or continue with" row holds the biometric sign-in shortcut when it is available; LenaDena shows no social buttons it does not support. The small print states that LenaDena never holds or moves money, and a quiet copyright closes the page.
+- At 900 points and wider the layout splits like the reference web frame: the scene fills the left panel with `Shared money, / minus the awkward.` in white and lavender, and the form centers on the right.
+- The scene makes one finite entrance (planet, moon, and stars fade and settle) and stays still under reduced motion. Stars are kept out of the form area on phones, and a top scrim keeps the header legible over the planet.
+
+## Feedback
+
+- Toasts are dark plum cards with a tinted tone icon (success mint, error coral, warning amber, info lavender), a bold title, an optional message, and an optional action. They stack newest first (three at most) at the top right, spring in from the right, reflow smoothly, and leave by timeout, tap, or a swipe to the right. Errors and longer messages stay longer.
+- Pastel filled panels for status or explanation are not used. Explanatory copy is a quiet inline line; state belongs in a toast, a badge, or the screen itself.
 
 ## Foundations
 
@@ -42,12 +59,15 @@ The direction borrows proven information patterns without copying another produc
 
 ## Component rules
 
-- `Button` owns every button size, state, icon placement, loading state, haptic, visual variant, and full-width decision-row presentation.
-- `Input` owns focus, invalid, icon, placeholder, and text-entry styling and renders raw native input nodes to keep focus independent of styling interop.
+- `Button` owns every button size, state, icon placement, loading state, haptic, visual variant, and full-width decision-row presentation. The `gradient` variant is reserved for the primary action on dark space screens.
+- `Input` owns focus, invalid, icon, placeholder, and text-entry styling and renders raw native input nodes to keep focus independent of styling interop. Its `dark` appearance uses a near-opaque night fill, lavender focus, and a dark keyboard.
 - `Input` also owns the system date-picker variant. Event dates display as day, full month name, and year while storage remains ISO calendar text.
-- `Field` owns labels, required state, errors, and hints.
+- `Field` owns labels, required state, errors, and hints, with a matching `dark` appearance. A field may omit its visible label only when a group heading names it and the input has an accessibility label.
+- `Switch` owns on/off settings: a 52 by 32 track with a spring-animated thumb, haptic selection, a busy spinner, and switch accessibility state.
+- `Toast` (`ToastProvider` and `useToast()`) owns transient feedback; see Feedback.
+- `Badge` is a neutral outlined pill with a semantic dot and label.
 - `TopTabs` has a floating glass bottom-navigation appearance and a compact segmented-control appearance. Badges are absolutely positioned so they never push labels together.
-- `Icon` maps semantic names to one rounded Ionicons family. Screens never import an icon pack directly.
+- `Icon` maps semantic names to one rounded Ionicons family. Screens never import an icon pack directly. The `face-id` glyph, which Ionicons lacks, is drawn inside `Icon` to match the outline weight.
 - `GroupAvatar` gives imageless crews a consistent people glyph tinted with the chosen group accent.
 - `Avatar` renders a private signed profile image when present and a consistent two-initial fallback otherwise. Person photos are never recreated ad hoc in feature screens.
 - `Spinner` is the only loading indicator.

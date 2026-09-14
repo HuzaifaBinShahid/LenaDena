@@ -5,9 +5,11 @@ import { EmptyState } from "@/components/layout/EmptyState";
 import { Icon } from "@/components/ui/Icon";
 import { Text } from "@/components/ui/Text";
 import { TopTabs } from "@/components/ui/TopTabs";
+import { useToast } from "@/components/ui/Toast";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import { getOpenBalanceTotals } from "@/features/ledger/selectors";
 import type { TransactionDirection, TransactionItem, TransactionKind, TransactionStatus } from "@/features/ledger/types";
+import { errorMessage } from "@/lib/api";
 import { dateFromIso, dateToIso, formatLongDate, formatMoney, todayDate } from "@/lib/format";
 import { colors } from "@/theme/tokens";
 
@@ -39,12 +41,13 @@ function TransactionRow({ item, settling, onSettle }: { item: TransactionItem; s
         <Text numberOfLines={1} className="text-[15px] font-bold text-ink">{item.title}</Text>
         <Text numberOfLines={1} className="mt-1 text-xs text-slate">{person} · {source}</Text>
         <View className="mt-2 flex-row flex-wrap items-center gap-1.5">
-          <View className={`rounded-full px-2 py-1 ${item.kind === "loan" ? "bg-gold-soft" : item.kind === "payment" ? "bg-mint-soft" : "bg-violet-soft"}`}>
-            <Text className={`text-[9px] font-bold uppercase tracking-[0.7px] ${item.kind === "loan" ? "text-gold" : item.kind === "payment" ? "text-mint" : "text-violet"}`}>{item.kind}</Text>
+          <View className="rounded-full border border-line px-2 py-1">
+            <Text className="text-[9px] font-bold uppercase tracking-[0.7px] text-slate">{item.kind}</Text>
           </View>
           {item.status ? (
-            <View className={`rounded-full px-2 py-1 ${item.status === "settled" ? "bg-mint-soft" : "bg-gold-soft"}`}>
-              <Text className={`text-[9px] font-bold uppercase tracking-[0.7px] ${item.status === "settled" ? "text-mint" : "text-gold"}`}>{item.status}</Text>
+            <View className="flex-row items-center gap-1 rounded-full border border-line px-2 py-1">
+              <View className={`h-1.5 w-1.5 rounded-full ${item.status === "settled" ? "bg-mint" : "bg-gold"}`} />
+              <Text className="text-[9px] font-bold uppercase tracking-[0.7px] text-slate">{item.status}</Text>
             </View>
           ) : null}
           {item.source === "personal" && item.status === "open" ? <Button label="Mark settled" icon="check" size="sm" variant="secondary" loading={settling} onPress={onSettle} /> : null}
@@ -62,6 +65,7 @@ function TransactionRow({ item, settling, onSettle }: { item: TransactionItem; s
 
 export function ActivityView() {
   const { plan, settlePersonalTransaction } = useLedger();
+  const toast = useToast();
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [period, setPeriod] = useState<PeriodFilter>("all");
   const [scope, setScope] = useState("all");
@@ -116,7 +120,8 @@ export function ActivityView() {
           onPress: () => {
             setSettlingId(item.id);
             void settlePersonalTransaction(item.id)
-              .catch((error) => Alert.alert("Could not settle entry", error instanceof Error ? error.message : "Please try again."))
+              .then(() => toast.success("Marked as settled", `${item.title} left your open balance and stays in Activity.`))
+              .catch((error: unknown) => toast.error("Couldn't settle the entry", errorMessage(error)))
               .finally(() => setSettlingId(null));
           },
         },
@@ -155,7 +160,7 @@ export function ActivityView() {
       ))}
 
       {filtersVisible ? (
-        <View className="gap-5 rounded-[22px] border border-violet/15 bg-violet-soft/60 p-4">
+        <View className="gap-5 rounded-[22px] border border-line bg-raised p-4 shadow-sm shadow-black/5">
           <View className="flex-row items-center justify-between">
             <Text className="text-[15px] font-bold text-ink">Refine activity</Text>
             {activeFilterCount ? <Button label="Clear" variant="ghost" size="sm" onPress={clearFilters} /> : null}

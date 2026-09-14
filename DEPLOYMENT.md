@@ -2,13 +2,17 @@
 
 ## Target
 
-- Supabase Free: passwordless authentication, PostgreSQL, and private image storage.
+- Supabase Free: authentication, PostgreSQL, and private image storage.
 - Render Free: Fastify API from the `main` branch using `render.yaml`.
 - Expo: local development builds receive the public API URL and Supabase publishable values from `frontend/.env.local`.
 
 ## Supabase
 
-The LenaDena Free project is provisioned in Supabase's Singapore region. Every SQL file under `supabase/migrations/` has been applied in filename order. The Auth site URL is `lenadena://`, with `lenadena://**` in the redirect allowlist.
+The LenaDena Free project is provisioned in Supabase's Singapore region. The migrations through `202609130004` have been applied in filename order. The Auth site URL is `lenadena://`, with `lenadena://**` in the redirect allowlist.
+
+Apply `202609140005_pgcrypto_search_path.sql` next (SQL editor or Supabase CLI). Supabase keeps pgcrypto in the `extensions` schema, and until this runs every financial write function fails with `function digest(text, unknown) does not exist`.
+
+Instant email sign-in is never enabled on Render: `NODE_ENV=production` disables it regardless of `ALLOW_INSTANT_AUTH`, and the app falls back to Supabase email links. Add the email-link redirect URLs you use (for example your Expo development URL) to the Supabase Auth allowlist.
 
 The backend needs:
 

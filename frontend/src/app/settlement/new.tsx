@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Image, View } from "react-native";
+import { Image, View } from "react-native";
 import { Text } from "@/components/ui/Text";
 import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
@@ -9,12 +9,17 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Screen } from "@/components/ui/Screen";
 import { TopTabs } from "@/components/ui/TopTabs";
+import { useToast } from "@/components/ui/Toast";
 import { useLedger } from "@/features/ledger/LedgerProvider";
+import { useAppLock } from "@/features/security/AppLockProvider";
+import { errorMessage } from "@/lib/api";
 import { toMinorUnits } from "@/lib/format";
 
 export default function ClaimPaymentScreen() {
   const { groupId } = useLocalSearchParams<{ groupId?: string }>();
   const { plan, claimSettlement } = useLedger();
+  const { runWithoutLocking } = useAppLock();
+  const toast = useToast();
   const group = plan.groups.find((item) => item.id === groupId) ?? plan.groups[0];
   const recipients = group?.members.filter((member) => member.id !== plan.user.id) ?? [];
   const [recipientId, setRecipientId] = useState(recipients[0]?.id ?? "");
@@ -23,29 +28,27 @@ export default function ClaimPaymentScreen() {
   const [proofUri, setProofUri] = useState<string>();
   const [saving, setSaving] = useState(false);
 
-  const chooseProof = async () => {
+  const chooseProof = () => runWithoutLocking(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.75, allowsEditing: true });
     if (!result.canceled && result.assets[0]?.uri) {
       setProofUri(result.assets[0].uri);
     }
-  };
+  });
 
   const submit = async () => {
     const amountMinor = toMinorUnits(amount);
     if (!group || !recipientId || amountMinor <= 0) {
-      Alert.alert("Check payment", "Choose a recipient and enter the amount you sent.");
+      toast.warning("Check the payment", "Choose who you paid and enter the amount you sent.");
       return;
     }
+    const recipientName = recipients.find((member) => member.id === recipientId)?.name ?? "The recipient";
     setSaving(true);
     try {
       await claimSettlement({ groupId: group.id, recipientMemberId: recipientId, amountMinor, note: note.trim() || undefined, proofUri });
-      Alert.alert(
-        "Payment sent for review",
-        "Track it in Payments. If the recipient has never opened LenaDena you can settle it yourself now; otherwise fallback unlocks after 72 hours.",
-        [{ text: "View payment", onPress: () => router.replace({ pathname: "/", params: { tab: "reviews" } }) }],
-      );
+      router.replace({ pathname: "/", params: { tab: "reviews" } });
+      toast.success("Payment sent for review", `${recipientName} can confirm it. Track it here under Payments.`);
     } catch (error) {
-      Alert.alert("Could not submit payment", error instanceof Error ? error.message : "Please try again.");
+      toast.error("Couldn't submit the payment", errorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -55,10 +58,6 @@ export default function ClaimPaymentScreen() {
     <Screen>
       <PageHeader title="I paid" subtitle="Money moves outside LenaDena" />
       <View className="gap-6">
-        <View className="rounded-card bg-gold-soft p-5">
-          <Text className="font-bold text-ink">This is a payment claim</Text>
-          <Text className="mt-2 text-sm leading-5 text-slate">The recipient can confirm it. If they are not active or do not respond, LenaDena gives you a clearly labeled fallback settlement.</Text>
-        </View>
         <Field label="Paid to" required>
           <TopTabs tabs={recipients.map((member) => ({ key: member.id, label: member.name }))} value={recipientId} onChange={setRecipientId} />
         </Field>
@@ -75,7 +74,10 @@ export default function ClaimPaymentScreen() {
             {proofUri ? <Button label="Remove" icon="trash-2" variant="ghost" onPress={() => setProofUri(undefined)} /> : null}
           </View>
         </Field>
-        <Button label="Submit for review" icon="send" fullWidth size="lg" loading={saving} onPress={submit} />
+        <View className="gap-3">
+          <Button label="Submit for review" icon="send" fullWidth size="lg" loading={saving} onPress={submit} />
+          <Text className="px-1 text-center text-xs leading-4 text-slate">The recipient confirms this claim. If they have never opened LenaDena, or don't respond within 72 hours, you can settle it yourself with a clear label.</Text>
+        </View>
       </View>
     </Screen>
   );

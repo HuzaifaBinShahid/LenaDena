@@ -7,6 +7,22 @@ export const ErrorSchema = Type.Object({
   requestId: Type.String(),
 });
 
+export const AuthOptionsSchema = Type.Object({
+  instantAuth: Type.Boolean(),
+});
+
+export const InstantAuthBodySchema = Type.Object({
+  email: Type.String({ format: "email", maxLength: 254 }),
+  mode: Type.Union([Type.Literal("signup"), Type.Literal("signin")]),
+  name: Type.Optional(Type.String({ maxLength: 80 })),
+}, { additionalProperties: false });
+
+export const InstantAuthResponseSchema = Type.Object({
+  tokenHash: Type.String(),
+  created: Type.Boolean(),
+  name: Type.String(),
+});
+
 export const MemberSchema = Type.Object({
   id: Type.String(),
   name: Type.String(),

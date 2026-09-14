@@ -16,7 +16,9 @@
     "build": "pnpm build:backend && pnpm build:web",
     "build:backend": "pnpm --filter @lenadena/backend build",
     "build:web": "pnpm --filter @lenadena/frontend exec expo export --platform web --output-dir dist-web",
-    "doctor": "pnpm --filter @lenadena/frontend run doctor",
+    "doctor": "node scripts/check-nativewind-runtime.mjs && pnpm --filter @lenadena/frontend run doctor",
+    "check:nativewind": "node scripts/check-nativewind-runtime.mjs",
+    "postinstall": "node scripts/check-nativewind-runtime.mjs --fix",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test"
   }

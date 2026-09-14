@@ -11,7 +11,10 @@ The canonical technical identifiers are `lenadena` for the Expo slug and deep-li
 
 ## What is implemented
 
-- Passwordless email accounts with persistent profiles, editable names, private profile-photo uploads, and a no-credentials demo path.
+- Email accounts with persistent profiles, editable names, private profile-photo uploads, and a no-credentials demo path. In development, name and email create the account instantly and email alone signs in (no confirmation email); otherwise sign-in uses Supabase email links.
+- Optional biometric app lock (Face ID, Touch ID, fingerprint, or face unlock with passcode fallback), a lock delay setting, and biometric sign-in for the account that enabled it.
+- App-wide toasts that slide in from the top right for results, errors, and hints.
+- A space-themed sign-up, sign-in, and lock experience based on the supplied Login / SignUp Figma reference, with a split layout on wide screens.
 - Personal My plan dashboard.
 - Individual expense and loan balances that do not require a group or invite.
 - User-created groups with invites, balances, and activity.
@@ -79,11 +82,14 @@ Start Expo in another terminal:
 pnpm dev:frontend
 ```
 
-After a NativeWind, Metro, font, or navigation-shell change, restart Expo once with a clean cache:
+After a NativeWind, Metro, font, or navigation-shell change, and after adding, removing, or upgrading any frontend dependency, restart Expo once with a clean cache:
 
 ```bash
+pnpm check:nativewind
 pnpm --filter @lenadena/frontend exec expo start --clear
 ```
+
+A dependency change can leave a stale copy of NativeWind's runtime behind; a Metro cache that still points at it drops every `className` style on iOS and Android while web keeps working. `pnpm check:nativewind` finds such copies (installs remove them automatically), and `--clear` makes Metro resolve the current one. Always confirm UI changes in the simulator, not only in the browser.
 
 Expo Router owns the root navigation container through `src/app/_layout.tsx`; do not add a second `NavigationContainer` around the app.
 Shared tabs and inputs use raw React Native interactive nodes so NativeWind styling cannot interfere with press or focus state.
@@ -103,15 +109,18 @@ Leave Supabase values empty and keep `AUTH_MODE=demo` in `backend/.env`. The app
 ## Supabase mode
 
 1. Create a Supabase project.
-2. Run the files in `supabase/migrations/` in filename order using the SQL editor or Supabase CLI.
+2. Run the files in `supabase/migrations/` in filename order using the SQL editor or Supabase CLI. `202609140005_pgcrypto_search_path.sql` is required on Supabase; without it every financial write fails with `function digest(text, unknown) does not exist`.
 3. Set the frontend URL and publishable key.
 4. Set the backend URL, publishable key, and secret key.
 5. Change backend `AUTH_MODE` to `supabase` and restart both apps.
-6. Add SMTP settings and start the notification worker.
+6. For development without confirmation emails, set `ALLOW_INSTANT_AUTH=true` in `backend/.env`. It is ignored when `NODE_ENV=production`.
+7. Add SMTP settings and start the notification worker.
 
-The frontend uses Supabase only for authentication. Financial mutations go through Fastify with the bearer token. Never place the Supabase secret key in the frontend.
+The frontend uses Supabase for authentication. Financial mutations go through Fastify with the bearer token. Never place the Supabase secret key in the frontend.
 
-Supabase Auth creates one profile per verified email account. Financial rows continue to reference the immutable account ID when a user changes their display name or photo. `last_seen_at` distinguishes a recipient who has never opened LenaDena from an active recipient who still has a 72-hour review window.
+With `ALLOW_INSTANT_AUTH=true`, anyone who can reach the API and knows an email address can open that account. Use it only for local development and replace it with passwords, one-time codes, or passkeys before real users.
+
+Supabase Auth creates one profile per account. Financial rows continue to reference the immutable account ID when a user changes their display name or photo. `last_seen_at` distinguishes a recipient who has never opened LenaDena from an active recipient who still has a 72-hour review window.
 
 `SMTP_HOST` is optional in development, where the worker renders messages to JSON instead of sending them. It is required when `NODE_ENV=production`. Any normal SMTP provider can be used; no AI service or AI API key is involved.
 
@@ -123,6 +132,7 @@ Supabase Auth creates one profile per verified email account. Financial rows con
 - OCR runs on the device and only suggests receipt fields; the user reviews event name, event date, and amount before saving.
 - A WhatsApp image shared to LenaDena opens the import route and continues into the same expense form.
 - Voice, OCR, and inbound sharing need a development build. The manual workflow remains available when a native module or language model is unavailable.
+- Biometric unlock is enabled under Account → Security. Expo Go on iOS cannot use Face ID, so iOS asks for the device passcode there; Face ID, Touch ID, and Android biometrics work in a development build. In the iOS Simulator, enroll with Features → Face ID → Enrolled.
 
 ## Native development build
 

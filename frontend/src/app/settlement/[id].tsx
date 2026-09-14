@@ -10,13 +10,16 @@ import { Icon } from "@/components/ui/Icon";
 import { Input } from "@/components/ui/Input";
 import { Screen } from "@/components/ui/Screen";
 import { Text } from "@/components/ui/Text";
+import { useToast } from "@/components/ui/Toast";
 import { useLedger } from "@/features/ledger/LedgerProvider";
+import { errorMessage } from "@/lib/api";
 import { formatDateTime, formatMoney, formatShortDate } from "@/lib/format";
 import { colors } from "@/theme/tokens";
 
 export default function SettlementReviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { plan, reviewSettlement, selfConfirmSettlement } = useLedger();
+  const toast = useToast();
   const incoming = plan.reviews.find((item) => item.id === id);
   const claim = plan.claims.find((item) => item.id === id);
   const payment = incoming ?? claim;
@@ -38,8 +41,13 @@ export default function SettlementReviewScreen() {
     try {
       await reviewSettlement(payment.id, decision === "confirm" ? "confirmed" : "needs_attention", note.trim() || undefined);
       router.replace({ pathname: "/", params: { tab: "reviews" } });
+      if (decision === "confirm") {
+        toast.success("Payment confirmed", `${formatMoney(payment.amountMinor, payment.currency)} from ${payment.debtor.name} is now settled.`);
+      } else {
+        toast.info("Marked as needs attention", `${payment.debtor.name} will see that this payment needs a follow-up.`);
+      }
     } catch (error) {
-      Alert.alert("Could not update payment", error instanceof Error ? error.message : "Please try again.");
+      toast.error("Couldn't update the payment", errorMessage(error));
     } finally {
       setSaving(null);
     }
@@ -58,8 +66,9 @@ export default function SettlementReviewScreen() {
             try {
               await selfConfirmSettlement(payment.id);
               router.replace({ pathname: "/", params: { tab: "reviews" } });
+              toast.success("Payment settled", `Recorded as settled by you. ${payment.recipient.name} has been notified.`);
             } catch (error) {
-              Alert.alert("Could not settle payment", error instanceof Error ? error.message : "Please try again.");
+              toast.error("Couldn't settle the payment", errorMessage(error));
             } finally {
               setSaving(null);
             }
@@ -116,9 +125,9 @@ export default function SettlementReviewScreen() {
         )}
 
         {sentByUser ? (
-          <View className={`rounded-card border p-5 ${payment.canSelfSettle ? "border-mint/20 bg-mint-soft" : "border-line bg-raised"}`}>
+          <View className="rounded-card border border-line bg-raised p-5">
             <View className="flex-row items-start gap-3">
-              <View className={`h-10 w-10 items-center justify-center rounded-2xl ${payment.canSelfSettle ? "bg-white" : "bg-violet-soft"}`}>
+              <View className={`h-10 w-10 items-center justify-center rounded-2xl ${payment.canSelfSettle ? "bg-mint-soft" : "bg-violet-soft"}`}>
                 <Icon name={payment.canSelfSettle ? "check-circle" : "clock"} size={21} color={payment.canSelfSettle ? colors.mint : colors.violet} />
               </View>
               <View className="min-w-0 flex-1">

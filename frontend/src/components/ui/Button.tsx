@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
-import { View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { Text } from "@/components/ui/Text";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Spinner } from "@/components/ui/Spinner";
 import { Touch } from "@/components/ui/Touch";
 import { colors } from "@/theme/tokens";
 
-type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "bright" | "glass";
+/** `gradient` is the violet-to-blue call to action used on the dark space screens. */
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "bright" | "glass" | "gradient";
 type ButtonSize = "sm" | "md" | "lg" | "choice";
 
 type ButtonProps = {
@@ -31,6 +33,7 @@ const variantClasses: Record<ButtonVariant, string> = {
   danger: "bg-coral-soft border-coral/30",
   bright: "bg-white border-white",
   glass: "bg-white/10 border-white/15",
+  gradient: "overflow-hidden border-white/10",
 };
 
 const labelClasses: Record<ButtonVariant, string> = {
@@ -40,7 +43,10 @@ const labelClasses: Record<ButtonVariant, string> = {
   danger: "text-coral",
   bright: "text-violet-strong",
   glass: "text-white",
+  gradient: "text-white",
 };
+
+const gradientColors = [colors.violetStrong, colors.violet, "#4F86D9"] as const;
 
 const sizeClasses: Record<ButtonSize, string> = {
   sm: "min-h-10 px-3.5 rounded-[14px]",
@@ -64,10 +70,9 @@ export function Button({
   children,
 }: ButtonProps) {
   const blocked = disabled || loading;
-  const iconColor = variant === "primary"
+  const onDark = variant === "primary" || variant === "glass" || variant === "gradient";
+  const iconColor = onDark
     ? colors.white
-    : variant === "glass"
-      ? colors.white
     : variant === "danger"
       ? colors.coral
       : variant === "ghost"
@@ -86,8 +91,11 @@ export function Button({
       accessibilityState={{ disabled: blocked, busy: loading }}
       className={`${fullWidth ? "w-full" : "self-start"} ${variantClasses[variant]} ${sizeClasses[size]} flex-row items-center ${description ? "justify-start gap-3" : "justify-center gap-2"} border ${blocked ? "opacity-45" : "opacity-100"}`}
     >
+      {variant === "gradient" ? (
+        <LinearGradient pointerEvents="none" colors={gradientColors} locations={[0, 0.45, 1]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFill} />
+      ) : null}
       {loading ? (
-        <Spinner tone={variant === "primary" || variant === "glass" ? "light" : "violet"} />
+        <Spinner tone={onDark ? "light" : "violet"} />
       ) : (
         description ? (
           <>

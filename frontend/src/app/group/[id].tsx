@@ -1,4 +1,4 @@
-import { Alert, Share, View } from "react-native";
+import { Share, View } from "react-native";
 import { Text } from "@/components/ui/Text";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
@@ -8,13 +8,18 @@ import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { Icon } from "@/components/ui/Icon";
 import { Screen } from "@/components/ui/Screen";
+import { useToast } from "@/components/ui/Toast";
 import { useLedger } from "@/features/ledger/LedgerProvider";
+import { useAppLock } from "@/features/security/AppLockProvider";
+import { errorMessage } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { colors } from "@/theme/tokens";
 
 export default function GroupDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { plan, createInvite } = useLedger();
+  const { runWithoutLocking } = useAppLock();
+  const toast = useToast();
   const group = plan.groups.find((item) => item.id === id);
 
   if (!group) {
@@ -29,13 +34,12 @@ export default function GroupDetailScreen() {
   const shareInvite = async () => {
     try {
       const invite = await createInvite(group.id);
-      await Share.share({
+      await runWithoutLocking(() => Share.share({
         title: `Join ${group.name}`,
         message: `Join ${group.name} on LenaDena: ${invite.url}`,
-      });
+      }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Please try again.";
-      Alert.alert("Invite unavailable", message);
+      toast.error("Couldn't create an invite", errorMessage(error));
     }
   };
 
@@ -70,11 +74,6 @@ export default function GroupDetailScreen() {
               </View>
             ))}
           </View>
-        </View>
-
-        <View className="rounded-card border border-violet/10 bg-violet-soft p-5">
-          <Text className="font-bold text-ink">Nothing hidden in the math</Text>
-          <Text className="mt-2 text-sm leading-5 text-slate">Each balance opens into its expenses, edits, payment claims, confirmations, and reversals. Proof remains visible only to the two people involved.</Text>
         </View>
       </View>
     </Screen>
