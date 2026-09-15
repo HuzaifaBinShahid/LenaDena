@@ -1,0 +1,14 @@
+{
+  "cli": {
+    "requireCommit": false
+  },
+  "build": {
+    "share-apk": {
+      "distribution": "internal",
+      "environment": "production",
+      "android": {
+        "buildType": "apk"
+      }
+    }
+  }
+}

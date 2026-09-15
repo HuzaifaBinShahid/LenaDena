@@ -1,0 +1,14 @@
+# Keep build artifacts and local tooling out of EAS uploads.
+node_modules/
+.expo/
+ios/
+android/
+dist/
+dist-web/
+coverage/
+*.log
+
+# EAS needs these public, client-side values while bundling the APK. This file
+# contains only EXPO_PUBLIC_* variables; backend secrets remain outside the
+# frontend directory and are never uploaded to EAS.
+!.env.local
