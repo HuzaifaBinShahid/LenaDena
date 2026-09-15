@@ -1,113 +1,195 @@
-import { useMemo, useState } from "react";
-import { Alert, View } from "react-native";
-import { Button } from "@/components/ui/Button";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { LayoutChangeEvent } from "react-native";
+import { Alert, AppState, ScrollView, StyleSheet, Text as NativeText, useWindowDimensions, View } from "react-native";
+import { router } from "expo-router";
+import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
+import Animated, { FadeIn, useReducedMotion } from "react-native-reanimated";
+import { AreaChart, CHART, type AreaChartProps } from "@/components/charts/AreaChart";
 import { EmptyState } from "@/components/layout/EmptyState";
+import { SectionHeader } from "@/components/layout/SectionHeader";
+import { Button } from "@/components/ui/Button";
+import { CategoryCard } from "@/components/ui/CategoryCard";
+import { EntryTile } from "@/components/ui/EntryTile";
+import { GroupAvatar } from "@/components/ui/GroupAvatar";
 import { Icon } from "@/components/ui/Icon";
-import { Text } from "@/components/ui/Text";
-import { TopTabs } from "@/components/ui/TopTabs";
+import { LedgerList, LedgerRow } from "@/components/ui/LedgerRow";
+import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
+import { TopTabs } from "@/components/ui/TopTabs";
+import { Touch } from "@/components/ui/Touch";
+import { ActivityFilterSheet, type BalanceChoice } from "@/features/home/ActivityFilterSheet";
+import type { HomeTabProps } from "@/features/home/tab-props";
+import {
+  activeFilterCount,
+  bucketSeries,
+  buildBuckets,
+  buildCategories,
+  chartFilterCount,
+  chartItems,
+  fallbackCategories,
+  filterList,
+  getSideBalance,
+  groupByDay,
+  listCurrencies,
+  olderEntryCount,
+  otherCurrencyWithData,
+  periodPhrase,
+  resolveCurrency,
+  type ActivityPeriod,
+  type ActivityQuery,
+  type Category,
+} from "@/features/ledger/activity";
 import { useLedger } from "@/features/ledger/LedgerProvider";
-import { getOpenBalanceTotals } from "@/features/ledger/selectors";
+import { getPlanState } from "@/features/ledger/planState";
+import { describeTransaction } from "@/features/ledger/rowCopy";
 import type { TransactionDirection, TransactionItem, TransactionKind, TransactionStatus } from "@/features/ledger/types";
+import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { errorMessage } from "@/lib/api";
-import { dateFromIso, dateToIso, formatLongDate, formatMoney, todayDate } from "@/lib/format";
+import { chartX } from "@/lib/curve";
+import { formatMoney, formatSignedMoney, relativeDayLabel, todayDate } from "@/lib/format";
+import { layout } from "@/theme/layout";
 import { colors } from "@/theme/tokens";
 
-type PeriodFilter = "all" | "7d" | "30d";
-type KindFilter = "all" | TransactionKind;
-type DirectionFilter = "all" | TransactionDirection;
-type StatusFilter = "all" | TransactionStatus;
+const AXIS = { height: 32, labelWidth: 44, selectedWidth: 96, clearance: 70 } as const;
+const CATEGORY_SNAP = 148;
 
-function dayLabel(value: string) {
-  if (value === todayDate()) return "Today";
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (value === dateToIso(yesterday)) return "Yesterday";
-  return formatLongDate(value);
+const PERIOD_TABS: { key: ActivityPeriod; label: string }[] = [
+  { key: "week", label: "Week" },
+  { key: "month", label: "Month" },
+  { key: "year", label: "Year" },
+  { key: "all", label: "All" },
+];
+
+const SIDE_TABS: { key: TransactionDirection; label: string; icon: "arrow-down" | "arrow-up"; accent: string }[] = [
+  { key: "incoming", label: "Owed to me", icon: "arrow-down", accent: colors.mintBright },
+  { key: "outgoing", label: "I owe", icon: "arrow-up", accent: colors.coralBright },
+];
+
+function plural(count: number, one: string, many: string) {
+  return `${count} ${count === 1 ? one : many}`;
 }
 
-function TransactionRow({ item, settling, onSettle }: { item: TransactionItem; settling: boolean; onSettle: () => void }) {
-  const incoming = item.direction === "incoming";
-  const source = item.source === "personal" ? "Personal" : item.groupName ?? "Group";
-  const person = item.source === "group" && item.kind === "expense"
-    ? incoming ? "Owed back to you" : item.counterparty ? `You owe ${item.counterparty}` : "Your share"
-    : item.counterparty ? incoming ? `${item.counterparty} owes you` : `You owe ${item.counterparty}` : incoming ? "Owed to you" : "You owe";
-  return (
-    <View className="flex-row items-center gap-3.5 border-b border-line/70 py-4 last:border-b-0">
-      <View className={`h-12 w-12 items-center justify-center rounded-[17px] ${incoming ? "bg-mint-soft" : "bg-coral-soft"}`}>
-        <Icon name={incoming ? "arrow-down" : "arrow-up"} size={21} color={incoming ? colors.mint : colors.coral} />
-      </View>
-      <View className="min-w-0 flex-1">
-        <Text numberOfLines={1} className="text-[15px] font-bold text-ink">{item.title}</Text>
-        <Text numberOfLines={1} className="mt-1 text-xs text-slate">{person} · {source}</Text>
-        <View className="mt-2 flex-row flex-wrap items-center gap-1.5">
-          <View className="rounded-full border border-line px-2 py-1">
-            <Text className="text-[9px] font-bold uppercase tracking-[0.7px] text-slate">{item.kind}</Text>
-          </View>
-          {item.status ? (
-            <View className="flex-row items-center gap-1 rounded-full border border-line px-2 py-1">
-              <View className={`h-1.5 w-1.5 rounded-full ${item.status === "settled" ? "bg-mint" : "bg-gold"}`} />
-              <Text className="text-[9px] font-bold uppercase tracking-[0.7px] text-slate">{item.status}</Text>
-            </View>
-          ) : null}
-          {item.source === "personal" && item.status === "open" ? <Button label="Mark settled" icon="check" size="sm" variant="secondary" loading={settling} onPress={onSettle} /> : null}
-        </View>
-      </View>
-      <View className="items-end pl-2">
-        <Text className={`text-[15px] font-bold ${incoming ? "text-mint" : "text-coral"}`}>
-          {incoming ? "+" : "−"}{formatMoney(item.amountMinor, item.currency)}
-        </Text>
-        <Text className="mt-1 text-[9px] font-bold uppercase tracking-[0.5px] text-muted">{incoming ? "Owed to you" : "You owe"}</Text>
-      </View>
-    </View>
-  );
+/** "in the last 30 days" | "over all time". */
+function windowIn(period: ActivityPeriod) {
+  return period === "all" ? "over all time" : `in the ${periodPhrase(period)}`;
 }
 
-export function ActivityView() {
-  const { plan, settlePersonalTransaction } = useLedger();
+/** Detail under "Nothing new owed to you": nudges toward a longer window. */
+function widerWindowHint(period: ActivityPeriod) {
+  if (period === "week") return "In the last 7 days. Try Month or Year.";
+  if (period === "month") return "In the last 30 days. Try Year or All.";
+  if (period === "year") return "In the last 12 months. Try All.";
+  return "Nothing recorded on this side yet.";
+}
+
+function isGroupScope(scope: string) {
+  return scope !== "all" && scope !== "personal";
+}
+
+export function ActivityView({ onAddEntry }: HomeTabProps) {
+  const { plan, connection, refresh, settlePersonalTransaction } = useLedger();
+  const { palette } = usePreferences();
   const toast = useToast();
-  const [filtersVisible, setFiltersVisible] = useState(false);
-  const [period, setPeriod] = useState<PeriodFilter>("all");
-  const [scope, setScope] = useState("all");
-  const [kind, setKind] = useState<KindFilter>("all");
-  const [direction, setDirection] = useState<DirectionFilter>("all");
-  const [status, setStatus] = useState<StatusFilter>("all");
+  const reduceMotion = useReducedMotion();
+  const { width: windowWidth } = useWindowDimensions();
+  const col = Math.min(windowWidth, layout.contentMax);
+
+  const [side, setSide] = useState<TransactionDirection>("incoming");
+  const [listSides, setListSides] = useState<"both" | "side">("both");
+  const [period, setPeriod] = useState<ActivityPeriod>("month");
+  const [scope, setScope] = useState<string>("all");
+  const [kind, setKind] = useState<"all" | TransactionKind>("all");
+  const [status, setStatus] = useState<"all" | TransactionStatus>("all");
+  const [currencyChoice, setCurrencyChoice] = useState<string | null>(null);
+  const [selection, setSelection] = useState<{ key: string; index: number } | null>(null);
   const [settlingId, setSettlingId] = useState<string | null>(null);
-  const activeFilterCount = Number(period !== "all") + Number(scope !== "all") + Number(kind !== "all") + Number(direction !== "all") + Number(status !== "all");
+  const [sheetVisible, setSheetVisible] = useState(false);
+  const [today, setToday] = useState(todayDate);
+  const [chartWidth, setChartWidth] = useState(0);
 
-  const filtered = useMemo(() => {
-    const cutoff = new Date();
-    if (period !== "all") cutoff.setDate(cutoff.getDate() - (period === "7d" ? 7 : 30));
-    cutoff.setHours(0, 0, 0, 0);
-    return plan.transactions.filter((item) => {
-      if (period !== "all" && dateFromIso(item.eventDate) < cutoff) return false;
-      if (scope === "personal" && item.source !== "personal") return false;
-      if (scope !== "all" && scope !== "personal" && item.groupId !== scope) return false;
-      if (kind !== "all" && item.kind !== kind) return false;
-      if (direction !== "all" && item.direction !== direction) return false;
-      if (status !== "all" && item.status !== status) return false;
-      return true;
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") setToday(todayDate());
     });
-  }, [direction, kind, period, plan.transactions, scope, status]);
+    return () => subscription.remove();
+  }, []);
 
-  const sections = useMemo(() => {
-    const grouped = new Map<string, TransactionItem[]>();
-    for (const item of filtered) grouped.set(item.eventDate, [...(grouped.get(item.eventDate) ?? []), item]);
-    return Array.from(grouped, ([date, items]) => ({ date, items })).sort((left, right) => right.date.localeCompare(left.date));
-  }, [filtered]);
+  const planState = getPlanState(plan, connection);
+  const loading = planState === "loading";
+  const offline = planState === "offline";
+  const unavailable = loading || offline;
+  const noTransactions = !unavailable && plan.transactions.length === 0;
 
-  const summaries = useMemo(() => {
-    const totals = getOpenBalanceTotals(plan);
-    return totals.length ? totals : [{ currency: "PKR", owedMinor: 0, oweMinor: 0 }];
-  }, [plan.totals, plan.transactions]);
+  const currencies = useMemo(() => listCurrencies(plan), [plan]);
+  const currency = resolveCurrency(plan, { scope, side, preferred: currencyChoice });
+  const groupScope = isGroupScope(scope);
+  const scopeName = scope === "personal" ? "Personal" : groupScope ? plan.groups.find((group) => group.id === scope)?.name ?? "Group" : null;
+
+  const query = useMemo<ActivityQuery>(
+    () => ({ side, listSides, period, scope, kind, status, currency, today }),
+    [side, listSides, period, scope, kind, status, currency, today],
+  );
+
+  const buckets = useMemo(() => buildBuckets(plan, period, today), [plan, period, today]);
+  const series = useMemo(() => bucketSeries(chartItems(plan, query), buckets, today), [plan, query, buckets, today]);
+  const listItems = useMemo(() => filterList(plan, query), [plan, query]);
+  const days = useMemo(() => groupByDay(listItems), [listItems]);
+  const categories = useMemo<Category[]>(() => {
+    const built = buildCategories(plan, query);
+    return built.length ? built : fallbackCategories(plan, query);
+  }, [plan, query]);
+  const filterCount = activeFilterCount(query);
+  const olderCount = useMemo(() => olderEntryCount(plan, query), [plan, query]);
+  const balance = getSideBalance(plan, side, currency, scope);
+  const phrase = periodPhrase(period);
+  const incoming = side === "incoming";
+  const showCurrencyPills = !unavailable && currencies.length >= 2 && !groupScope;
+
+  // Selection belongs to one query; any change of side, window, currency or filter snaps back to the peak.
+  const queryKey = [side, period, currency, scope, kind, status].join("|");
+  const count = series.values.length;
+  const rawIndex = selection?.key === queryKey ? selection.index : series.peakIndex;
+  const activeIndex = rawIndex === null || count === 0 ? null : Math.min(count - 1, Math.max(0, rawIndex));
+
+  const latest = useRef({ queryKey, activeIndex });
+  latest.current = { queryKey, activeIndex };
+  const onSelectBucket = useCallback((index: number) => {
+    const current = latest.current;
+    if (index === current.activeIndex) return;
+    setSelection({ key: current.queryKey, index });
+    void Haptics.selectionAsync().catch(() => undefined);
+  }, []);
+
+  const onColumnLayout = (event: LayoutChangeEvent) => {
+    const width = Math.round(event.nativeEvent.layout.width * 10) / 10;
+    setChartWidth((current) => (current === width ? current : width));
+  };
+
+  const changeSide = (next: TransactionDirection) => {
+    if (next === side) return;
+    // Keep the chart currency steady across the switch instead of re-resolving it for the other side.
+    if (currencies.length >= 2 && !groupScope) setCurrencyChoice(currency);
+    setSide(next);
+  };
+
+  const changeBalance = (value: BalanceChoice) => {
+    if (value === "both") {
+      setListSides("both");
+      return;
+    }
+    changeSide(value);
+    setListSides("side");
+  };
 
   const clearFilters = () => {
-    setPeriod("all");
     setScope("all");
     setKind("all");
-    setDirection("all");
     setStatus("all");
+    setListSides("both");
   };
+
+  const toggleScope = (key: string) => setScope((current) => (current === key ? "all" : key));
 
   const confirmSettlement = (item: TransactionItem) => {
     Alert.alert(
@@ -129,113 +211,698 @@ export function ActivityView() {
     );
   };
 
-  return (
-    <View className="gap-5 px-[18px] py-5">
-      <View className="flex-row items-end justify-between gap-4">
-        <View className="flex-1">
-          <Text className="text-[26px] font-bold tracking-tight text-ink">Activity</Text>
-          <Text className="mt-1 text-[13px] leading-5 text-slate">What you owe, what is owed to you, and what is settled.</Text>
+  // ---------------------------------------------------------------------------
+  // Chart state and overlay (loading / offline / A no transactions / C filters / B empty window)
+  // ---------------------------------------------------------------------------
+  const chartEmpty = series.totalMinor <= 0;
+  let chartState: AreaChartProps["state"] = "ready";
+  let overlay: AreaChartProps["overlay"];
+  if (loading) {
+    chartState = "loading";
+  } else if (offline) {
+    chartState = "flat";
+    overlay = { icon: "alert-circle", title: "Can't reach LenaDena", detail: "Pull your history again when you're back online." };
+  } else if (noTransactions) {
+    chartState = "flat";
+    overlay = { icon: "pulse", title: "No activity yet", detail: "Entries you add will draw your balance history here." };
+  } else if (chartEmpty && chartFilterCount(query) > 0) {
+    // C: filters leave nothing to chart. When the list still shows the other side, say which side is empty.
+    const where = period === "all" ? "yet" : `in the ${phrase}`;
+    chartState = "flat";
+    overlay = listItems.length === 0
+      ? { icon: "filter", title: "No matches", detail: `Nothing matches these filters ${where}.` }
+      : {
+        icon: "filter",
+        title: incoming ? "Nothing new owed to you" : "Nothing new that you owe",
+        detail: `Nothing on this side matches these filters ${where}.`,
+      };
+  } else if (chartEmpty) {
+    const other = showCurrencyPills ? otherCurrencyWithData(plan, query) : null;
+    chartState = "flat";
+    overlay = {
+      icon: "calendar",
+      title: incoming ? "Nothing new owed to you" : "Nothing new that you owe",
+      detail: other
+        ? period === "all"
+          ? `No ${currency} entries on this side yet. Switch to ${other} above.`
+          : `No ${currency} entries in the ${phrase}. Switch to ${other} above.`
+        : widerWindowHint(period),
+    };
+  }
+  const chartReady = chartState === "ready";
+  const activeBucket = activeIndex === null ? undefined : buckets[activeIndex];
+  const activeValue = activeIndex === null ? 0 : series.values[activeIndex] ?? 0;
+  const tooltip = chartReady && activeIndex !== null ? formatMoney(activeValue, currency) : null;
+
+  const verb = kind === "payment" ? (incoming ? "Paid to you" : "You paid") : "Added";
+
+  // ---------------------------------------------------------------------------
+  // Panel
+  // ---------------------------------------------------------------------------
+  const balanceLabel = noTransactions && balance === 0
+    ? incoming ? "Nothing owed to you yet" : "You don't owe anyone yet"
+    : incoming ? "Owed to you now" : "You owe now";
+
+  const balanceText = `${balanceLabel}${scopeName ? ` · ${scopeName}` : ""}`;
+  const balanceA11y = loading
+    ? `${balanceText}, loading`
+    : offline
+      ? `${balanceText}, unavailable offline`
+      : `${balanceText}, ${formatMoney(balance, currency)}`;
+
+  const headline = unavailable
+    ? createElement(View, { key: "bar", style: styles.headlineBar })
+    : createElement(
+      Animated.View,
+      { key: `${side}|${currency}|${scope}`, entering: reduceMotion ? undefined : FadeIn.duration(160) },
+      createElement(NativeText, {
+        numberOfLines: 1,
+        adjustsFontSizeToFit: true,
+        minimumFontScale: 0.7,
+        style: styles.headline,
+      }, formatMoney(balance, currency)),
+    );
+
+  const currencyLine = loading
+    ? "Loading your balances"
+    : offline
+      ? "Balances unavailable offline"
+      : scope === "all"
+        ? `${currency} · groups and individual entries`
+        : scope === "personal"
+          ? `${currency} · individual entries`
+          : `${scopeName ?? "Group"} · ${currency}`;
+
+  const currencyRow = showCurrencyPills
+    ? createElement(
+      View,
+      { style: styles.pills },
+      currencies.map((code) => {
+        const selected = code === currency;
+        return (
+          <Touch
+            key={code}
+            onPress={() => setCurrencyChoice(code)}
+            hitSlop={6}
+            haptic
+            pressedScale={0.94}
+            accessibilityRole="button"
+            accessibilityLabel={`Show ${code} balances`}
+            accessibilityState={{ selected }}
+            pressableStyle={[styles.pill, selected ? styles.pillSelected : styles.pillIdle]}
+          >
+            {createElement(NativeText, { style: [styles.pillLabel, { color: selected ? colors.white : "rgba(255,255,255,0.6)" }] }, code)}
+          </Touch>
+        );
+      }),
+    )
+    : createElement(NativeText, { numberOfLines: 1, style: styles.currencyLine }, currencyLine);
+
+  const filterButton = (
+    <Touch
+      onPress={() => setSheetVisible(true)}
+      haptic
+      pressedScale={0.92}
+      accessibilityRole="button"
+      accessibilityLabel={filterCount > 0 ? `Filters, ${filterCount} active` : "Filters"}
+      accessibilityHint="Refine by date, source, type, balance and status"
+      pressableStyle={styles.filterButton}
+    >
+      <Icon name="filter" size={19} color={colors.violetStrong} />
+      {filterCount > 0
+        ? createElement(
+          View,
+          { style: styles.filterBadge, pointerEvents: "none" },
+          createElement(NativeText, { style: styles.filterBadgeLabel, maxFontSizeMultiplier: 1.2 }, filterCount > 9 ? "9+" : String(filterCount)),
+        )
+        : null}
+    </Touch>
+  );
+
+  const panel = (
+    <LinearGradient
+      colors={[palette.header, palette.header, colors.night]}
+      locations={[0, 0.35, 1]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
+      style={styles.panel}
+    >
+      <View pointerEvents="none" style={styles.glow} />
+      <View style={[styles.column, { width: col }]} onLayout={onColumnLayout}>
+        <View style={styles.switchRow}>
+          <TopTabs tabs={SIDE_TABS} value={side} onChange={changeSide} appearance="panel" />
         </View>
-        <Button label={activeFilterCount ? `Filters ${activeFilterCount}` : "Filters"} icon="filter" size="sm" variant={filtersVisible || activeFilterCount ? "primary" : "secondary"} onPress={() => setFiltersVisible((current) => !current)} />
+        <View accessible accessibilityLabel={balanceA11y}>
+          {createElement(NativeText, { numberOfLines: 1, style: styles.balanceLabel }, balanceText)}
+          <View style={styles.headlineWrap}>{headline}</View>
+        </View>
+        <View style={styles.currencyWrap}>{currencyRow}</View>
+        <View style={styles.divider} />
+        <View style={styles.periodRow}>
+          <TopTabs tabs={PERIOD_TABS} value={period} onChange={setPeriod} appearance="underline" style={styles.periodTabs} />
+          {filterButton}
+        </View>
+        <View style={styles.caption}>
+          {createElement(NativeText, { numberOfLines: 1, style: styles.captionLeft }, `${verb} · ${phrase}`)}
+          {createElement(
+            NativeText,
+            { numberOfLines: 1, style: styles.captionRight },
+            unavailable ? "–" : formatMoney(series.totalMinor, currency),
+          )}
+        </View>
+        <View style={styles.chart}>
+          <AreaChart
+            width={chartWidth}
+            values={series.values}
+            side={side}
+            activeIndex={chartReady ? activeIndex : null}
+            tooltip={tooltip}
+            state={chartState}
+            overlay={overlay}
+            animationKey={`${queryKey}|${planState}`}
+            onSelect={onSelectBucket}
+            accessibilityLabel={`${incoming ? "Owed to you" : "You owe"}, ${phrase}`}
+            accessibilityValue={activeBucket ? `${activeBucket.a11yLabel}, ${formatMoney(activeValue, currency)}` : formatMoney(series.totalMinor, currency)}
+          />
+        </View>
+      </View>
+    </LinearGradient>
+  );
+
+  // ---------------------------------------------------------------------------
+  // Axis labels (on the canvas, under the panel, same column)
+  // ---------------------------------------------------------------------------
+  const selectedAxis = chartReady ? activeIndex : null;
+  const axis = chartWidth > 0 && count > 0
+    ? createElement(
+      View,
+      { style: [styles.axis, { width: chartWidth }], importantForAccessibility: "no-hide-descendants", accessibilityElementsHidden: true },
+      buckets.map((bucket, index) => {
+        const selected = index === selectedAxis;
+        const x = chartX(chartWidth, count, index, CHART.PAD_X);
+        if (!selected) {
+          const thinned = count <= 7 || bucket.label.length === 1 || (count - 1 - index) % Math.ceil(count / 6) === 0;
+          if (!thinned) return null;
+          if (selectedAxis !== null && Math.abs(x - chartX(chartWidth, count, selectedAxis, CHART.PAD_X)) < AXIS.clearance) return null;
+        }
+        const width = selected ? AXIS.selectedWidth : AXIS.labelWidth;
+        const left = Math.min(Math.max(x - width / 2, 0), Math.max(0, chartWidth - width));
+        return createElement(
+          NativeText,
+          {
+            key: bucket.start,
+            numberOfLines: 1,
+            importantForAccessibility: "no",
+            maxFontSizeMultiplier: 1.2,
+            style: [styles.axisLabel, selected ? styles.axisLabelSelected : null, { left, width }],
+          },
+          selected ? bucket.selectedLabel : bucket.label,
+        );
+      }),
+    )
+    : createElement(View, { style: { height: AXIS.height } });
+
+  // ---------------------------------------------------------------------------
+  // Categories
+  // ---------------------------------------------------------------------------
+  const categoriesDetail = loading
+    ? "By source · loading"
+    : offline
+      ? "Sources show up once LenaDena reconnects."
+      : noTransactions
+        ? "By source · nothing recorded yet"
+        : `By source · ${phrase} · ${currency}`;
+
+  const categoriesTrailing = unavailable
+    ? undefined
+    : scope === "all"
+      ? (
+        <Touch
+          onPress={() => setSheetVisible(true)}
+          haptic
+          pressedScale={0.92}
+          accessibilityRole="button"
+          accessibilityLabel="Filter by source"
+          pressableStyle={[styles.squareButton, { backgroundColor: palette.surface }]}
+        >
+          <Icon name="chevron-right" size={18} color={colors.violet} />
+        </Touch>
+      )
+      : (
+        <Touch
+          onPress={() => setScope("all")}
+          haptic
+          pressedScale={0.92}
+          accessibilityRole="button"
+          accessibilityLabel="Clear source filter"
+          pressableStyle={[styles.squareButton, { backgroundColor: palette.surface }]}
+        >
+          <Icon name="close" size={18} color={colors.violet} />
+        </Touch>
+      );
+
+  const highlightKey = scope === "all" ? categories[0]?.key : scope;
+  const valueVerb = kind === "payment" ? "paid" : "added";
+  const categoryCards = loading
+    ? [0, 1].map((index) => (
+      <CategoryCard key={`loading-${index}`} variant="outline" icon="grid" title="Loading…" value="–" accessibilityLabel="Loading categories" />
+    ))
+    : offline
+      ? []
+      : categories.map((category) => {
+        const highlighted = category.key === highlightKey;
+        const personal = category.key === "personal";
+        const meta = category.count === 0 ? "No entries" : plural(category.count, "entry", "entries");
+        const positive = category.valueMinor > 0;
+        return (
+          <CategoryCard
+            key={category.key}
+            variant={highlighted ? "highlighted" : "outline"}
+            icon={personal ? "user" : "users"}
+            leading={!highlighted && !personal ? <GroupAvatar name={category.name} accent={category.accent ?? ""} size="sm" /> : undefined}
+            meta={meta}
+            title={category.name}
+            value={positive ? formatSignedMoney(category.valueMinor, currency, incoming ? "+" : "-") : formatMoney(0, currency)}
+            valueTone={positive ? (incoming ? "positive" : "negative") : "ink"}
+            onPress={() => toggleScope(category.key)}
+            selected={scope === category.key}
+            accessibilityLabel={`${category.name}, ${formatMoney(category.valueMinor, currency)} ${valueVerb} ${windowIn(period)}, ${meta}`}
+          />
+        );
+      });
+  if (!unavailable && plan.groups.length === 0) {
+    categoryCards.push(
+      <CategoryCard
+        key="new-group"
+        variant="dashed"
+        title="New group"
+        detail="Split shared costs"
+        onPress={() => router.push("/group/new")}
+        accessibilityLabel="New group. Split shared costs with friends."
+      />,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // History
+  // ---------------------------------------------------------------------------
+  const historyDetail = loading
+    ? "Loading your history"
+    : offline
+      ? "Unavailable while offline"
+      : noTransactions
+        ? "Nothing recorded yet"
+        : `${plural(listItems.length, "entry", "entries")} · ${phrase}${listSides === "side" ? " · one side" : ""}${currencies.length >= 2 ? " · all currencies" : ""}`;
+
+  let history;
+  if (loading) {
+    history = (
+      <LedgerList>
+        <View style={styles.spinnerBlock}><Spinner /></View>
+      </LedgerList>
+    );
+  } else if (offline) {
+    history = (
+      <EmptyState
+        icon="alert-circle"
+        title="History unavailable"
+        detail="Your history will appear once LenaDena reconnects."
+        action={{ label: "Try again", onPress: () => void refresh() }}
+      />
+    );
+  } else if (noTransactions) {
+    history = (
+      <EmptyState
+        icon="pulse"
+        illustration="activity"
+        title="No balance history yet"
+        detail="Add an individual or group entry and it shows up here, grouped by day."
+        action={{ label: "Add entry", icon: "plus", onPress: onAddEntry }}
+      />
+    );
+  } else if (listItems.length === 0 && filterCount > 0) {
+    history = (
+      <EmptyState
+        icon="filter"
+        title="No matching activity"
+        detail={groupScope && status !== "all" ? "Group history has no open or settled status. Set Status to All." : "Try clearing one or more filters."}
+        action={{ label: "Clear filters", onPress: clearFilters }}
+        {...(period !== "all" && olderCount > 0 ? { secondaryAction: { label: "Show all time", icon: "calendar" as const, onPress: () => setPeriod("all") } } : {})}
+      />
+    );
+  } else if (listItems.length === 0) {
+    history = (
+      <LedgerList>
+        <EmptyState
+          variant="inset"
+          icon="calendar"
+          title={`Nothing in the ${phrase}`}
+          detail="Older entries are still in your history."
+          action={{ label: "Show all time", icon: "calendar", onPress: () => setPeriod("all") }}
+        />
+      </LedgerList>
+    );
+  } else {
+    history = (
+      <View style={styles.days}>
+        {days.map((day) => (
+          <View key={day.date}>
+            <View style={styles.dayHeader}>
+              {createElement(NativeText, { accessibilityRole: "header", numberOfLines: 1, style: styles.dayLabel }, relativeDayLabel(day.date, today))}
+              {createElement(NativeText, { numberOfLines: 1, style: styles.dayCount }, plural(day.items.length, "entry", "entries"))}
+            </View>
+            <LedgerList>
+              {day.items.map((item, index) => {
+                const copy = describeTransaction(item, { context: "activity", today });
+                return (
+                  <LedgerRow
+                    key={`${item.source}-${item.id}`}
+                    leading={<EntryTile icon={copy.tile.icon} tone={copy.tile.tone} badge={copy.tile.badge} ringColor={palette.surface} />}
+                    title={copy.title}
+                    subtitle={copy.subtitle}
+                    amount={copy.amount}
+                    status={copy.status}
+                    divider={index > 0}
+                    accessibilityLabel={copy.accessibilityLabel}
+                    footer={copy.canSettle ? (
+                      <Button
+                        label="Mark settled"
+                        icon="check"
+                        size="md"
+                        variant="secondary"
+                        loading={settlingId === item.id}
+                        onPress={() => confirmSettlement(item)}
+                        accessibilityHint={`Marks ${copy.title} as settled after you confirm`}
+                      />
+                    ) : undefined}
+                  />
+                );
+              })}
+            </LedgerList>
+          </View>
+        ))}
+        {period !== "all" && olderCount > 0 ? (
+          <View style={styles.olderFooter}>
+            {createElement(NativeText, { style: styles.olderLabel }, plural(olderCount, "older entry", "older entries"))}
+            <Button label="Show all time" icon="calendar" variant="ghost" size="sm" onPress={() => setPeriod("all")} />
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
+  return (
+    <View>
+      {panel}
+      <View style={[styles.column, { width: col }]}>
+        {axis}
+        <View style={styles.section}>
+          <SectionHeader title="Categories" detail={categoriesDetail} trailing={categoriesTrailing} style={styles.sectionHeader} />
+          {categoryCards.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              decelerationRate="fast"
+              snapToInterval={CATEGORY_SNAP}
+              style={styles.cardScroller}
+              contentContainerStyle={styles.cardRow}
+            >
+              {categoryCards}
+            </ScrollView>
+          ) : null}
+        </View>
+        <View style={[styles.section, styles.historySection]}>
+          <SectionHeader title="History" detail={historyDetail} style={styles.historyHeader} />
+          {history}
+        </View>
       </View>
 
-      {summaries.map((summary) => (
-        <View key={summary.currency} className="flex-row overflow-hidden rounded-[22px] border border-line bg-raised shadow-sm shadow-black/5">
-          <View className="flex-1 p-4">
-            <View className="flex-row items-center gap-2">
-              <View className="h-8 w-8 items-center justify-center rounded-xl bg-mint-soft"><Icon name="arrow-down" size={16} color={colors.mint} /></View>
-              <Text className="text-xs font-semibold text-slate">Owed to me · {summary.currency}</Text>
-            </View>
-            <Text className="mt-3 text-[18px] font-bold text-mint">{formatMoney(summary.owedMinor, summary.currency)}</Text>
-          </View>
-          <View className="w-px bg-line" />
-          <View className="flex-1 p-4">
-            <View className="flex-row items-center gap-2">
-              <View className="h-8 w-8 items-center justify-center rounded-xl bg-coral-soft"><Icon name="arrow-up" size={16} color={colors.coral} /></View>
-              <Text className="text-xs font-semibold text-slate">I owe · {summary.currency}</Text>
-            </View>
-            <Text className="mt-3 text-[18px] font-bold text-coral">{formatMoney(summary.oweMinor, summary.currency)}</Text>
-          </View>
-        </View>
-      ))}
-
-      {filtersVisible ? (
-        <View className="gap-5 rounded-[22px] border border-line bg-raised p-4 shadow-sm shadow-black/5">
-          <View className="flex-row items-center justify-between">
-            <Text className="text-[15px] font-bold text-ink">Refine activity</Text>
-            {activeFilterCount ? <Button label="Clear" variant="ghost" size="sm" onPress={clearFilters} /> : null}
-          </View>
-          <View className="gap-2">
-            <Text className="text-xs font-bold text-slate">Date</Text>
-            <TopTabs
-              tabs={[
-                { key: "all", label: "All time" },
-                { key: "7d", label: "7 days" },
-                { key: "30d", label: "30 days" },
-              ]}
-              value={period}
-              onChange={setPeriod}
-            />
-          </View>
-          <View className="gap-2">
-            <Text className="text-xs font-bold text-slate">Source</Text>
-            <View className="flex-row flex-wrap gap-2">
-              <Button label="All" size="sm" variant={scope === "all" ? "primary" : "secondary"} onPress={() => setScope("all")} />
-              <Button label="Personal" icon="user" size="sm" variant={scope === "personal" ? "primary" : "secondary"} onPress={() => setScope("personal")} />
-              {plan.groups.map((group) => <Button key={group.id} label={group.name} icon="users" size="sm" variant={scope === group.id ? "primary" : "secondary"} onPress={() => setScope(group.id)} />)}
-            </View>
-          </View>
-          <View className="gap-2">
-            <Text className="text-xs font-bold text-slate">Type</Text>
-            <View className="flex-row flex-wrap gap-2">
-              {(["all", "expense", "loan", "payment"] as const).map((value) => <Button key={value} label={value === "all" ? "All" : value.charAt(0).toUpperCase() + value.slice(1)} size="sm" variant={kind === value ? "primary" : "secondary"} onPress={() => setKind(value)} />)}
-            </View>
-          </View>
-          <View className="gap-2">
-            <Text className="text-xs font-bold text-slate">Balance</Text>
-            <TopTabs
-              tabs={[
-                { key: "all", label: "All" },
-                { key: "incoming", label: "Owed to me", icon: "arrow-down" },
-                { key: "outgoing", label: "I owe", icon: "arrow-up" },
-              ]}
-              value={direction}
-              onChange={setDirection}
-            />
-          </View>
-          <View className="gap-2">
-            <Text className="text-xs font-bold text-slate">Status</Text>
-            <TopTabs
-              tabs={[
-                { key: "all", label: "All" },
-                { key: "open", label: "Open" },
-                { key: "settled", label: "Settled", icon: "check" },
-              ]}
-              value={status}
-              onChange={setStatus}
-            />
-          </View>
-        </View>
-      ) : null}
-
-      {sections.length ? sections.map((section) => (
-        <View key={section.date}>
-          <View className="mb-2 flex-row items-center justify-between px-1">
-            <Text className="text-[13px] font-bold text-ink">{dayLabel(section.date)}</Text>
-            <Text className="text-[10px] font-semibold uppercase tracking-[0.8px] text-muted">{section.items.length} {section.items.length === 1 ? "entry" : "entries"}</Text>
-          </View>
-          <View className="rounded-[22px] border border-line bg-raised px-4 shadow-sm shadow-black/5">
-            {section.items.map((item) => <TransactionRow key={`${item.source}-${item.id}`} item={item} settling={settlingId === item.id} onSettle={() => confirmSettlement(item)} />)}
-          </View>
-        </View>
-      )) : (
-        <EmptyState
-          icon="filter"
-          title={plan.transactions.length ? "No matching activity" : "No balance history yet"}
-          detail={plan.transactions.length ? "Try clearing one or more filters." : "Add an individual or group entry to start your history."}
-          action={activeFilterCount ? { label: "Clear filters", onPress: clearFilters } : undefined}
-        />
-      )}
+      <ActivityFilterSheet
+        visible={sheetVisible}
+        onClose={() => setSheetVisible(false)}
+        period={period}
+        onPeriodChange={setPeriod}
+        scope={scope}
+        onScopeChange={setScope}
+        kind={kind}
+        onKindChange={setKind}
+        status={status}
+        onStatusChange={setStatus}
+        balance={listSides === "both" ? "both" : side}
+        onBalanceChange={changeBalance}
+        groups={plan.groups}
+        activeCount={filterCount}
+        resultCount={listItems.length}
+        onClear={clearFilters}
+      />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  panel: {
+    overflow: "hidden",
+  },
+  glow: {
+    position: "absolute",
+    right: -60,
+    top: 40,
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: "rgba(181,165,255,0.14)",
+  },
+  column: {
+    alignSelf: "center",
+  },
+  switchRow: {
+    paddingTop: 8,
+    marginHorizontal: 20,
+  },
+  balanceLabel: {
+    marginTop: 18,
+    paddingHorizontal: 20,
+    textAlign: "center",
+    fontFamily: "Manrope_600SemiBold",
+    fontSize: 14,
+    lineHeight: 20,
+    color: "rgba(244,240,255,0.66)",
+  },
+  headlineWrap: {
+    minHeight: 46,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headline: {
+    textAlign: "center",
+    fontFamily: "Manrope_800ExtraBold",
+    fontSize: 38,
+    lineHeight: 46,
+    letterSpacing: -1,
+    color: colors.white,
+  },
+  headlineBar: {
+    width: 140,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  currencyWrap: {
+    marginTop: 4,
+    paddingHorizontal: 20,
+    alignItems: "center",
+  },
+  currencyLine: {
+    textAlign: "center",
+    fontFamily: "Manrope_600SemiBold",
+    fontSize: 12,
+    lineHeight: 16,
+    color: "rgba(255,255,255,0.55)",
+  },
+  pills: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 2,
+  },
+  pill: {
+    height: 32,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pillSelected: {
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  pillIdle: {
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  pillLabel: {
+    fontFamily: "Manrope_700Bold",
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  divider: {
+    marginTop: 16,
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.10)",
+  },
+  periodRow: {
+    marginTop: 8,
+    paddingHorizontal: 12,
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  periodTabs: {
+    flex: 1,
+  },
+  filterButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.raised,
+  },
+  filterBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.coral,
+  },
+  filterBadgeLabel: {
+    fontFamily: "Manrope_700Bold",
+    fontSize: 10,
+    lineHeight: 12,
+    color: colors.white,
+  },
+  caption: {
+    marginTop: 4,
+    paddingHorizontal: 20,
+    height: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  captionLeft: {
+    flexShrink: 1,
+    fontFamily: "Manrope_600SemiBold",
+    fontSize: 12,
+    lineHeight: 16,
+    color: "rgba(255,255,255,0.6)",
+  },
+  captionRight: {
+    fontFamily: "Manrope_700Bold",
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.white,
+  },
+  chart: {
+    marginTop: 4,
+    height: CHART.H,
+  },
+  axis: {
+    height: AXIS.height,
+  },
+  axisLabel: {
+    position: "absolute",
+    top: 8,
+    textAlign: "center",
+    fontFamily: "Manrope_500Medium",
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.slate,
+  },
+  axisLabelSelected: {
+    fontFamily: "Manrope_800ExtraBold",
+    fontSize: 13,
+    lineHeight: 16,
+    color: colors.ink,
+  },
+  section: {
+    marginTop: layout.sectionGap,
+  },
+  sectionHeader: {
+    paddingHorizontal: 20,
+    marginBottom: 0,
+  },
+  squareButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardScroller: {
+    marginTop: 14,
+  },
+  cardRow: {
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    gap: 12,
+  },
+  historySection: {
+    paddingHorizontal: 20,
+  },
+  historyHeader: {
+    marginBottom: 14,
+  },
+  spinnerBlock: {
+    minHeight: 120,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  days: {
+    gap: 18,
+  },
+  dayHeader: {
+    marginBottom: 8,
+    paddingHorizontal: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  dayLabel: {
+    flexShrink: 1,
+    fontFamily: "Manrope_700Bold",
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.ink,
+  },
+  dayCount: {
+    fontFamily: "Manrope_600SemiBold",
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    color: colors.slate,
+  },
+  olderFooter: {
+    marginTop: 4,
+    alignItems: "center",
+    gap: 4,
+  },
+  olderLabel: {
+    fontFamily: "Manrope_500Medium",
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.slate,
+  },
+});

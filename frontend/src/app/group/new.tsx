@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { View } from "react-native";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
 import { router } from "expo-router";
+import { COMPACT_CARD, LayeredGroupCard } from "@/components/groups/LayeredGroupCard";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -10,15 +11,23 @@ import { Screen } from "@/components/ui/Screen";
 import { TopTabs } from "@/components/ui/TopTabs";
 import { Touch } from "@/components/ui/Touch";
 import { useToast } from "@/components/ui/Toast";
+import { groupSkin } from "@/features/groups/groupSkin";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import { errorMessage } from "@/lib/api";
+import { formatMoney } from "@/lib/format";
+import { layout } from "@/theme/layout";
 import { colors } from "@/theme/tokens";
 
+// Stored accent values stay the same; they are rendered only through groupSkin().
 const accents = ["#6657E8", "#168AAD", "#16A77E", "#E88B3D", "#EC6075"];
+
+/** Screen padding (px-[18px] on each side). */
+const SCREEN_GUTTERS = 36;
 
 export default function CreateGroupScreen() {
   const { createGroup } = useLedger();
   const toast = useToast();
+  const { width: windowWidth } = useWindowDimensions();
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState<"PKR" | "USD" | "EUR">("PKR");
   const [emails, setEmails] = useState("");
@@ -26,6 +35,9 @@ export default function CreateGroupScreen() {
   const [saving, setSaving] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const nameError = submitted && name.trim().length < 2 ? "Enter a group name." : undefined;
+  const cardWidth = Math.min(windowWidth, layout.contentMax) - SCREEN_GUTTERS - COMPACT_CARD.MARGIN_LEFT;
+  const previewName = name.trim() || "Weekend crew";
+  const skin = groupSkin(accent);
 
   const save = async () => {
     setSubmitted(true);
@@ -51,6 +63,23 @@ export default function CreateGroupScreen() {
   return (
     <Screen>
       <PageHeader title="Create group" subtitle="You will be the group owner" />
+      <View style={styles.preview}>
+        <LayeredGroupCard
+          variant="compact"
+          width={cardWidth}
+          height={COMPACT_CARD.HEIGHT}
+          skin={skin}
+          art="full"
+          glyph="users"
+          name={previewName}
+          currency={currency}
+          label="Your position"
+          amount={formatMoney(0, currency)}
+          meta="Just you"
+          chip={{ icon: "sparkles", label: "No balance yet", color: colors.lavender }}
+          accessibilityLabel={`Preview: ${previewName}. ${currency}. Just you. No balance yet.`}
+        />
+      </View>
       <View className="gap-6">
         <Field label="Group name" required error={nameError}>
           <Input value={name} onChangeText={setName} placeholder="Weekend crew" maxLength={80} autoFocus invalid={Boolean(nameError)} />
@@ -66,22 +95,28 @@ export default function CreateGroupScreen() {
           <Input value={emails} onChangeText={setEmails} placeholder="sara@example.com, hamza@example.com" keyboardType="email-address" autoCapitalize="none" multiline />
         </Field>
         <Field label="Group accent" hint="Accent changes decoration only, never financial status colors.">
-          <View className="flex-row gap-3">
-            {accents.map((value) => (
-              <Touch
-                key={value}
-                onPress={() => setAccent(value)}
-                haptic
-                accessibilityRole="radio"
-                accessibilityState={{ checked: value === accent }}
-                accessibilityLabel={`Choose ${value} group accent`}
-                className={`h-12 w-12 items-center justify-center rounded-2xl border-2 ${value === accent ? "border-ink" : "border-transparent"}`}
-              >
-                <View className="h-9 w-9 items-center justify-center rounded-xl" style={{ backgroundColor: value }}>
-                  {value === accent ? <Icon name="check" size={18} color={colors.white} /> : null}
-                </View>
-              </Touch>
-            ))}
+          <View style={styles.swatches} accessibilityRole="radiogroup">
+            {accents.map((value) => {
+              const selected = value === accent;
+              const swatchSkin = groupSkin(value);
+              return (
+                <Touch
+                  key={value}
+                  onPress={() => setAccent(value)}
+                  haptic
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selected }}
+                  accessibilityLabel={`Choose ${swatchSkin.name} accent`}
+                  containerStyle={styles.swatchSlot}
+                  pressableStyle={[styles.swatch, selected ? styles.swatchSelected : null]}
+                >
+                  <View style={styles.swatchTile}>
+                    <View style={[styles.swatchDisc, { backgroundColor: swatchSkin.disc }]} />
+                    {selected ? <Icon name="check" size={16} color={colors.white} /> : null}
+                  </View>
+                </Touch>
+              );
+            })}
           </View>
         </Field>
         <Button label="Create group" icon="users" size="lg" fullWidth loading={saving} onPress={save} />
@@ -89,3 +124,50 @@ export default function CreateGroupScreen() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  preview: {
+    marginLeft: COMPACT_CARD.MARGIN_LEFT,
+    marginTop: 2,
+    marginBottom: 30,
+  },
+  swatches: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  swatchSlot: {
+    width: 48,
+    height: 48,
+  },
+  swatch: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    borderWidth: 2,
+    // violetStrong at 0 opacity, so the selected border can appear without shifting the tile.
+    borderColor: "rgba(75,42,164,0)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  swatchSelected: {
+    borderColor: colors.violetStrong,
+  },
+  swatchTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: colors.plum,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  swatchDisc: {
+    position: "absolute",
+    right: -5,
+    bottom: -5,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+  },
+});

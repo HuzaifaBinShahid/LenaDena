@@ -1,5 +1,6 @@
 import { View } from "react-native";
 import { Icon } from "@/components/ui/Icon";
+import { groupSkin } from "@/features/groups/groupSkin";
 
 type GroupAvatarProps = {
   name: string;
@@ -15,9 +16,11 @@ const dimensions = {
 
 export function GroupAvatar({ accent, size = "md" }: GroupAvatarProps) {
   const config = dimensions[size];
+  // The stored accent is decoration only: it always goes through a fixed LenaDena skin, never rendered raw (§1.7).
+  const skin = groupSkin(accent);
   return (
-    <View className={`${config.frame} items-center justify-center`} style={{ backgroundColor: `${accent}20` }}>
-      <Icon name="users" size={config.icon} color={accent} />
+    <View className={`${config.frame} items-center justify-center`} style={{ backgroundColor: skin.tint }}>
+      <Icon name="users" size={config.icon} color={skin.icon} />
     </View>
   );
 }

@@ -33,6 +33,11 @@ type ToastApi = {
   warning: (title: string, message?: string) => void;
   info: (title: string, message?: string) => void;
   dismiss: (id?: number) => void;
+  /**
+   * Called by the app lock. Becoming locked or covered clears visible toasts (they can carry names and
+   * amounts); while covered for the app switcher, new toasts are dropped. Returns -1 from `show` when dropped.
+   */
+  setObscured: (state: { locked: boolean; covered: boolean }) => void;
 };
 
 const SWIPE_DISMISS_DISTANCE = 72;
@@ -54,7 +59,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((current) => (id === undefined ? [] : current.filter((item) => item.id !== id)));
   }, []);
 
+  const obscured = useRef({ locked: false, covered: false });
+
+  const setObscured = useCallback((next: { locked: boolean; covered: boolean }) => {
+    const becameObscured = (next.locked && !obscured.current.locked) || (next.covered && !obscured.current.covered);
+    obscured.current = next;
+    if (becameObscured) setToasts([]);
+  }, []);
+
   const show = useCallback((options: ToastOptions) => {
+    if (obscured.current.covered) return -1;
     const record: ToastRecord = { ...options, tone: options.tone ?? "info", id: nextId.current++ };
     setToasts((current) => enqueueToast(current, record));
     const haptic = tones[record.tone].haptic;
@@ -78,7 +92,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       show({ title, message, tone: "info" });
     },
     dismiss,
-  }), [dismiss, show]);
+    setObscured,
+  }), [dismiss, setObscured, show]);
 
   return (
     <ToastContext.Provider value={api}>

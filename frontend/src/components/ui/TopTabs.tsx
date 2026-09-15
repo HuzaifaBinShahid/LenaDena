@@ -11,13 +11,15 @@ type Tab<T extends string> = {
   label: string;
   badge?: number;
   icon?: IconName;
+  /** `panel` appearance only: colour of the selected tab's icon (defaults to white). */
+  accent?: string;
 };
 
 type TopTabsProps<T extends string> = {
   tabs: Tab<T>[];
   value: T;
   onChange: (value: T) => void;
-  appearance?: "segmented" | "navigation";
+  appearance?: "segmented" | "navigation" | "panel" | "underline";
   style?: StyleProp<ViewStyle>;
 };
 
@@ -63,7 +65,72 @@ function TabItem<T extends string>({ tab, selected, appearance, onPress }: { tab
   );
 }
 
+type PanelAppearance = "panel" | "underline";
+
+const PANEL_MUTED = "rgba(244,240,255,0.58)";
+
+/** Dark-surface appearances. Kept apart from `TabItem` so the segmented and navigation paths render exactly as before (D15). */
+function PanelTabItem<T extends string>({ tab, selected, appearance, onPress }: { tab: Tab<T>; selected: boolean; appearance: PanelAppearance; onPress: () => void }) {
+  const panel = appearance === "panel";
+  const foreground = selected ? panel ? colors.white : colors.lavender : PANEL_MUTED;
+  const iconColor = selected && panel ? tab.accent ?? colors.white : foreground;
+  const selection = selected
+    ? createElement(Animated.View, {
+      entering: FadeIn.duration(180),
+      exiting: FadeOut.duration(100),
+      pointerEvents: "none",
+      style: panel ? [StyleSheet.absoluteFill, styles.panelSelection] : styles.underlineIndicator,
+    })
+    : null;
+
+  return (
+    <Touch
+      onPress={onPress}
+      containerStyle={styles.itemContainer}
+      pressableStyle={[styles.item, panel ? styles.panelItem : styles.underlineItem]}
+      pressedScale={0.93}
+      haptic
+      accessibilityRole="tab"
+      accessibilityState={{ selected }}
+    >
+      {panel ? selection : null}
+      {createElement(
+        View,
+        { style: styles.panelContent },
+        tab.icon ? <Icon name={tab.icon} size={16} color={iconColor} /> : null,
+        createElement(NativeText, {
+          numberOfLines: 1,
+          style: [
+            panel ? styles.panelLabel : styles.underlineLabel,
+            { color: foreground, fontFamily: selected ? "Manrope_700Bold" : "Manrope_600SemiBold" },
+          ],
+        }, tab.label),
+      )}
+      {panel ? null : selection}
+      {tab.badge ? createElement(
+        View,
+        { style: styles.badge },
+        createElement(NativeText, { style: styles.badgeLabel }, tab.badge > 9 ? "9+" : String(tab.badge)),
+      ) : null}
+    </Touch>
+  );
+}
+
+function PanelTabs<T extends string>({ tabs, value, onChange, appearance, style }: Omit<TopTabsProps<T>, "appearance"> & { appearance: PanelAppearance }) {
+  return createElement(
+    View,
+    {
+      style: [appearance === "panel" ? styles.panelBar : styles.underlineBar, style],
+      accessibilityRole: "tablist",
+    },
+    tabs.map((tab) => (
+      <PanelTabItem key={tab.key} tab={tab} selected={tab.key === value} appearance={appearance} onPress={() => onChange(tab.key)} />
+    )),
+  );
+}
+
 export function TopTabs<T extends string>({ tabs, value, onChange, appearance = "segmented", style }: TopTabsProps<T>) {
+  if (appearance === "panel" || appearance === "underline") return <PanelTabs tabs={tabs} value={value} onChange={onChange} appearance={appearance} style={style} />;
   const navigation = appearance === "navigation";
   return createElement(
     View,
@@ -178,5 +245,56 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_700Bold",
     fontSize: 9,
     lineHeight: 12,
+  },
+  panelBar: {
+    minHeight: 52,
+    flexDirection: "row",
+    padding: 4,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  underlineBar: {
+    minHeight: 44,
+    flexDirection: "row",
+  },
+  panelItem: {
+    minHeight: 44,
+    borderRadius: 22,
+  },
+  underlineItem: {
+    minHeight: 44,
+    borderRadius: 12,
+  },
+  panelSelection: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+    backgroundColor: "rgba(255,255,255,0.14)",
+  },
+  underlineIndicator: {
+    position: "absolute",
+    bottom: 5,
+    left: "50%",
+    marginLeft: -9,
+    width: 18,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: colors.lavender,
+  },
+  panelContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  panelLabel: {
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  underlineLabel: {
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

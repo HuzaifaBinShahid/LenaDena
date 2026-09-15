@@ -1,150 +1,140 @@
-import { useState } from "react";
-import { View } from "react-native";
-import { Text } from "@/components/ui/Text";
-import { LinearGradient } from "expo-linear-gradient";
+import { createElement, useMemo } from "react";
+import { StyleSheet, Text as NativeText, useWindowDimensions, View } from "react-native";
 import { router } from "expo-router";
-import { SectionHeader } from "@/components/layout/SectionHeader";
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import { GroupAvatar } from "@/components/ui/GroupAvatar";
-import { Icon } from "@/components/ui/Icon";
+import { EntryTile } from "@/components/ui/EntryTile";
+import { LedgerList, LedgerRow } from "@/components/ui/LedgerRow";
 import { Touch } from "@/components/ui/Touch";
+import { BalancePager, type BalancePage } from "@/features/home/BalanceCard";
+import { BalanceMovers } from "@/features/home/BalanceMovers";
+import { QuickActions } from "@/features/home/QuickActions";
+import type { HomeTabProps } from "@/features/home/tab-props";
+import { getBalanceMovers, getNetChange, hasBalanceHistory } from "@/features/ledger/balanceSeries";
 import { useLedger } from "@/features/ledger/LedgerProvider";
-import { formatMoney, formatShortDate } from "@/lib/format";
-import { colors } from "@/theme/tokens";
-import { ExpenseScopeModal } from "@/components/expense/ExpenseScopeModal";
+import { getPlanState, type PlanState } from "@/features/ledger/planState";
 import { getOpenBalanceTotals } from "@/features/ledger/selectors";
+import type { Plan, Settlement } from "@/features/ledger/types";
+import { usePreferences } from "@/features/preferences/PreferencesProvider";
+import { formatMoney, formatShortDate, todayDate } from "@/lib/format";
+import { layout } from "@/theme/layout";
+import { colors } from "@/theme/tokens";
 
-export function PlanView() {
-  const { plan } = useLedger();
-  const [scopeVisible, setScopeVisible] = useState(false);
+/** Currency shown on the single placeholder page (loading, offline, empty); the same fallback ActivityView uses. */
+const FALLBACK_CURRENCY = "PKR";
+const CHANGE_DAYS = 7;
+
+function buildPages(plan: Plan, planState: PlanState, today: string): BalancePage[] {
+  if (planState !== "ready") {
+    return [{
+      currency: FALLBACK_CURRENCY,
+      mode: planState,
+      netMinor: 0,
+      owedMinor: 0,
+      oweMinor: 0,
+      change: { changeMinor: 0, eventCount: 0, tracked: false },
+    }];
+  }
   const totals = getOpenBalanceTotals(plan);
+  if (!totals.length) {
+    // Ready but with no totals yet (for example only a pending review): an honest all-square page, never a blank card.
+    return [{
+      currency: plan.groups[0]?.currency ?? FALLBACK_CURRENCY,
+      mode: "ready",
+      netMinor: 0,
+      owedMinor: 0,
+      oweMinor: 0,
+      change: { changeMinor: 0, eventCount: 0, tracked: false },
+    }];
+  }
+  return totals.map((total) => ({
+    currency: total.currency,
+    mode: "ready",
+    netMinor: total.owedMinor - total.oweMinor,
+    owedMinor: total.owedMinor,
+    oweMinor: total.oweMinor,
+    change: { ...getNetChange(plan, total.currency, { today, days: CHANGE_DAYS }), tracked: hasBalanceHistory(plan, total.currency) },
+  }));
+}
+
+/** Plan tab: balance pager, the payment waiting for review, quick actions and top movers. */
+export function PlanView({ onAddEntry, onChangeTab }: HomeTabProps) {
+  const { plan, connection } = useLedger();
+  const { width } = useWindowDimensions();
+  const column = Math.min(width, layout.contentMax);
+  const planState = getPlanState(plan, connection);
+  const today = todayDate();
+  const pages = useMemo(() => buildPages(plan, planState, today), [plan, planState, today]);
+  const movers = useMemo(() => (planState === "ready" ? getBalanceMovers(plan, { today, days: 30, limit: 4 }) : []), [plan, planState, today]);
+  const waiting = planState === "loading" || planState === "offline";
+
   return (
-    <View className="gap-8 px-5 py-6">
-      <View className="gap-3">
-        {totals.map((total) => {
-          const netMinor = total.owedMinor - total.oweMinor;
-          return (
-            <LinearGradient
-              key={total.currency}
-              colors={[colors.plum, "#342065", "#6343B8"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{ borderRadius: 26, overflow: "hidden", padding: 18, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", shadowColor: colors.violetStrong, shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.2, shadowRadius: 24, elevation: 7 }}
-            >
-              <View className="absolute -right-10 -top-16 h-44 w-44 rounded-full bg-lavender/25" />
-              <View className="absolute -bottom-20 -left-12 h-40 w-40 rounded-full bg-white/5" />
-              <View className="flex-row items-center justify-between">
-                <Text className="text-[12px] font-semibold text-white/65">Balance</Text>
-                <Text className="text-xs font-bold text-white/55">{total.currency}</Text>
-              </View>
-              <Text className="mt-3 text-[13px] font-medium text-white/65">{netMinor >= 0 ? "Friends owe you overall" : "You owe overall"}</Text>
-              <Text className="mt-1 text-[34px] font-bold tracking-[-1px] text-white">{formatMoney(Math.abs(netMinor), total.currency)}</Text>
-              <View className="my-4 h-px bg-white/15" />
-              <View className="flex-row">
-                <View className="flex-1 pr-4">
-                  <View className="flex-row items-center gap-1.5">
-                    <View className="h-2 w-2 rounded-full bg-coral" />
-                    <Text className="text-xs font-medium text-white/60">You owe</Text>
-                  </View>
-                  <Text className="mt-1.5 text-[17px] font-bold text-white">{formatMoney(total.oweMinor, total.currency)}</Text>
-                </View>
-                <View className="w-px bg-white/15" />
-                <View className="flex-1 pl-4">
-                  <View className="flex-row items-center gap-1.5">
-                    <View className="h-2 w-2 rounded-full bg-lime" />
-                    <Text className="text-xs font-medium text-white/60">Owed to you</Text>
-                  </View>
-                  <Text className="mt-1.5 text-[17px] font-bold text-white">{formatMoney(total.owedMinor, total.currency)}</Text>
-                </View>
-              </View>
-              <View className="mt-4 flex-row gap-2.5">
-                <View className={plan.groups.length ? "flex-[1.2]" : "flex-1"}><Button label="Add entry" icon="plus" variant="bright" fullWidth onPress={() => setScopeVisible(true)} /></View>
-                {plan.groups.length ? <View className="flex-1"><Button label="I paid" icon="send" variant="glass" fullWidth onPress={() => router.push("/settlement/new")} /></View> : null}
-              </View>
-            </LinearGradient>
-          );
-        })}
-        {!totals.length ? (
-          <View className="rounded-card border border-line bg-raised p-5">
-            <Text className="font-semibold text-ink">No balances yet</Text>
-            <Text className="mt-1 text-sm text-slate">Track what you owe or what is owed to you.</Text>
-            <View className="mt-4"><Button label="Add entry" icon="plus" onPress={() => setScopeVisible(true)} /></View>
-          </View>
-        ) : null}
-      </View>
-
-      <View>
-        <SectionHeader
-          title="Your groups"
-          detail={`${plan.groups.length} active ${plan.groups.length === 1 ? "circle" : "circles"}`}
-          action={{ label: "New", icon: "plus", onPress: () => router.push("/group/new") }}
-        />
-        <View className="overflow-hidden rounded-card border border-line bg-raised shadow-sm shadow-black/5">
-          {plan.groups.map((group, index) => (
-            <Touch
-              key={group.id}
-              onPress={() => router.push({ pathname: "/group/[id]", params: { id: group.id } })}
-              className={`flex-row items-center gap-3.5 px-4 py-4 ${index < plan.groups.length - 1 ? "border-b border-line" : ""}`}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${group.name}`}
-            >
-              <GroupAvatar name={group.name} accent={group.accent} />
-              <View className="flex-1">
-                <Text className="text-[15px] font-bold text-ink">{group.name}</Text>
-                <Text className="mt-1 text-xs text-slate">{group.members.length} members · {group.role}</Text>
-              </View>
-              <View className="items-end pr-1">
-                <Text className={`text-[14px] font-bold ${group.balanceMinor < 0 ? "text-coral" : "text-mint"}`}>
-                  {group.balanceMinor < 0 ? "−" : "+"}{formatMoney(Math.abs(group.balanceMinor), group.currency)}
-                </Text>
-                <Text className="mt-1 text-[11px] text-slate">{group.balanceMinor < 0 ? "you owe" : "owed to you"}</Text>
-              </View>
-              <Icon name="chevron-right" size={18} color={colors.muted} />
-            </Touch>
-          ))}
-        </View>
-      </View>
-
-      {plan.reviews.length ? (
-        <View>
-          <SectionHeader title="Needs your attention" detail="One tap to review payment proof" />
-          <Touch
-            onPress={() => router.push({ pathname: "/settlement/[id]", params: { id: plan.reviews[0]?.id ?? "" } })}
-            className="overflow-hidden rounded-card border border-gold/20 bg-raised p-4 shadow-sm shadow-black/5"
-            accessibilityRole="button"
-          >
-            <View className="flex-row items-center gap-3">
-              <View className="h-12 w-12 items-center justify-center rounded-2xl bg-gold-soft">
-                <Icon name="send" size={21} color={colors.gold} />
-              </View>
-              <View className="flex-1">
-                <View className="mb-1 flex-row items-center gap-2">
-                  <Text className="text-[15px] font-bold text-ink">{plan.reviews[0]?.debtor.name} paid?</Text>
-                  <Badge label="Review" tone="warning" />
-                </View>
-                <Text className="text-xs text-slate">{plan.reviews[0]?.eventName} · {plan.reviews[0]?.eventDate ? formatShortDate(plan.reviews[0].eventDate) : "Today"}</Text>
-              </View>
-              <View className="items-end">
-                <Text className="text-[15px] font-bold text-ink">{formatMoney(plan.reviews[0]?.amountMinor ?? 0, plan.reviews[0]?.currency)}</Text>
-                <Icon name="arrow-right" size={17} color={colors.violet} />
-              </View>
-            </View>
-          </Touch>
-        </View>
-      ) : null}
-      <ExpenseScopeModal
-        visible={scopeVisible}
-        onClose={() => setScopeVisible(false)}
-        onIndividual={() => {
-          setScopeVisible(false);
-          router.push("/transaction/new");
-        }}
-        onGroup={() => {
-          setScopeVisible(false);
-          router.push("/expense/new");
-        }}
-      />
+    <View style={[styles.column, { width: column }]}>
+      <BalancePager pages={pages} onAddEntry={onAddEntry} />
+      {plan.reviews.length ? <Attention plan={plan} onChangeTab={onChangeTab} /> : null}
+      <QuickActions needsGroup={!waiting && plan.groups.length === 0} />
+      <BalanceMovers movers={movers} planState={planState} hasGroups={plan.groups.length > 0} column={column} onChangeTab={onChangeTab} />
     </View>
   );
 }
+
+function reviewSubtitle(review: Settlement, plan: Plan) {
+  const name = review.eventName?.trim() || plan.groups.find((group) => group.id === review.groupId)?.name || "Payment";
+  return `${name} · ${review.eventDate ? formatShortDate(review.eventDate) : "Today"}`;
+}
+
+function Attention({ plan, onChangeTab }: Pick<HomeTabProps, "onChangeTab"> & { plan: Plan }) {
+  const { palette } = usePreferences();
+  const review = plan.reviews[0];
+  if (!review) return null;
+  const amount = formatMoney(review.amountMinor, review.currency);
+  const reason = review.eventName?.trim() ? ` for ${review.eventName.trim()}` : "";
+  const more = plan.reviews.length - 1;
+
+  return (
+    <View style={styles.attention}>
+      <LedgerList>
+        <LedgerRow
+          leading={<EntryTile icon="send" tone="gold" ringColor={palette.surface} />}
+          title={`${review.debtor.name} paid?`}
+          subtitle={reviewSubtitle(review, plan)}
+          amount={{ text: amount, tone: "neutral" }}
+          status={{ label: "Needs review", tone: "warning" }}
+          chevron
+          onPress={() => router.push({ pathname: "/settlement/[id]", params: { id: review.id } })}
+          accessibilityLabel={`${review.debtor.name} says they paid ${amount}${reason}. Needs your review.`}
+          accessibilityHint="Opens the payment review"
+        />
+      </LedgerList>
+      {more > 0 ? (
+        <Touch
+          onPress={() => onChangeTab("reviews")}
+          accessibilityRole="button"
+          accessibilityLabel={`${more} more ${more === 1 ? "payment" : "payments"} to review. View all`}
+          pressableStyle={styles.moreButton}
+        >
+          {createElement(NativeText, { numberOfLines: 1, style: styles.moreLabel }, `+${more} more · View all`)}
+        </Touch>
+      ) : null}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  column: {
+    alignSelf: "center",
+  },
+  attention: {
+    marginHorizontal: 20,
+    marginTop: 4,
+  },
+  moreButton: {
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  moreLabel: {
+    fontFamily: "Manrope_600SemiBold",
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.violet,
+  },
+});

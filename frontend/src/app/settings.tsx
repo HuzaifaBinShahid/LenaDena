@@ -58,7 +58,7 @@ export default function SettingsScreen() {
 
   const saveProfile = async () => {
     if (!name.trim()) {
-      toast.warning("Add your name", "Friends need a name to recognise you by.");
+      toast.warning("Add your name", "Friends need a name to recognize you by.");
       return;
     }
     setSaving(true);
@@ -99,7 +99,7 @@ export default function SettingsScreen() {
         <View className="gap-5 rounded-card border border-line bg-raised p-4">
           <View>
             <Text className="text-lg font-bold text-ink">Public profile</Text>
-            <Text className="mt-1 text-xs leading-5 text-slate">This is how people recognise you in groups and payment reviews.</Text>
+            <Text className="mt-1 text-xs leading-5 text-slate">This is how people recognize you in groups and payment reviews.</Text>
           </View>
           <Field label="Display name" required>
             <Input value={name} onChangeText={setName} placeholder="Your name" leadingIcon="user" autoCapitalize="words" />
@@ -129,6 +129,11 @@ export default function SettingsScreen() {
         <Field label="Voice language" hint="Use system or a BCP-47 locale installed on your phone, such as ur-PK, ar-SA, hi-IN or fr-FR.">
           <Input value={voiceLocale} onChangeText={setVoiceLocale} placeholder="system" leadingIcon="mic" autoCapitalize="none" autoCorrect={false} />
         </Field>
+
+        <View className="rounded-card border border-line bg-raised p-5">
+          <Text className="font-bold text-ink">Account records</Text>
+          <Text className="mt-2 text-sm leading-5 text-slate">Expenses, payment claims, review decisions and fallback settlements are saved against your account with an audit trail.</Text>
+        </View>
 
         {configured && !session ? <Button label="Sign in" icon="mail" fullWidth onPress={() => router.push("/auth")} /> : null}
         {session ? (

@@ -1,8 +1,9 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { AppState, BackHandler, StyleSheet, View } from "react-native";
+import { AppState, BackHandler, Keyboard, StyleSheet, View } from "react-native";
 import type { LocalAuthenticationResult } from "expo-local-authentication";
 import { ScreenObscuredContext } from "@/components/ui/ScreenObscured";
+import { useToast } from "@/components/ui/Toast";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { goToSignIn } from "@/features/auth/navigation";
 import { useLedger } from "@/features/ledger/LedgerProvider";
@@ -279,8 +280,17 @@ export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
 
   const showLock = locked && Boolean(identity);
 
+  const { setObscured } = useToast();
+
+  useEffect(() => {
+    // Toasts can carry names and amounts; keep them off the lock screen and out of the app-switcher snapshot.
+    setObscured({ locked: showLock, covered });
+  }, [covered, setObscured, showLock]);
+
   useEffect(() => {
     if (!showLock) return;
+    // The keyboard lives in its own window above the lock and returns for a still-focused field on resume.
+    Keyboard.dismiss();
     // Android back would otherwise navigate the hidden screens underneath the lock.
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => true);
     return () => subscription.remove();

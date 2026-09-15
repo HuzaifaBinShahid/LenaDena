@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Platform, View } from "react-native";
+import { Platform, StyleSheet, useWindowDimensions, View } from "react-native";
 import { router } from "expo-router";
+import { COMPACT_CARD, LayeredGroupCard } from "@/components/groups/LayeredGroupCard";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -10,21 +11,28 @@ import { Text } from "@/components/ui/Text";
 import { TopTabs } from "@/components/ui/TopTabs";
 import { useToast } from "@/components/ui/Toast";
 import { speechUnavailableMessage, startOnDeviceSpeech, type SpeechSession } from "@/features/capture/speech";
+import { groupSkin } from "@/features/groups/groupSkin";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import type { TransactionDirection, TransactionKind } from "@/features/ledger/types";
 import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { useAppLock } from "@/features/security/AppLockProvider";
 import { errorMessage } from "@/lib/api";
 import { dateFromIso, dateToIso, formatLongDate, formatMoney, toMinorUnits, todayDate } from "@/lib/format";
+import { layout } from "@/theme/layout";
+import { colors } from "@/theme/tokens";
 
 type PersonalKind = Extract<TransactionKind, "expense" | "loan">;
 type VoiceField = "title" | "note";
+
+/** Screen padding (px-[18px] on each side). */
+const SCREEN_GUTTERS = 36;
 
 export default function NewPersonalTransactionScreen() {
   const { plan, createPersonalTransaction } = useLedger();
   const { speechLocale } = usePreferences();
   const { runWithoutLocking } = useAppLock();
   const toast = useToast();
+  const { width: windowWidth } = useWindowDimensions();
   const [kind, setKind] = useState<PersonalKind>("expense");
   const [direction, setDirection] = useState<TransactionDirection>("outgoing");
   const [title, setTitle] = useState("");
@@ -41,6 +49,11 @@ export default function NewPersonalTransactionScreen() {
   const pickerDate = dateFromIso(eventDate);
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(eventDate) && !Number.isNaN(pickerDate.getTime());
   const valid = Boolean(title.trim() && amountMinor > 0 && validDate && counterparty.trim());
+  const cardWidth = Math.min(windowWidth, layout.contentMax) - SCREEN_GUTTERS - COMPACT_CARD.MARGIN_LEFT;
+  const cardName = counterparty.trim() || "Individual balance";
+  const cardChip = direction === "outgoing"
+    ? { icon: "arrow-up" as const, label: "You owe", color: colors.coralBright }
+    : { icon: "arrow-down" as const, label: "Owed to you", color: colors.mintBright };
 
   useEffect(() => () => speech.current?.cancel(), []);
 
@@ -114,6 +127,22 @@ export default function NewPersonalTransactionScreen() {
   return (
     <Screen>
       <PageHeader title="Add individual balance" subtitle="No group or invite needed" />
+      <View style={styles.card}>
+        <LayeredGroupCard
+          variant="compact"
+          width={cardWidth}
+          height={COMPACT_CARD.HEIGHT}
+          skin={groupSkin()}
+          art="full"
+          glyph="user"
+          name={cardName}
+          currency={currency}
+          label="Amount"
+          amount={formatMoney(amountMinor, currency)}
+          chip={cardChip}
+          accessibilityLabel={`${cardName}. ${cardChip.label} ${formatMoney(amountMinor, currency)}.`}
+        />
+      </View>
       <View className="gap-4">
         <View className="gap-5 rounded-[24px] border border-line bg-raised p-4 shadow-sm shadow-violet/5">
           <View>
@@ -177,3 +206,11 @@ export default function NewPersonalTransactionScreen() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  card: {
+    marginLeft: COMPACT_CARD.MARGIN_LEFT,
+    marginTop: 2,
+    marginBottom: 26,
+  },
+});

@@ -1,17 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Image, Platform, View } from "react-native";
+import { Image, Platform, StyleSheet, useWindowDimensions, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
+import { CHIP_MUTED, COMPACT_CARD, FormNoGroup, LayeredGroupCard } from "@/components/groups/LayeredGroupCard";
+import { MemberRow } from "@/components/groups/MemberRow";
+import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
+import { EntryTile } from "@/components/ui/EntryTile";
 import { Field } from "@/components/ui/Field";
+import { Icon } from "@/components/ui/Icon";
 import { Input } from "@/components/ui/Input";
+import { LedgerList, LedgerRow } from "@/components/ui/LedgerRow";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Screen } from "@/components/ui/Screen";
+import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
 import { TopTabs } from "@/components/ui/TopTabs";
 import { useToast } from "@/components/ui/Toast";
 import { recognizeReceipt } from "@/features/capture/ocr";
 import { speechUnavailableMessage, startOnDeviceSpeech, type SpeechSession } from "@/features/capture/speech";
+import { groupSkin } from "@/features/groups/groupSkin";
+import { getPlanState } from "@/features/ledger/planState";
 import { calculateShares } from "@/features/ledger/split";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import type { SplitMethod } from "@/features/ledger/types";
@@ -19,6 +28,8 @@ import { useAppLock } from "@/features/security/AppLockProvider";
 import { errorMessage } from "@/lib/api";
 import { dateFromIso, dateToIso, formatLongDate, formatMoney, toMinorUnits, todayDate } from "@/lib/format";
 import { usePreferences } from "@/features/preferences/PreferencesProvider";
+import { layout } from "@/theme/layout";
+import { colors } from "@/theme/tokens";
 
 type FormStep = "details" | "split" | "finish";
 
@@ -30,10 +41,14 @@ const formSteps = [
 
 const stepRank: Record<FormStep, number> = { details: 0, split: 1, finish: 2 };
 
+/** Screen padding (px-[18px] on each side). */
+const SCREEN_GUTTERS = 36;
+
 export default function NewExpenseScreen() {
   const params = useLocalSearchParams<{ groupId?: string; receiptUri?: string }>();
-  const { plan, createExpense } = useLedger();
-  const { speechLocale } = usePreferences();
+  const { plan, connection, createExpense } = useLedger();
+  const { speechLocale, palette } = usePreferences();
+  const { width: windowWidth } = useWindowDimensions();
   const { runWithoutLocking } = useAppLock();
   const toast = useToast();
   const [step, setStep] = useState<FormStep>("details");
@@ -70,6 +85,11 @@ export default function NewExpenseScreen() {
   const eventError = submitted && !eventName.trim() ? "Event name is required." : undefined;
   const dateError = submitted && !validDate ? "Choose a valid date." : undefined;
   const amountError = submitted && amountMinor <= 0 ? "Enter an amount greater than zero." : undefined;
+  const planState = getPlanState(plan, connection);
+  const cardWidth = Math.min(windowWidth, layout.contentMax) - SCREEN_GUTTERS - COMPACT_CARD.MARGIN_LEFT;
+  // Everyone else's shares come back to you, because you are the payer.
+  const getBackMinor = Math.max(0, shares.reduce((sum, share) => (share.memberId === plan.user.id ? sum : sum + share.amountMinor), 0));
+  const splitSummary = `${participants.length} ${participants.length === 1 ? "person" : "people"} · ${method === "equal" ? "Equal" : method === "exact" ? "By value" : "By percentage"}`;
 
   const listen = async (field: "event" | "note") => {
     if (listeningField) {
@@ -181,6 +201,26 @@ export default function NewExpenseScreen() {
     }
   };
 
+  if (!plan.groups.length) {
+    return (
+      <Screen>
+        <PageHeader title="Add expense" subtitle="Three short steps, one clear split" />
+        {planState === "loading" ? (
+          <View style={styles.loading}>
+            <Spinner />
+            <Text className="text-[13px] font-semibold text-slate">Loading your groups</Text>
+          </View>
+        ) : (
+          <FormNoGroup
+            cardWidth={cardWidth}
+            title="Group expenses need a group"
+            detail="Create a group to split this cost, or track it as an individual entry with one person."
+          />
+        )}
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
       <PageHeader title="Add expense" subtitle="Three short steps, one clear split" />
@@ -190,6 +230,23 @@ export default function NewExpenseScreen() {
           <Text className="text-xs text-slate">You can go back anytime</Text>
         </View>
         <TopTabs tabs={formSteps} value={step} onChange={goToStep} />
+      </View>
+
+      <View style={styles.card}>
+        <LayeredGroupCard
+          variant="compact"
+          width={cardWidth}
+          height={COMPACT_CARD.HEIGHT}
+          skin={groupSkin(group?.accent)}
+          art="full"
+          glyph="users"
+          name={group?.name ?? "Group"}
+          currency={group?.currency}
+          label="Total"
+          amount={formatMoney(amountMinor, group?.currency)}
+          chip={{ icon: "file-text", label: eventName.trim() || "New expense", color: CHIP_MUTED }}
+          accessibilityLabel={`${group?.name ?? "Group"}. Total ${formatMoney(amountMinor, group?.currency)}. ${eventName.trim() || "New expense"}.`}
+        />
       </View>
 
       {step === "details" ? (
@@ -250,19 +307,24 @@ export default function NewExpenseScreen() {
               />
             </Field>
             <Field label="People" required error={submitted && !participants.length ? "Choose at least one person." : undefined}>
-              <View className="flex-row flex-wrap gap-2">
-                {group?.members.map((member) => {
-                  const selected = selectedIds.includes(member.id);
-                  return <Button key={member.id} label={member.name} icon={selected ? "check" : "plus"} size="sm" variant={selected ? "primary" : "secondary"} onPress={() => setSelectedIds((current) => selected ? current.filter((id) => id !== member.id) : [...current, member.id])} />;
-                })}
-              </View>
+              {group ? (
+                <MemberRow
+                  group={group}
+                  currentUserId={plan.user.id}
+                  mode="checkbox"
+                  layout="wrap"
+                  selectedIds={selectedIds}
+                  onToggle={(memberId) => setSelectedIds((current) => current.includes(memberId) ? current.filter((id) => id !== memberId) : [...current, memberId])}
+                />
+              ) : null}
             </Field>
             {method !== "equal" ? (
               <Field label={method === "exact" ? "Amounts" : "Percentages"} required error={submitted && !validAllocation ? method === "exact" ? "Amounts must equal the total." : "Percentages must equal 100%." : undefined}>
                 <View className="gap-3">
                   {participants.map((member) => (
                     <View key={member.id} className="flex-row items-center gap-3">
-                      <Text className="flex-1 font-bold text-ink">{member.name}</Text>
+                      <Avatar name={member.name} uri={member.avatarUrl} size="sm" shape="circle" />
+                      <Text className="flex-1 font-bold text-ink" numberOfLines={1}>{member.name}</Text>
                       <View className="w-32">
                         <Input value={allocations[member.id] ?? ""} onChangeText={(value) => setAllocations((current) => ({ ...current, [member.id]: value }))} keyboardType="decimal-pad" placeholder={method === "exact" ? "0" : "0%"} />
                       </View>
@@ -285,14 +347,29 @@ export default function NewExpenseScreen() {
       {step === "finish" ? (
         <View className="gap-4">
           <View className="gap-5 rounded-[24px] border border-line bg-raised p-4 shadow-sm shadow-violet/5">
-            <View className="rounded-[20px] border border-line bg-canvas p-4">
-              <View className="flex-row items-start justify-between gap-4">
-                <View className="flex-1">
-                  <Text className="text-base font-bold text-ink">{eventName}</Text>
-                  <Text className="mt-1 text-xs leading-5 text-slate">{group?.name} · {formatLongDate(eventDate)}</Text>
-                  <Text className="mt-1 text-xs text-slate">{participants.length} {participants.length === 1 ? "person" : "people"} · {method === "equal" ? "Equal" : method === "exact" ? "By value" : "By percentage"}</Text>
-                </View>
-                <Text className="text-lg font-bold text-violet">{formatMoney(amountMinor, group?.currency)}</Text>
+            <View style={styles.summary}>
+              <LedgerList>
+                <LedgerRow
+                  leading={<EntryTile icon="file-text" tone="violet" ringColor={palette.surface} />}
+                  title={eventName.trim() || "New expense"}
+                  subtitle={`${formatLongDate(eventDate)} · ${group?.name ?? "Group"}`}
+                  note={splitSummary}
+                  amount={{ text: formatMoney(amountMinor, group?.currency), tone: "neutral" }}
+                  accessibilityLabel={`${eventName.trim() || "New expense"}. ${formatLongDate(eventDate)}, ${group?.name ?? "Group"}. ${formatMoney(amountMinor, group?.currency)}. ${splitSummary}.`}
+                />
+              </LedgerList>
+              <View style={styles.getBack}>
+                {getBackMinor > 0 ? (
+                  <>
+                    <Icon name="arrow-down" size={16} color={colors.mint} />
+                    <Text className="flex-1 font-medium text-slate" style={styles.getBackLabel}>You get back {formatMoney(getBackMinor, group?.currency)}</Text>
+                  </>
+                ) : (
+                  <>
+                    <Icon name="info" size={16} color={colors.slate} />
+                    <Text className="flex-1 font-medium text-slate" style={styles.getBackLabel}>Only you are in this split, so nobody will owe you.</Text>
+                  </>
+                )}
               </View>
             </View>
             <Field label="Receipt" hint="Optional. OCR suggestions are always yours to review.">
@@ -315,3 +392,29 @@ export default function NewExpenseScreen() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  card: {
+    marginLeft: COMPACT_CARD.MARGIN_LEFT,
+    marginTop: 2,
+    marginBottom: 26,
+  },
+  loading: {
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 40,
+  },
+  summary: {
+    gap: 10,
+  },
+  getBack: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 4,
+  },
+  getBackLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+});

@@ -33,5 +33,5 @@ export const motion = {
   tapIn: 80,
   tapOut: 140,
   screen: 200,
-  splash: 1850,
+  splash: 2200,
 } as const;
