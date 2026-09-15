@@ -19,7 +19,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const config: AppConfig = {
     nodeEnv,
     host: overrides.host ?? process.env.HOST ?? "0.0.0.0",
-    port: overrides.port ?? Number(process.env.PORT ?? 3000),
+    port: overrides.port ?? Number(process.env.PORT || 3000),
     corsOrigin: overrides.corsOrigin ?? process.env.CORS_ORIGIN ?? "*",
     authMode,
     // Email-only sign-in has no proof of inbox ownership, so it is opt-in and can never run in production.
