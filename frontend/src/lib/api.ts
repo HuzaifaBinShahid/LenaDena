@@ -70,22 +70,51 @@ export async function uploadPrivateImage(kind: "receipt" | "payment-proof" | "av
   const match = uri.toLowerCase().match(/\.(png|webp|jpe?g)(?:\?|$)/);
   const extension = match?.[1] === "png" ? "png" : match?.[1] === "webp" ? "webp" : "jpg";
   const contentType = extension === "png" ? "image/png" : extension === "webp" ? "image/webp" : "image/jpeg";
+  const url = `${apiUrl}/v1/uploads/${kind}`;
+  const headers = await authHeaders();
   const form = new FormData();
+  let status: number;
+  let text: string;
   if (Platform.OS === "web") {
     const fileResponse = await fetch(uri);
     form.append("file", await fileResponse.blob(), `${kind}.${extension}`);
+    const response = await fetch(url, { method: "POST", headers, body: form });
+    status = response.status;
+    text = await response.text();
   } else {
     form.append("file", { uri, name: `${kind}.${extension}`, type: contentType } as unknown as Blob);
+    ({ status, text } = await postNativeForm(url, headers, form));
   }
-  const response = await fetch(`${apiUrl}/v1/uploads/${kind}`, {
-    method: "POST",
-    headers: await authHeaders(),
-    body: form,
-  });
-  const payload = await response.json().catch(() => null) as { path?: string; message?: string; code?: string } | null;
-  if (response.status === 501) return uri;
-  if (!response.ok || !payload?.path) {
-    throw new ApiError(payload?.message ?? "Image upload failed", response.status, payload?.code, payload);
+  const payload = parseJson(text) as { path?: string; message?: string; code?: string } | null;
+  if (status === 501) return uri;
+  if (status < 200 || status >= 300 || !payload?.path) {
+    throw new ApiError(payload?.message ?? "Image upload failed", status, payload?.code, payload);
   }
   return payload.path;
+}
+
+/**
+ * Expo replaces the global `fetch` with `expo/fetch`, which throws "Unsupported FormDataPart implementation"
+ * for React Native's `{ uri, name, type }` file parts. React Native's own XMLHttpRequest still reads the
+ * local file natively and writes the multipart boundary, so native uploads go through it.
+ */
+function postNativeForm(url: string, headers: Record<string, string>, form: FormData) {
+  return new Promise<{ status: number; text: string }>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", url);
+    for (const [name, value] of Object.entries(headers)) request.setRequestHeader(name, value);
+    request.onload = () => resolve({ status: request.status, text: request.responseText });
+    // Same message as a failed fetch, so errorMessage() shows the connection hint.
+    request.onerror = () => reject(new TypeError("Network request failed"));
+    request.ontimeout = () => reject(new TypeError("Network request failed"));
+    request.send(form);
+  });
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }

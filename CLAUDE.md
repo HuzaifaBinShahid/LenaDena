@@ -100,6 +100,7 @@ Provider order in `_layout.tsx`: `GestureHandlerRootView > SafeAreaProvider > To
 - **Motion**: transform/opacity only, respect `useReducedMotion`, no looping decoration.
 - **Money**: integer minor units, percentages in basis points, totals per currency.
 - **Backend**: every route has TypeBox body/params/response schemas; throw `DomainError` subclasses; financial writes require `idempotency-key`. `exactOptionalPropertyTypes` is on — never pass `undefined` to optional SDK fields, spread conditionally.
+- **File uploads on native**: Expo replaces global `fetch` with `expo/fetch`, which throws "Unsupported FormDataPart implementation" for React Native `{ uri, name, type }` FormData parts. Native multipart uploads go through `XMLHttpRequest` (`postNativeForm` in `lib/api.ts`); keep `fetch` for web only.
 - **Typed routes**: dynamic `router.replace(stringVar)` needs an `Href` cast.
 - Expo Go lacks speech recognition and Face ID; OCR/speech/share intake need a dev build (`expo prebuild && expo run:ios`).
 
