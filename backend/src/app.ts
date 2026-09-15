@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { createClient } from "@supabase/supabase-js";
 import Fastify, { LogController } from "fastify";
 import cors from "@fastify/cors";
@@ -81,4 +82,19 @@ export async function buildApp(options: BuildOptions = {}) {
   }
 
   return { app, config };
+}
+
+/**
+ * Vercel detects this module as the Fastify entry point.  Its Node runtime
+ * invokes a default request handler, whereas local development starts the
+ * server from `server.ts`.  Cache the initialized Fastify instance so module
+ * reuse on a warm serverless function does not recreate plugins or clients.
+ */
+let vercelApp: Promise<Awaited<ReturnType<typeof buildApp>>> | undefined;
+
+export default async function vercelHandler(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  vercelApp ??= buildApp();
+  const { app } = await vercelApp;
+  await app.ready();
+  app.server.emit("request", request, response);
 }
