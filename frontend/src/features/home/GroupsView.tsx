@@ -100,10 +100,12 @@ export function GroupsView(_props: HomeTabProps) {
   ), [card.height, card.width, plan.user.id, rowsByGroup]);
 
   const getItemLayout = useCallback((_: ArrayLike<Group> | null | undefined, index: number) => ({
-    length: card.width,
-    offset: CARD.STAGE_LEFT + index * snap,
+    // FlatList measures content, not the container's stage padding. Include the separator so this
+    // virtual measurement matches `snapToInterval`; otherwise a swipe can settle between cards.
+    length: snap,
+    offset: index * snap,
     index,
-  }), [card.width, snap]);
+  }), [snap]);
 
   const detail = planState === "loading"
     ? "Loading your circles"
@@ -190,6 +192,8 @@ export function GroupsView(_props: HomeTabProps) {
           snapToAlignment="start"
           decelerationRate="fast"
           disableIntervalMomentum
+          directionalLockEnabled
+          nestedScrollEnabled
           getItemLayout={getItemLayout}
           windowSize={5}
           initialNumToRender={3}

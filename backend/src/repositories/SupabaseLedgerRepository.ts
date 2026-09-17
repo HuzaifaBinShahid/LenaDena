@@ -22,6 +22,17 @@ export class SupabaseLedgerRepository implements LedgerRepository {
       const { data: signed, error: signedError } = await this.client.storage.from("payment-proofs").createSignedUrl(review.proofUri, 300);
       if (!signedError && signed?.signedUrl) review.proofUri = signed.signedUrl;
     }));
+    const receiptPaths = Array.from(new Set(plan.transactions.map((transaction) => transaction.receiptUri).filter((value): value is string => Boolean(value))));
+    const signedReceipts = new Map<string, string>();
+    await Promise.all(receiptPaths.map(async (path) => {
+      const { data: signed, error: signedError } = await this.client.storage.from("receipts").createSignedUrl(path, 300);
+      if (!signedError && signed?.signedUrl) signedReceipts.set(path, signed.signedUrl);
+    }));
+    for (const transaction of plan.transactions) {
+      if (!transaction.receiptUri) continue;
+      const signedUrl = signedReceipts.get(transaction.receiptUri);
+      if (signedUrl) transaction.receiptUri = signedUrl;
+    }
     const members: Member[] = [plan.user, ...plan.groups.flatMap((group) => group.members), ...plan.reviews.flatMap((review) => [review.debtor, review.recipient]), ...plan.claims.flatMap((claim) => [claim.debtor, claim.recipient])];
     const paths = Array.from(new Set(members.map((member) => member.avatarUrl).filter((value): value is string => Boolean(value))));
     const signedAvatars = new Map<string, string>();

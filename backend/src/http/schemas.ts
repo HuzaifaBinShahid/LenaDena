@@ -82,6 +82,7 @@ export const TransactionSchema = Type.Object({
   kind: Type.Union([Type.Literal("expense"), Type.Literal("loan"), Type.Literal("payment")]),
   counterparty: Type.Optional(Type.String()),
   note: Type.Optional(Type.String()),
+  receiptUri: Type.Optional(Type.String()),
   status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("settled")])),
   settledAt: Type.Optional(Type.String()),
   createdAt: Type.String(),
@@ -138,6 +139,7 @@ export const CreatePersonalTransactionSchema = Type.Object({
   direction: Type.Union([Type.Literal("incoming"), Type.Literal("outgoing")]),
   counterparty: Type.String({ minLength: 1, maxLength: 80 }),
   note: Type.Optional(Type.String({ maxLength: 500 })),
+  receiptUri: Type.Optional(Type.String({ maxLength: 2048 })),
 }, { additionalProperties: false });
 
 export const CreateSettlementSchema = Type.Object({

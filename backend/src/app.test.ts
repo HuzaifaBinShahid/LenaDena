@@ -99,6 +99,7 @@ describe("LenaDena API", () => {
         kind: "expense",
         direction: "outgoing",
         counterparty: "Ali",
+        receiptUri: "demo-user/receipts/fuel.jpg",
       },
     });
     expect(created.statusCode).toBe(201);
@@ -112,6 +113,7 @@ describe("LenaDena API", () => {
       direction: "outgoing",
       counterparty: "Ali",
       status: "open",
+      receiptUri: "demo-user/receipts/fuel.jpg",
     });
 
     const privateAttempt = await app.inject({

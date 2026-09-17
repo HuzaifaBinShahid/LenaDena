@@ -101,9 +101,10 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const createPersonalTransaction = useCallback(async (input: CreatePersonalTransactionInput) => {
+    const receiptUri = input.receiptUri ? await uploadPrivateImage("receipt", input.receiptUri) : undefined;
     await apiRequest("/v1/personal-transactions", {
       method: "POST",
-      body: input,
+      body: { ...input, receiptUri },
       idempotencyKey: newIdempotencyKey(),
     });
     await refresh();

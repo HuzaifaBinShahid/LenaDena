@@ -267,6 +267,13 @@ export default function NewExpenseScreen() {
                 }}
               />
             </Field>
+            <Field label="Receipt" hint="Optional. We read it on your device and you review every suggestion.">
+              {receiptUri ? <Image source={{ uri: receiptUri }} className="h-40 w-full rounded-[18px] bg-surface" resizeMode="cover" /> : null}
+              <View className="mt-1 flex-row gap-2">
+                <Button label={receiptUri ? "Replace" : "Choose photo"} icon="image" variant="secondary" loading={scanning} onPress={chooseReceipt} />
+                {receiptUri ? <Button label="Scan again" icon="maximize" variant="ghost" loading={scanning} onPress={() => void scan(receiptUri)} /> : null}
+              </View>
+            </Field>
             <Field label="Amount" required error={amountError}>
               <Input value={amount} onChangeText={setAmount} placeholder="6,000" keyboardType="decimal-pad" leadingIcon="credit-card" invalid={Boolean(amountError)} />
             </Field>
@@ -372,13 +379,6 @@ export default function NewExpenseScreen() {
                 )}
               </View>
             </View>
-            <Field label="Receipt" hint="Optional. OCR suggestions are always yours to review.">
-              {receiptUri ? <Image source={{ uri: receiptUri }} className="h-40 w-full rounded-[18px] bg-surface" resizeMode="cover" /> : null}
-              <View className="mt-1 flex-row gap-2">
-                <Button label={receiptUri ? "Replace" : "Choose photo"} icon="image" variant="secondary" loading={scanning} onPress={chooseReceipt} />
-                {receiptUri ? <Button label="Scan again" icon="maximize" variant="ghost" loading={scanning} onPress={() => scan(receiptUri)} /> : null}
-              </View>
-            </Field>
             <Field label="Note" hint="Optional and visible to the group.">
               <Input value={note} onChangeText={setNote} placeholder="Add a final detail" multiline trailingIcon={listeningField === "note" ? "square" : "mic"} onTrailingPress={() => void listen("note")} />
             </Field>

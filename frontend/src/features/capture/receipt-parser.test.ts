@@ -11,4 +11,9 @@ describe("parseReceiptText", () => {
     const result = parseReceiptText("Coffee House\n5 Sep 2026\nAmount 850");
     expect(result.date).toBe("2026-09-05");
   });
+
+  it("prefers a labelled total over a larger invoice number or subtotal", () => {
+    const result = parseReceiptText("Store 22\nInvoice 900012\nSubtotal 8,500\nGST 1,275\nGrand total: Rs 9,775.00");
+    expect(result.amount).toBe("9775.00");
+  });
 });

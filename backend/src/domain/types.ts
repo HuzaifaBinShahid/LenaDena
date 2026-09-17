@@ -91,6 +91,7 @@ export type TransactionItem = {
   kind: TransactionKind;
   counterparty?: string;
   note?: string;
+  receiptUri?: string;
   status?: TransactionStatus;
   settledAt?: string;
   createdAt: string;
@@ -134,6 +135,7 @@ export type CreatePersonalTransactionInput = {
   direction: TransactionDirection;
   counterparty: string;
   note?: string;
+  receiptUri?: string;
 };
 
 export type CreateSettlementInput = {

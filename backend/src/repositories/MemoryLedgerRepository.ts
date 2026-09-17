@@ -259,6 +259,7 @@ export class MemoryLedgerRepository implements LedgerRepository {
       kind: input.kind,
       counterparty: input.counterparty.trim(),
       ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+      ...(input.receiptUri ? { receiptUri: input.receiptUri } : {}),
       status: "open",
       createdAt: new Date().toISOString(),
     };

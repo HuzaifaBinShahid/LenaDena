@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { Image, View } from "react-native";
 import { Text } from "@/components/ui/Text";
 import { router } from "expo-router";
@@ -9,26 +9,21 @@ import { Screen } from "@/components/ui/Screen";
 import { Icon } from "@/components/ui/Icon";
 import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
-import { recognizeReceipt } from "@/features/capture/ocr";
 import { colors } from "@/theme/tokens";
 
 export default function ShareScreen() {
   const { resolvedSharedPayloads, isResolving, error, clearSharedPayloads } = useIncomingShare();
   const toast = useToast();
-  const [scanning, setScanning] = useState(false);
   const image = useMemo(() => resolvedSharedPayloads.find((payload) => payload.contentType === "image" && payload.contentUri), [resolvedSharedPayloads]);
 
   useEffect(() => {
     if (error) toast.error("Couldn't import the photo", error.message);
   }, [error, toast]);
 
-  const continueToExpense = async () => {
+  const continueToExpense = () => {
     if (!image?.contentUri) {
       return;
     }
-    setScanning(true);
-    await recognizeReceipt(image.contentUri);
-    setScanning(false);
     clearSharedPayloads();
     router.replace({ pathname: "/expense/new", params: { receiptUri: image.contentUri } });
   };
@@ -44,7 +39,7 @@ export default function ShareScreen() {
             <Icon name="lock-closed" size={17} color={colors.slate} />
             <Text className="flex-1 text-[13px] leading-5 text-slate">Only this image was received, never the chat, contacts or conversation name. Nothing uploads until you save the expense.</Text>
           </View>
-          <Button label="Continue to division" icon="arrow-right" iconSide="right" size="lg" fullWidth loading={scanning} onPress={continueToExpense} />
+          <Button label="Choose group and scan" icon="arrow-right" iconSide="right" size="lg" fullWidth onPress={continueToExpense} />
           <Button label="Discard" icon="trash-2" variant="ghost" fullWidth onPress={() => { clearSharedPayloads(); router.replace("/"); }} />
         </View>
       ) : null}
