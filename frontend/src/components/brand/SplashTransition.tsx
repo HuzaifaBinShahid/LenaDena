@@ -28,6 +28,8 @@ import { colors, motion } from "@/theme/tokens";
 // plays and nothing loops. Only transform and opacity animate. The overlay unmounts after `onFinish`.
 
 type SplashTransitionProps = {
+  /** Called after the first rendered frame, while the native splash is still covering this view. */
+  onReady: () => void;
   onFinish: () => void;
 };
 
@@ -585,7 +587,7 @@ function ProgressPill({ clock, left, top }: { clock: Clock; left: number; top: n
 
 // ---------------------------------------------------------------------------------------------------------
 
-export function SplashTransition({ onFinish }: SplashTransitionProps) {
+export function SplashTransition({ onReady, onFinish }: SplashTransitionProps) {
   // Read once at mount. Under reduced motion the clock starts at its end, so the first frame is the final pose.
   const reduceMotion = useReducedMotion();
   const clock = useSharedValue(reduceMotion ? INTRO_MS : 0);
@@ -604,6 +606,11 @@ export function SplashTransition({ onFinish }: SplashTransitionProps) {
     transform: [{ scale: reduceMotion ? 1 : 1 + exit.value * 0.025 }],
   }));
   const backgroundStyle = useAnimatedStyle(() => ({ opacity: outCubic(phase(clock.value, 0, 360)) }));
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(onReady);
+    return () => cancelAnimationFrame(frame);
+  }, [onReady]);
 
   useEffect(() => {
     const finish = () => {

@@ -15,6 +15,8 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.lenadena.app",
+    // Resize the activity, then let KeyboardAwareScrollView move only the focused form field.
+    softwareKeyboardLayoutMode: "resize",
     permissions: ["RECORD_AUDIO"],
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",

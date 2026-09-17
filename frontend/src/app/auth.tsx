@@ -1,11 +1,12 @@
 import { createElement, useRef } from "react";
 import type { TextInput } from "react-native";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Redirect, useLocalSearchParams, type Href } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import Animated, { FadeIn, FadeInDown, FadeOutUp, LinearTransition, useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { SpaceBackdrop } from "@/components/brand/SpaceBackdrop";
 import { Button } from "@/components/ui/Button";
@@ -36,24 +37,23 @@ function CompactLayout({ form, width }: { form: AuthForm; width: number }) {
     <View style={styles.root}>
       <StatusBar style="light" />
       <SpaceBackdrop fit="top" />
-      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView
-          style={styles.fill}
-          contentContainerStyle={[styles.compactContent, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 16 }]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.header}>
-            <BrandMark size="sm" tone="light" showName={width >= 390} />
-            <ModeLink form={form} />
-          </View>
-          {/* Keeps the planet and moon clear of the heading; spare height is shared two-to-one above and below the form. */}
-          <View style={{ minHeight: width * 0.5, flexGrow: 1 }} />
-          <AuthPanel form={form} headingSize={Math.min(56, width * 0.135)} />
-          <View style={{ flexGrow: 0.5 }} />
-          <Footer />
-        </ScrollView>
-      </KeyboardAvoidingView>
+      <KeyboardAwareScrollView
+        style={styles.fill}
+        bottomOffset={16}
+        contentContainerStyle={[styles.compactContent, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 16 }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <BrandMark size="sm" tone="light" showName={width >= 390} />
+          <ModeLink form={form} />
+        </View>
+        {/* Keeps the planet and moon clear of the heading; spare height is shared two-to-one above and below the form. */}
+        <View style={{ minHeight: width * 0.5, flexGrow: 1 }} />
+        <AuthPanel form={form} headingSize={Math.min(56, width * 0.135)} />
+        <View style={{ flexGrow: 0.5 }} />
+        <Footer />
+      </KeyboardAwareScrollView>
     </View>
   );
 }
@@ -77,11 +77,11 @@ function WideLayout({ form }: { form: AuthForm }) {
         <View style={styles.wideTopBar}>
           <ModeLink form={form} />
         </View>
-        <ScrollView contentContainerStyle={styles.wideScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <KeyboardAwareScrollView bottomOffset={24} contentContainerStyle={styles.wideScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={styles.wideForm}>
             <AuthPanel form={form} headingSize={64} />
           </View>
-        </ScrollView>
+        </KeyboardAwareScrollView>
         <View style={styles.wideFooter}>
           <Footer />
         </View>

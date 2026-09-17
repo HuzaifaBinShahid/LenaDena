@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
-import { ScrollView, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { usePreferences } from "@/features/preferences/PreferencesProvider";
 
 type ScreenProps = {
@@ -18,9 +19,22 @@ export function Screen({ children, scroll = true, className = "" }: ScreenProps)
   return (
     <SafeAreaView className={`flex-1 bg-canvas ${className}`} style={{ backgroundColor: palette.screen }} edges={["top"]}>
       <StatusBar style="dark" />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="flex-grow px-[18px] pb-14" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView
+        bottomOffset={16}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         {children}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 18,
+    paddingBottom: 56,
+  },
+});

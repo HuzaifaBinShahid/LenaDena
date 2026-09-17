@@ -33,5 +33,6 @@ export const motion = {
   tapIn: 80,
   tapOut: 140,
   screen: 200,
-  splash: 2200,
+  // Long enough to read the brand line and see the scene settle, without delaying app access.
+  splash: 3200,
 } as const;
