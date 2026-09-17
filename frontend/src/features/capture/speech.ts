@@ -6,7 +6,7 @@ type SpeechModule = {
   ExpoSpeechRecognitionModule: {
     isRecognitionAvailable: () => boolean;
     supportsOnDeviceRecognition: () => boolean;
-    requestMicrophonePermissionsAsync: () => Promise<{ granted: boolean }>;
+    requestPermissionsAsync: () => Promise<{ granted: boolean }>;
     addListener: (name: string, listener: (event: Record<string, unknown>) => void) => Listener;
     start: (options: Record<string, unknown>) => void;
     stop: () => void;
@@ -35,12 +35,17 @@ export async function startOnDeviceSpeech(
   if (speechUnavailableMessage()) return null;
   try {
     const { ExpoSpeechRecognitionModule: module } = await import("expo-speech-recognition") as SpeechModule;
-    if (!module.isRecognitionAvailable() || !module.supportsOnDeviceRecognition()) {
-      return null;
-    }
-    const permission = await module.requestMicrophonePermissionsAsync();
+    const permission = await module.requestPermissionsAsync();
     if (!permission.granted) {
       onError("Microphone permission was not granted.");
+      return null;
+    }
+    if (!module.isRecognitionAvailable()) {
+      onError("Voice recognition is not available on this device.");
+      return null;
+    }
+    if (!module.supportsOnDeviceRecognition()) {
+      onError("On-device voice recognition is unavailable. Download a speech model in your device settings, then try again.");
       return null;
     }
     const resultListener = module.addListener("result", (event) => {

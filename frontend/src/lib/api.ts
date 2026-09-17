@@ -42,8 +42,9 @@ async function authHeaders() {
 }
 
 export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  const hasJsonBody = options.body !== undefined;
   const headers = {
-    "content-type": "application/json",
+    ...(hasJsonBody ? { "content-type": "application/json" } : {}),
     ...(await authHeaders()),
     ...(options.idempotencyKey ? { "idempotency-key": options.idempotencyKey } : {}),
     ...(options.headers ?? {}),
@@ -51,7 +52,7 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
   const response = await fetch(`${apiUrl}${path}`, {
     ...options,
     headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body: hasJsonBody ? JSON.stringify(options.body) : undefined,
   });
   const payload = (await response.json().catch(() => null)) as T | { message?: string; code?: string; details?: unknown } | null;
   if (!response.ok) {

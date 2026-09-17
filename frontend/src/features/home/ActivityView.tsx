@@ -1,6 +1,6 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LayoutChangeEvent } from "react-native";
-import { Alert, AppState, ScrollView, StyleSheet, Text as NativeText, useWindowDimensions, View } from "react-native";
+import { AppState, ScrollView, StyleSheet, Text as NativeText, useWindowDimensions, View } from "react-native";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/layout/EmptyState";
 import { SectionHeader } from "@/components/layout/SectionHeader";
 import { Button } from "@/components/ui/Button";
 import { CategoryCard } from "@/components/ui/CategoryCard";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { EntryTile } from "@/components/ui/EntryTile";
 import { GroupAvatar } from "@/components/ui/GroupAvatar";
 import { Icon } from "@/components/ui/Icon";
@@ -104,6 +105,7 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
   const [currencyChoice, setCurrencyChoice] = useState<string | null>(null);
   const [selection, setSelection] = useState<{ key: string; index: number } | null>(null);
   const [settlingId, setSettlingId] = useState<string | null>(null);
+  const [settlementTarget, setSettlementTarget] = useState<TransactionItem | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [today, setToday] = useState(todayDate);
   const [chartWidth, setChartWidth] = useState(0);
@@ -191,24 +193,17 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
 
   const toggleScope = (key: string) => setScope((current) => (current === key ? "all" : key));
 
-  const confirmSettlement = (item: TransactionItem) => {
-    Alert.alert(
-      "Mark this as settled?",
-      `${item.title} will leave your open balance and stay visible in Activity.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Mark settled",
-          onPress: () => {
-            setSettlingId(item.id);
-            void settlePersonalTransaction(item.id)
-              .then(() => toast.success("Marked as settled", `${item.title} left your open balance and stays in Activity.`))
-              .catch((error: unknown) => toast.error("Couldn't settle the entry", errorMessage(error)))
-              .finally(() => setSettlingId(null));
-          },
-        },
-      ],
-    );
+  const settleTarget = () => {
+    const item = settlementTarget;
+    if (!item) return;
+    setSettlingId(item.id);
+    void settlePersonalTransaction(item.id)
+      .then(() => {
+        setSettlementTarget(null);
+        toast.success("Marked as settled", `${item.title} left your open balance and stays in Activity.`);
+      })
+      .catch((error: unknown) => toast.error("Couldn't settle the entry", errorMessage(error)))
+      .finally(() => setSettlingId(null));
   };
 
   // ---------------------------------------------------------------------------
@@ -591,7 +586,7 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
                         size="md"
                         variant="secondary"
                         loading={settlingId === item.id}
-                        onPress={() => confirmSettlement(item)}
+                        onPress={() => setSettlementTarget(item)}
                         accessibilityHint={`Marks ${copy.title} as settled after you confirm`}
                       />
                     ) : undefined}
@@ -654,6 +649,16 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
         activeCount={filterCount}
         resultCount={listItems.length}
         onClear={clearFilters}
+      />
+      <ConfirmModal
+        visible={Boolean(settlementTarget)}
+        title="Mark this as settled?"
+        detail={settlementTarget ? `${settlementTarget.title} will leave your open balance and stay visible in Activity.` : ""}
+        confirmLabel="Mark settled"
+        cancelLabel="Keep open"
+        loading={Boolean(settlingId)}
+        onConfirm={settleTarget}
+        onClose={() => setSettlementTarget(null)}
       />
     </View>
   );

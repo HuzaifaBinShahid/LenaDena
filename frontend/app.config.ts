@@ -15,6 +15,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.lenadena.app",
+    permissions: ["RECORD_AUDIO"],
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#1A1037",
@@ -42,7 +43,6 @@ const config: ExpoConfig = {
       {
         photosPermission: "Choose a receipt, payment proof, or profile photo for LenaDena.",
         cameraPermission: "Take a receipt, payment proof, or profile photo for LenaDena.",
-        microphonePermission: false,
       },
     ],
     [

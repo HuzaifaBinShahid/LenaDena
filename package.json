@@ -16,7 +16,7 @@
     "build": "pnpm build:backend && pnpm build:web",
     "build:backend": "pnpm --filter @lenadena/backend build",
     "build:web": "pnpm --filter @lenadena/frontend exec expo export --platform web --output-dir dist-web",
-    "build:apk": "pnpm --filter @lenadena/frontend run build:apk",
+    "build:apk": "pnpm --filter @lenadena/frontend run dist:android",
     "doctor": "node scripts/check-nativewind-runtime.mjs && pnpm --filter @lenadena/frontend run doctor",
     "check:nativewind": "node scripts/check-nativewind-runtime.mjs",
     "postinstall": "node scripts/check-nativewind-runtime.mjs --fix",

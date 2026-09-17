@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Alert, Image, View } from "react-native";
+import { Image, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Field } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { Input } from "@/components/ui/Input";
@@ -26,6 +27,7 @@ export default function SettlementReviewScreen() {
   const sentByUser = Boolean(claim);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState<"confirm" | "attention" | "settle" | null>(null);
+  const [settleConfirmationVisible, setSettleConfirmationVisible] = useState(false);
 
   if (!payment) {
     return (
@@ -53,29 +55,18 @@ export default function SettlementReviewScreen() {
     }
   };
 
-  const settle = () => {
-    Alert.alert(
-      "Mark this payment as settled?",
-      `${payment.recipient.name} will be notified. LenaDena will record that you closed it using the payer fallback, not a recipient confirmation.`,
-      [
-        { text: "Keep waiting", style: "cancel" },
-        {
-          text: "Mark settled",
-          onPress: async () => {
-            setSaving("settle");
-            try {
-              await selfConfirmSettlement(payment.id);
-              router.replace({ pathname: "/", params: { tab: "reviews" } });
-              toast.success("Payment settled", `Recorded as settled by you. ${payment.recipient.name} has been notified.`);
-            } catch (error) {
-              toast.error("Couldn't settle the payment", errorMessage(error));
-            } finally {
-              setSaving(null);
-            }
-          },
-        },
-      ],
-    );
+  const settle = async () => {
+    setSaving("settle");
+    try {
+      await selfConfirmSettlement(payment.id);
+      setSettleConfirmationVisible(false);
+      router.replace({ pathname: "/", params: { tab: "reviews" } });
+      toast.success("Payment settled", `Recorded as settled by you. ${payment.recipient.name} has been notified.`);
+    } catch (error) {
+      toast.error("Couldn't settle the payment", errorMessage(error));
+    } finally {
+      setSaving(null);
+    }
   };
 
   const counterpart = sentByUser ? payment.recipient : payment.debtor;
@@ -141,7 +132,7 @@ export default function SettlementReviewScreen() {
                 </Text>
               </View>
             </View>
-            {payment.canSelfSettle ? <View className="mt-5"><Button label="Mark as settled" icon="check-circle" fullWidth loading={saving === "settle"} disabled={Boolean(saving)} onPress={settle} /></View> : null}
+            {payment.canSelfSettle ? <View className="mt-5"><Button label="Mark as settled" icon="check-circle" fullWidth loading={saving === "settle"} disabled={Boolean(saving)} onPress={() => setSettleConfirmationVisible(true)} /></View> : null}
             <Text className="mt-4 text-[11px] leading-4 text-slate">Fallback settlement is labeled in history and the recipient is notified. It is never shown as their confirmation.</Text>
           </View>
         ) : (
@@ -155,6 +146,16 @@ export default function SettlementReviewScreen() {
           </>
         )}
       </View>
+      <ConfirmModal
+        visible={settleConfirmationVisible}
+        title="Mark this payment as settled?"
+        detail={`${payment.recipient.name} will be notified. LenaDena will record this as a payer fallback, not a recipient confirmation.`}
+        confirmLabel="Mark settled"
+        cancelLabel="Keep waiting"
+        loading={saving === "settle"}
+        onConfirm={() => void settle()}
+        onClose={() => setSettleConfirmationVisible(false)}
+      />
     </Screen>
   );
 }
