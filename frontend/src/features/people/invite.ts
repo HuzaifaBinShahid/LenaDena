@@ -1,13 +1,15 @@
 // Invites for People: the share-sheet message and the app download link. Pure (Vitest runs it): no react-native.
 import { firstName } from "../../lib/format";
 
+/** LenaDena's Loadly page, where the Android APK is shared while the app isn't on Google Play. */
+export const LOADLY_DOWNLOAD_URL = "https://loadly.io/kzM0n7qg";
+
 /**
- * Where people get the app while it isn't in the stores: the Loadly page for the Android APK (see
- * scripts/loadly-upload.sh, which prints it). Set EXPO_PUBLIC_APP_DOWNLOAD_URL; Metro inlines it at build time.
- * Only https links count. The API puts it in invite emails only when its host is allowlisted (Loadly, Google Play,
- * the App Store, TestFlight), and its own APP_DOWNLOAD_URL always wins.
+ * Where people get the app: EXPO_PUBLIC_APP_DOWNLOAD_URL when set (Metro inlines it at build time; use it for a
+ * Play Store link later), otherwise the Loadly page. Only https links count. The API puts it in invite emails only
+ * when its host is allowlisted (Loadly, Google Play, the App Store, TestFlight), and its own APP_DOWNLOAD_URL wins.
  */
-export const APP_DOWNLOAD_URL = cleanDownloadUrl(process.env.EXPO_PUBLIC_APP_DOWNLOAD_URL);
+export const APP_DOWNLOAD_URL = cleanDownloadUrl(process.env.EXPO_PUBLIC_APP_DOWNLOAD_URL) ?? LOADLY_DOWNLOAD_URL;
 
 /** The trimmed link when it is a plain https URL, else undefined. */
 export function cleanDownloadUrl(value: string | undefined | null): string | undefined {

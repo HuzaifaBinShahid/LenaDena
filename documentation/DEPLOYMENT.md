@@ -16,7 +16,7 @@ Then apply `202609180007_people.sql` (it includes 0006's column, so 0006 is opti
 
 ### App download link and invites
 
-While the Android app is shared through Loadly, set the install link (printed as `Install:` after `pnpm build:apk`) as `EXPO_PUBLIC_APP_DOWNLOAD_URL` in `frontend/.env.local` (share-invite messages; restart Metro with `--clear`, rebuild the APK) and optionally `APP_DOWNLOAD_URL` in `backend/.env` (invite emails; wins over the app's link). Invite and notification emails are only delivered while the worker runs with SMTP configured (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`).
+Share-invite messages and invite emails link to the Loadly page `https://loadly.io/kzM0n7qg` by default (the app sends it with each invite; the API accepts Loadly links). When the app moves to Google Play, set `EXPO_PUBLIC_APP_DOWNLOAD_URL` in `frontend/.env.local` (restart Metro with `--clear`, rebuild) and/or `APP_DOWNLOAD_URL` in `backend/.env` (wins for emails). Invite and notification emails are only delivered while the worker runs with SMTP configured (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`).
 
 ### Branded Auth emails
 
