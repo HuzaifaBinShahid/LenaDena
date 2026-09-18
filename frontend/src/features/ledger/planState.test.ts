@@ -11,6 +11,7 @@ const placeholder: Plan = {
   claims: [],
   activity: [],
   transactions: [],
+  people: [],
 };
 
 const brandNew: Plan = {

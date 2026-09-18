@@ -8,8 +8,7 @@ import { Text } from "@/components/ui/Text";
 import { TopTabs } from "@/components/ui/TopTabs";
 import type { ActivityPeriod } from "@/features/ledger/activity";
 import type { Group, TransactionDirection, TransactionKind, TransactionStatus } from "@/features/ledger/types";
-import { usePreferences } from "@/features/preferences/PreferencesProvider";
-import { colors } from "@/theme/tokens";
+import { makeStyles } from "@/theme/ThemeProvider";
 
 export type BalanceChoice = TransactionDirection | "both";
 
@@ -61,7 +60,7 @@ export function ActivityFilterSheet({
   const obscured = useScreenObscured();
   const reduceMotion = useReducedMotion();
   const insets = useSafeAreaInsets();
-  const { palette } = usePreferences();
+  const styles = useStyles();
 
   const footerLabel = resultCount === 0 ? "Close" : `Show ${resultCount} ${resultCount === 1 ? "entry" : "entries"}`;
 
@@ -69,7 +68,7 @@ export function ActivityFilterSheet({
     Animated.View,
     {
       entering: reduceMotion ? FadeIn.duration(140) : FadeInDown.duration(220),
-      style: [styles.sheet, { backgroundColor: palette.surface, paddingBottom: Math.max(insets.bottom, 20) + 8 }],
+      style: [styles.sheet, { paddingBottom: Math.max(insets.bottom, 20) + 8 }],
     },
     <View style={styles.handle} />,
     <View style={styles.header}>
@@ -118,8 +117,8 @@ export function ActivityFilterSheet({
         <Text className="text-xs font-bold text-slate">Balance</Text>
         <TopTabs
           tabs={[
-            { key: "incoming", label: "Owed to me", icon: "arrow-down" },
-            { key: "outgoing", label: "I owe", icon: "arrow-up" },
+            { key: "incoming", label: "Owed to me", icon: "arrow-down", tone: "mint" },
+            { key: "outgoing", label: "I owe", icon: "arrow-up", tone: "coral" },
             { key: "both", label: "Both sides" },
           ]}
           value={balance}
@@ -155,21 +154,23 @@ export function ActivityFilterSheet({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   root: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(16,8,35,0.52)",
+    backgroundColor: c.backdrop,
   },
   sheet: {
     maxHeight: "86%",
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
+    // The line border doubles as the sheet's top hairline in dark mode, where the shadow disappears.
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: c.line,
+    backgroundColor: c.raised,
     paddingHorizontal: 20,
     paddingTop: 12,
-    shadowColor: colors.plum,
+    shadowColor: c.shadow,
     shadowOffset: { width: 0, height: -12 },
     shadowOpacity: 0.18,
     shadowRadius: 28,
@@ -179,7 +180,7 @@ const styles = StyleSheet.create({
     height: 5,
     alignSelf: "center",
     borderRadius: 3,
-    backgroundColor: colors.line,
+    backgroundColor: c.line,
     marginBottom: 22,
   },
   header: {
@@ -195,7 +196,7 @@ const styles = StyleSheet.create({
     fontSize: 22,
     lineHeight: 28,
     letterSpacing: -0.3,
-    color: colors.ink,
+    color: c.ink,
   },
   body: {
     flexGrow: 0,
@@ -210,11 +211,11 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_500Medium",
     fontSize: 12,
     lineHeight: 16,
-    color: colors.slate,
+    color: c.slate,
   },
   footer: {
     borderTopWidth: 1,
-    borderTopColor: colors.line,
+    borderTopColor: c.line,
     paddingTop: 16,
   },
-});
+}));

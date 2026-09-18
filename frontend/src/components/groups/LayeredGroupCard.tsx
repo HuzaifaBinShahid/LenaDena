@@ -15,6 +15,7 @@ import { groupPosition, type GroupPosition } from "@/features/ledger/groupLedger
 import type { Group } from "@/features/ledger/types";
 import { formatMoney } from "@/lib/format";
 import { shadows } from "@/theme/shadows";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
 
 export const CARD = { STAGE_LEFT: 76, GAP: 24, FRAME: 9, OUTER_R: 28, INNER_R: 20, PAD_TOP: 16, PAD_BOTTOM: 34 } as const;
@@ -87,8 +88,15 @@ const GEOMETRY: Record<LayeredGroupCardProps["variant"], Geometry> = {
   },
 };
 
+/**
+ * The frame around the card art. Light: a pale paper mat (raised → lavender). Dark: a lifted, slightly desaturated
+ * violet rim, lighter than the art's corners and the night canvas, so the stack still reads without glowing.
+ */
 const FRAME_COLORS = [colors.raised, colors.lavender] as const;
+const FRAME_COLORS_DARK = ["#56488D", "#35286C"] as const;
 const FRAME_LOCATIONS = [0, 0.7] as const;
+/** Lavender hairline where a brand surface meets the dark canvas (dark mode only). */
+const DARK_HAIRLINE = "rgba(181,165,255,0.16)";
 /** Neutral chip colour for informational chips ("New expense", "Needs Sara's confirmation"). */
 export const CHIP_MUTED = "rgba(255,255,255,0.7)";
 
@@ -132,6 +140,8 @@ export function describeGroupCard(group: Group, hasActivity: boolean, currentUse
 /** Layered, tilted product card (§2.24). The tilt sits on an inner shell, never on Touch (D20). */
 export const LayeredGroupCard = memo(function LayeredGroupCard(props: LayeredGroupCardProps) {
   const { variant, width, height, skin, art, glyph, name, currency, label, amount, body, meta, chip, accessibilityLabel, accessibilityHint, onPress } = props;
+  const { isDark } = useTheme();
+  const layerStyles = useLayerStyles();
   const geometry = GEOMETRY[variant];
   const compact = variant === "compact";
   const artWidth = Math.max(0, width - geometry.frame * 2);
@@ -211,6 +221,7 @@ export const LayeredGroupCard = memo(function LayeredGroupCard(props: LayeredGro
         pointerEvents="none"
         style={[
           styles.back,
+          layerStyles.back,
           {
             left: geometry.back.left,
             top: geometry.back.top,
@@ -221,14 +232,16 @@ export const LayeredGroupCard = memo(function LayeredGroupCard(props: LayeredGro
           },
         ]}
       />
-      <View pointerEvents="box-none" style={[styles.shell, slot, { borderRadius: geometry.outerR, transform: [{ rotate: geometry.tilt }] }]}>
+      <View pointerEvents="box-none" style={[layerStyles.shell, slot, { borderRadius: geometry.outerR, transform: [{ rotate: geometry.tilt }] }]}>
         <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, styles.clip, { borderRadius: geometry.outerR }]}>
-          <LinearGradient pointerEvents="none" colors={FRAME_COLORS} locations={FRAME_LOCATIONS} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+          <LinearGradient pointerEvents="none" colors={isDark ? FRAME_COLORS_DARK : FRAME_COLORS} locations={FRAME_LOCATIONS} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
           <View pointerEvents="none" style={[styles.artFrame, { top: geometry.frame, left: geometry.frame, width: artWidth, height: artHeight }]}>
             <CardArt width={artWidth} height={artHeight} radius={geometry.innerR} skin={skin} muted={art === "muted"} disc4={geometry.disc4} />
           </View>
           {overlay}
         </View>
+        {/* An overlay rather than a shell border, so the frame and art geometry stay identical in both themes. */}
+        {isDark ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, layerStyles.rim, { borderRadius: geometry.outerR }]} /> : null}
       </View>
     </>
   );
@@ -384,6 +397,7 @@ const CRESCENT_PATH = `M${CRESCENT_START.x.toFixed(2)} ${CRESCENT_START.y.toFixe
  * outside the list (so it is never clipped), inside a container whose left edge is the column edge.
  */
 export function StageFab({ cardHeight, onPress, accessibilityLabel }: { cardHeight: number; onPress: () => void; accessibilityLabel: string }) {
+  const { isDark } = useTheme();
   const centre = CARD.PAD_TOP + cardHeight / 2;
   return (
     <>
@@ -394,12 +408,14 @@ export function StageFab({ cardHeight, onPress, accessibilityLabel }: { cardHeig
         style={[styles.crescent, { top: centre - 44 }]}
       >
         <Svg width={88} height={88}>
-          <Path d={CRESCENT_PATH} fill="none" stroke={colors.violetStrong} strokeOpacity={0.45} strokeWidth={1.5} strokeLinecap="round" />
+          {/* violetStrong disappears on the night canvas, so the dark crescent is a faint lavender line instead. */}
+          <Path d={CRESCENT_PATH} fill="none" stroke={isDark ? colors.lavender : colors.violetStrong} strokeOpacity={isDark ? 0.35 : 0.45} strokeWidth={1.5} strokeLinecap="round" />
         </Svg>
       </View>
       <FabButton
         size={60}
-        tone="plum"
+        // Plum on the light stage; on the dark stage plum would sink into the band, so it takes the violet FAB (D5).
+        tone={isDark ? "violet" : "plum"}
         onPress={onPress}
         accessibilityLabel={accessibilityLabel}
         containerStyle={[styles.fab, { top: centre - 30 }]}
@@ -408,16 +424,30 @@ export function StageFab({ cardHeight, onPress, accessibilityLabel }: { cardHeig
   );
 }
 
+/**
+ * The stacked layers are the only themed part of the card: the art and everything on it stay the same deep violet
+ * in both themes. In dark the pale layers become lifted violet ones edged with hairlines, and the hero shadow turns
+ * black so it adds depth without a violet glow.
+ */
+const useLayerStyles = makeStyles((c, { isDark }) => ({
+  back: isDark
+    ? { backgroundColor: "rgba(125,96,255,0.2)", borderColor: "rgba(181,165,255,0.24)" }
+    : { backgroundColor: "rgba(181,165,255,0.45)", borderColor: "rgba(255,255,255,0.75)" },
+  shell: {
+    backgroundColor: isDark ? FRAME_COLORS_DARK[1] : colors.lavender,
+    ...shadows.hero,
+    shadowColor: isDark ? c.shadow : shadows.hero.shadowColor,
+  },
+  rim: {
+    borderWidth: 1,
+    borderColor: DARK_HAIRLINE,
+  },
+}));
+
 const styles = StyleSheet.create({
   back: {
     position: "absolute",
-    backgroundColor: "rgba(181,165,255,0.45)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.75)",
-  },
-  shell: {
-    backgroundColor: colors.lavender,
-    ...shadows.hero,
   },
   clip: {
     overflow: "hidden",

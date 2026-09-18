@@ -7,9 +7,9 @@ import { ClayCoinStack } from "@/components/brand/Clay";
 import { FabButton } from "@/components/ui/FabButton";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Touch } from "@/components/ui/Touch";
-import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { layout } from "@/theme/layout";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 import { colors, motion } from "@/theme/tokens";
 
 export type BalancePage = {
@@ -30,6 +30,8 @@ const PAGE_TOP = 28;
 const PAGE_BOTTOM = 30;
 const FAB_SIZE = 52;
 const CHANGE_DAYS = 7;
+/** Lavender hairline around the card where the shell meets the dark canvas (the fake shadow does not read there). */
+const DARK_HAIRLINE = "rgba(181,165,255,0.16)";
 
 /** The home entrance plays once per app session; PlanView remounts on every tab switch. */
 let homeIntroPlayed = false;
@@ -94,6 +96,7 @@ function pageLabel(page: BalancePage, index: number, count: number) {
 
 /** Horizontal pager of per-currency balance cards. Currencies are never summed. */
 export function BalancePager({ pages, onAddEntry }: BalancePagerProps) {
+  const themed = useStyles();
   const { width: windowWidth } = useWindowDimensions();
   const column = Math.min(windowWidth, layout.contentMax);
   const reduceMotion = useReducedMotion();
@@ -173,7 +176,7 @@ export function BalancePager({ pages, onAddEntry }: BalancePagerProps) {
                 containerStyle={styles.dotTarget}
                 pressableStyle={styles.dotPressable}
               >
-                <View style={selected ? styles.dotActive : styles.dotInactive} />
+                <View style={selected ? themed.dotActive : themed.dotInactive} />
               </Touch>
             );
           })}
@@ -195,7 +198,7 @@ type CardPageProps = {
 };
 
 const BalanceCardPage = memo(function BalanceCardPage({ page, index, count, width, showArt, coins, fab, onAddEntry }: CardPageProps) {
-  const { palette } = usePreferences();
+  const { colors: c, isDark } = useTheme();
   const W = Math.max(0, width - 40);
   const rawId = useId();
   const idBase = rawId.replace(/[^A-Za-z0-9_-]/g, "");
@@ -204,6 +207,8 @@ const BalanceCardPage = memo(function BalanceCardPage({ page, index, count, widt
   const body = bodyPath(W);
   const chip = chipFor(page);
   const placeholder = page.mode === "loading" || page.mode === "offline";
+  // The shell-tinted fake shadow reads on the light canvas; on the dark canvas it would only lighten it, so it turns into a true shadow.
+  const shadowFill = isDark ? c.shadow : c.shell;
 
   const coinsStyle = useAnimatedStyle(() => ({
     opacity: coins.value,
@@ -216,29 +221,31 @@ const BalanceCardPage = memo(function BalanceCardPage({ page, index, count, widt
   return (
     <View style={[styles.page, { width }]}>
       <View style={[styles.wrapper, { width: W }]}>
-        {/* 1. Body: fake shadow, silhouette, glow, rings and a top highlight. No elevation, no filters. */}
+        {/* 1. Body: fake shadow, silhouette, glow, rings and a top highlight (a full hairline in dark). No elevation, no filters. */}
         <View pointerEvents="none" style={[styles.body, { width: W, height: H + 30 }]}>
           <Svg width={W} height={H + 30}>
             <Defs>
               <RadialGradient id={glowId} cx="0.82" cy="0.3" r="0.65">
-                <Stop offset="0" stopColor={palette.headerEnd} stopOpacity={0.55} />
-                <Stop offset="1" stopColor={palette.headerEnd} stopOpacity={0} />
+                <Stop offset="0" stopColor={c.shellEnd} stopOpacity={0.55} />
+                <Stop offset="1" stopColor={c.shellEnd} stopOpacity={0} />
               </RadialGradient>
               <ClipPath id={clipId}>
                 <Path d={body} clipRule="nonzero" />
               </ClipPath>
             </Defs>
-            <Path d={body} transform="translate(8 20) scale(0.95 1)" fill={palette.header} fillOpacity={0.04} />
-            <Path d={body} transform="translate(4 14) scale(0.975 1)" fill={palette.header} fillOpacity={0.08} />
-            <Path d={body} transform="translate(0 8)" fill={palette.header} fillOpacity={0.14} />
-            <Path d={body} fill={palette.header} />
+            <Path d={body} transform="translate(8 20) scale(0.95 1)" fill={shadowFill} fillOpacity={0.04} />
+            <Path d={body} transform="translate(4 14) scale(0.975 1)" fill={shadowFill} fillOpacity={0.08} />
+            <Path d={body} transform="translate(0 8)" fill={shadowFill} fillOpacity={0.14} />
+            <Path d={body} fill={c.shell} />
             <Path d={body} fill={`url(#${glowId})`} />
             <G clipPath={`url(#${clipId})`} clipRule="nonzero">
               <Circle cx={W - 54} cy={64} r={108} fill={colors.lavender} fillOpacity={0.06} />
               <Circle cx={W - 54} cy={64} r={82} fill={colors.lavender} fillOpacity={0.06} />
               <Circle cx={W - 54} cy={64} r={58} fill={colors.lavender} fillOpacity={0.06} />
+              {/* Clipped to the body, so the 2pt stroke draws a crisp 1pt hairline just inside the edge. */}
+              {isDark ? <Path d={body} fill="none" stroke={DARK_HAIRLINE} strokeWidth={2} /> : null}
             </G>
-            <Path d={topEdgePath(W)} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={1} />
+            {isDark ? null : <Path d={topEdgePath(W)} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={1} />}
           </Svg>
         </View>
 
@@ -449,17 +456,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+});
+
+const useStyles = makeStyles((c, { isDark }) => ({
   dotActive: {
     width: 18,
     height: 6,
     borderRadius: 3,
-    backgroundColor: colors.violet,
+    backgroundColor: c.violet,
   },
   dotInactive: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: colors.muted,
-    opacity: 0.4,
+    backgroundColor: c.muted,
+    // Muted at 40% all but vanishes on the dark canvas.
+    opacity: isDark ? 0.6 : 0.4,
   },
-});
+}));

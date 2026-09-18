@@ -7,6 +7,7 @@ import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { Touch } from "@/components/ui/Touch";
 import { shadows } from "@/theme/shadows";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
 
 export type QuickActionsProps = {
@@ -21,6 +22,7 @@ type ActionCard = {
   accessibilityLabel: string;
   background: string;
   border?: string;
+  /** The violet card: white text on a coloured fill in both themes. */
   dark: boolean;
   art: ReactNode;
   onPress: () => void;
@@ -30,9 +32,14 @@ const CARD_WIDTH = 148;
 const CARD_HEIGHT = 164;
 const INK_CHIP = "rgba(23,17,41,0.06)";
 
-/** "Quick actions": four tinted cards with clay art sticking out above them. */
+/**
+ * "Quick actions": four cards with clay art sticking out above them. In light mode three wear soft tints; in dark
+ * mode those become raised surfaces with a hairline (deep tints read muddy). Their art keeps the default themed
+ * surface, so Clay dims its pale paper on the dark cards; only the violet card's art is on an always-dark surface.
+ */
 export function QuickActions({ needsGroup }: QuickActionsProps) {
   const toast = useToast();
+  const { colors: c, isDark } = useTheme();
 
   const startWithGroup = () => {
     toast.show({
@@ -49,6 +56,7 @@ export function QuickActions({ needsGroup }: QuickActionsProps) {
       label: "Split bill",
       caption: needsGroup ? "Needs a group" : "Group expense",
       accessibilityLabel: needsGroup ? "Split bill, needs a group" : "Split bill, group expense",
+      // Static violet: white text on it keeps 4.7:1 in both themes (the dark palette's brighter violet would not).
       background: colors.violet,
       dark: true,
       art: <ClayReceipt size={84} stamp="plus" surface="dark" glow={false} />,
@@ -59,7 +67,8 @@ export function QuickActions({ needsGroup }: QuickActionsProps) {
       label: "I paid",
       caption: needsGroup ? "Needs a group" : "Claim a payment",
       accessibilityLabel: needsGroup ? "I paid, needs a group" : "I paid, claim a payment",
-      background: colors.goldSoft,
+      background: isDark ? c.raised : c.goldSoft,
+      ...(isDark ? { border: c.line } : null),
       dark: false,
       art: <ClayWallet size={112} />,
       onPress: needsGroup ? startWithGroup : () => router.push("/settlement/new"),
@@ -69,8 +78,8 @@ export function QuickActions({ needsGroup }: QuickActionsProps) {
       label: "Log an IOU",
       caption: "Personal entry",
       accessibilityLabel: "Log an IOU, personal entry",
-      background: colors.lavenderSoft,
-      border: "rgba(118,87,246,0.14)",
+      background: isDark ? c.raised : c.lavenderSoft,
+      border: isDark ? c.line : "rgba(118,87,246,0.14)",
       dark: false,
       art: <ClayCoin size={96} tone="gold" glyph="exchange" />,
       onPress: () => router.push("/transaction/new"),
@@ -80,8 +89,8 @@ export function QuickActions({ needsGroup }: QuickActionsProps) {
       label: "New group",
       caption: "Invite friends",
       accessibilityLabel: "New group, invite friends",
-      background: colors.limeSoft,
-      border: "rgba(19,154,120,0.16)",
+      background: isDark ? c.raised : c.limeSoft,
+      border: isDark ? c.line : "rgba(19,154,120,0.16)",
       dark: false,
       art: <ClayPeople size={112} accessory="plus" />,
       onPress: () => router.push("/group/new"),
@@ -107,7 +116,12 @@ export function QuickActions({ needsGroup }: QuickActionsProps) {
 }
 
 function ActionCardView({ card }: { card: ActionCard }) {
+  const themed = useStyles();
+  const { colors: c, isDark } = useTheme();
   const hint = card.caption === "Needs a group" ? "Shows how to start with a group" : undefined;
+  // iOS-only shadow: on Android the art sticking out must never be drawn under an elevated card. The violet card keeps its
+  // violet glow in dark; the raised cards' plum shadow would not show on the dark canvas, so they rely on their hairline.
+  const shadow = Platform.OS !== "ios" ? null : card.dark ? shadows.accent : isDark ? null : shadows.raised;
   return (
     <Touch
       onPress={card.onPress}
@@ -124,8 +138,7 @@ function ActionCardView({ card }: { card: ActionCard }) {
           styles.card,
           { backgroundColor: card.background },
           card.border ? { borderWidth: 1, borderColor: card.border } : null,
-          // iOS-only shadow: on Android the art sticking out must never be drawn under an elevated card.
-          Platform.OS === "ios" ? (card.dark ? shadows.accent : shadows.raised) : null,
+          shadow,
           styles.noElevation,
         ]}
       >
@@ -138,17 +151,17 @@ function ActionCardView({ card }: { card: ActionCard }) {
                 adjustsFontSizeToFit: true,
                 minimumFontScale: 0.8,
                 maxFontSizeMultiplier: 1.3,
-                style: [styles.label, { color: card.dark ? colors.white : colors.ink }],
+                style: [styles.label, card.dark ? styles.labelOnViolet : themed.label],
               },
               card.label,
             )}
-            <View style={[styles.chip, { backgroundColor: card.dark ? "rgba(255,255,255,0.18)" : INK_CHIP }]}>
-              <Icon name="arrow-right" size={15} color={card.dark ? colors.white : colors.ink} />
+            <View style={[styles.chip, card.dark ? styles.chipOnViolet : themed.chip]}>
+              <Icon name="arrow-right" size={15} color={card.dark ? colors.white : c.ink} />
             </View>
           </View>
           {createElement(
             NativeText,
-            { numberOfLines: 1, maxFontSizeMultiplier: 1.3, style: [styles.caption, { color: card.dark ? "rgba(255,255,255,0.75)" : colors.slate }] },
+            { numberOfLines: 1, maxFontSizeMultiplier: 1.3, style: [styles.caption, card.dark ? styles.captionOnViolet : themed.caption] },
             card.caption,
           )}
         </View>
@@ -211,6 +224,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
   },
+  labelOnViolet: {
+    color: colors.white,
+  },
   chip: {
     width: 26,
     height: 26,
@@ -218,10 +234,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  chipOnViolet: {
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
   caption: {
     marginTop: 2,
     fontFamily: "Manrope_500Medium",
     fontSize: 11,
     lineHeight: 14,
   },
+  captionOnViolet: {
+    color: "rgba(255,255,255,0.75)",
+  },
 });
+
+/** Text and chip on the tinted (light) or raised (dark) cards. */
+const useStyles = makeStyles((c, { isDark }) => ({
+  label: {
+    color: c.ink,
+  },
+  chip: {
+    backgroundColor: isDark ? c.surface : INK_CHIP,
+  },
+  caption: {
+    color: c.slate,
+  },
+}));

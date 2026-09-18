@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { StyleSheet, Text as NativeText, useWindowDimensions, View } from "react-native";
+import { Text as NativeText, useWindowDimensions, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import {
   CARD,
@@ -27,6 +27,7 @@ import { getPlanState } from "@/features/ledger/planState";
 import type { TransactionItem } from "@/features/ledger/types";
 import { layout } from "@/theme/layout";
 import { shadows } from "@/theme/shadows";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
 
 const ROLE_LABELS = { owner: "Owner", admin: "Admin", member: "Member" } as const;
@@ -39,6 +40,8 @@ const BAND_PAD = 20;
 export default function GroupDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { plan, connection, refresh } = useLedger();
+  const styles = useStyles();
+  const { colors: theme } = useTheme();
   const { width: windowWidth } = useWindowDimensions();
   const column = Math.min(windowWidth, layout.contentMax);
   const card = heroCardSize(column, true);
@@ -53,7 +56,7 @@ export default function GroupDetailScreen() {
     const loading = planState === "loading";
     const offline = planState === "offline";
     return (
-      <Screen>
+      <Screen topColor={theme.lavenderSoft}>
         <Band title="Group">
           <View style={[styles.stage, { height: stageHeight }]}>
             <LayeredGroupCard
@@ -109,7 +112,7 @@ export default function GroupDetailScreen() {
   const addExpense = () => router.push({ pathname: "/expense/new", params: { groupId: group.id } });
 
   return (
-    <Screen>
+    <Screen topColor={theme.lavenderSoft}>
       <Band title={summary.name} subtitle={subtitle}>
         <View style={[styles.stage, { height: stageHeight }]}>
           <LayeredGroupCard
@@ -174,8 +177,9 @@ export default function GroupDetailScreen() {
 
 /** Full-bleed lavender band with the page header; its colour also fills the iOS pull-down overscroll above it. */
 function Band({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+  const styles = useStyles();
   return (
-    <View style={[styles.band, shadows.band]}>
+    <View style={styles.band}>
       <View pointerEvents="none" style={styles.overscroll} />
       <PageHeader title={title} subtitle={subtitle} />
       {children}
@@ -183,14 +187,17 @@ function Band({ title, subtitle, children }: { title: string; subtitle?: string;
   );
 }
 
-const styles = StyleSheet.create({
+// c.lavenderSoft is a deep violet band in dark; the header's ink title and slate subtitle keep 14:1 and 6:1 on it.
+const useStyles = makeStyles((c, { isDark }) => ({
   band: {
     marginHorizontal: -SCREEN_GUTTER,
     paddingHorizontal: BAND_PAD,
     paddingBottom: 20,
-    backgroundColor: colors.lavenderSoft,
+    backgroundColor: c.lavenderSoft,
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
+    // A shadow can't separate dark surfaces, so in dark the band's lower edge is a hairline instead.
+    ...(isDark ? { borderBottomWidth: 1, borderBottomColor: c.line } : shadows.band),
   },
   overscroll: {
     position: "absolute",
@@ -198,7 +205,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 800,
-    backgroundColor: colors.lavenderSoft,
+    backgroundColor: c.lavenderSoft,
   },
   // The stage spans the band edge to edge, so the card sits 76pt from the screen edge and StageFab lines up with the Groups tab.
   stage: {
@@ -232,6 +239,6 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_600SemiBold",
     fontSize: 13,
     lineHeight: 18,
-    color: colors.slate,
+    color: c.slate,
   },
-});
+}));

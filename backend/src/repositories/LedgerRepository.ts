@@ -1,4 +1,4 @@
-import type { CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreateSettlementInput, Group, InviteLink, Member, Plan, SettlementStatus, UpdateProfileInput, UploadKind } from "../domain/types.js";
+import type { CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, Group, InviteLink, Member, Person, Plan, SettlementStatus, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
 
 export interface LedgerRepository {
   getPlan(userId: string): Promise<Plan>;
@@ -8,6 +8,9 @@ export interface LedgerRepository {
   createExpense(userId: string, input: CreateExpenseInput, idempotencyKey: string): Promise<{ id: string }>;
   createPersonalTransaction(userId: string, input: CreatePersonalTransactionInput, idempotencyKey: string): Promise<{ id: string }>;
   settlePersonalTransaction(userId: string, transactionId: string, idempotencyKey: string): Promise<void>;
+  createPerson(userId: string, input: CreatePersonInput): Promise<Person>;
+  updatePerson(userId: string, personId: string, input: UpdatePersonInput): Promise<Person>;
+  deletePerson(userId: string, personId: string): Promise<void>;
   createSettlement(userId: string, input: CreateSettlementInput, idempotencyKey: string): Promise<{ id: string }>;
   reviewSettlement(userId: string, settlementId: string, decision: Extract<SettlementStatus, "confirmed" | "needs_attention">, note: string | undefined, idempotencyKey: string): Promise<void>;
   selfConfirmSettlement(userId: string, settlementId: string, idempotencyKey: string): Promise<void>;

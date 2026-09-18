@@ -4,6 +4,8 @@
 
 LenaDena uses a mixed dark-and-light interface: a near-black plum shell flows into saturated violet, translucent bordered surfaces create a lightweight glass effect, and pale lavender working surfaces keep financial information readable. Positive green, negative coral, and warning amber remain semantic colors rather than brand decoration.
 
+Dark mode (Light / Dark / System) turns the working surfaces into a deep night purple: canvas `#110B22`, raised cards `#1B1433`, fills `#271E45`, hairlines `#2F2653`, text `#F3EFFF` / `#A79FC3`. Surfaces rise by lightness and carry 1px hairlines because shadows vanish; semantic colours brighten (mint `#5AD6AC`, coral `#FF7E9A`, gold `#F2BD6B`); brand shells, the violet primary and white-on-violet labels stay the same. Selected states are always unmistakable: a solid violet (or coral / mint for owe / owed) pill or a 2px violet ring with a check. The logo is a gold coin split in two on the violet gradient (`CoinMark`).
+
 The home gradient must continue behind the status-bar safe area. The pale workspace overlaps the gradient with a 32-point rounded top edge, a subtle highlight, and a restrained upward shadow so the transition feels layered rather than segmented.
 
 The direction borrows proven information patterns without copying another product:

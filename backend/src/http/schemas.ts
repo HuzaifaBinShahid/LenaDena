@@ -81,10 +81,20 @@ export const TransactionSchema = Type.Object({
   direction: Type.Union([Type.Literal("incoming"), Type.Literal("outgoing")]),
   kind: Type.Union([Type.Literal("expense"), Type.Literal("loan"), Type.Literal("payment")]),
   counterparty: Type.Optional(Type.String()),
+  personId: Type.Optional(Type.String()),
   note: Type.Optional(Type.String()),
   receiptUri: Type.Optional(Type.String()),
   status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("settled")])),
   settledAt: Type.Optional(Type.String()),
+  createdAt: Type.String(),
+});
+
+export const PersonSchema = Type.Object({
+  id: Type.String(),
+  name: Type.String(),
+  email: Type.Optional(Type.String()),
+  avatarUrl: Type.Optional(Type.String()),
+  avatarPath: Type.Optional(Type.String()),
   createdAt: Type.String(),
 });
 
@@ -96,6 +106,7 @@ export const PlanSchema = Type.Object({
   claims: Type.Array(SettlementSchema),
   activity: Type.Array(ActivitySchema),
   transactions: Type.Array(TransactionSchema),
+  people: Type.Array(PersonSchema),
 });
 
 export const IdResponseSchema = Type.Object({ id: Type.String() });
@@ -138,6 +149,7 @@ export const CreatePersonalTransactionSchema = Type.Object({
   kind: Type.Union([Type.Literal("expense"), Type.Literal("loan")]),
   direction: Type.Union([Type.Literal("incoming"), Type.Literal("outgoing")]),
   counterparty: Type.String({ minLength: 1, maxLength: 80 }),
+  personId: Type.Optional(Type.String({ format: "uuid" })),
   note: Type.Optional(Type.String({ maxLength: 500 })),
   receiptUri: Type.Optional(Type.String({ maxLength: 2048 })),
 }, { additionalProperties: false });
@@ -156,6 +168,21 @@ export const ReviewSettlementSchema = Type.Object({
 
 export const UpdateProfileSchema = Type.Object({
   name: Type.String({ minLength: 1, maxLength: 80 }),
+  avatarPath: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 2048 }), Type.Null()])),
+}, { additionalProperties: false });
+
+// Names and emails are trimmed (and emails lowercased) by the domain rules, so no `format` here: a padded
+// email is accepted, and a blank one means "no email". Fastify's Ajv also coerces `email: null` to "".
+// On create, a null email or photo simply means none.
+export const CreatePersonSchema = Type.Object({
+  name: Type.String({ minLength: 1, maxLength: 80 }),
+  email: Type.Optional(Type.Union([Type.String({ maxLength: 254 }), Type.Null()])),
+  avatarPath: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 2048 }), Type.Null()])),
+}, { additionalProperties: false });
+
+export const UpdatePersonSchema = Type.Object({
+  name: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+  email: Type.Optional(Type.Union([Type.String({ maxLength: 254 }), Type.Null()])),
   avatarPath: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 2048 }), Type.Null()])),
 }, { additionalProperties: false });
 

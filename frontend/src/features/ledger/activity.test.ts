@@ -48,6 +48,7 @@ function plan(transactions: TransactionItem[], extra: Partial<Plan> = {}): Plan 
     claims: [],
     activity: [],
     transactions,
+    people: [],
     ...extra,
   };
 }

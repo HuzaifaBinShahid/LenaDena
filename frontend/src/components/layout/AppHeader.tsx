@@ -5,8 +5,9 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Icon } from "@/components/ui/Icon";
 import { Touch } from "@/components/ui/Touch";
 import type { Connection } from "@/features/ledger/planState";
-import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { firstName } from "@/lib/format";
+import type { ColorName } from "@/theme/palettes";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
 
 export type AppHeaderProps = {
@@ -21,7 +22,7 @@ export type AppHeaderProps = {
   connection: Connection;
   eyebrow?: string;
   title?: string;
-  /** "dark" when the tab's top surface is dark chrome (Activity). */
+  /** "dark" when the tab's top surface is the always-dark shell (Activity), in both themes. */
   tone: "light" | "dark";
   /** The colour behind the header; rings the bell's count badge. */
   surfaceColor: string;
@@ -29,27 +30,35 @@ export type AppHeaderProps = {
   onOpenReviews: () => void;
 };
 
-const SYNC: Record<Connection, { dot: string; label: string }> = {
-  live: { dot: colors.mint, label: "Synced" },
-  loading: { dot: colors.violet, label: "Connecting" },
-  demo: { dot: colors.gold, label: "Demo data" },
-  error: { dot: colors.coral, label: "Offline" },
+const SYNC: Record<Connection, { dot: ColorName; label: string }> = {
+  live: { dot: "mint", label: "Synced" },
+  loading: { dot: "violet", label: "Connecting" },
+  demo: { dot: "gold", label: "Demo data" },
+  error: { dot: "coral", label: "Offline" },
 };
+
+/** Lavender hairline where violet chrome meets the dark canvas. */
+const DARK_HAIRLINE = "rgba(181,165,255,0.16)";
 
 /** Shared home header: eyebrow with the sync pill, the tab title, then the reviews bell and the settings avatar. */
 export function AppHeader({ variant, name, placeholder, newAccount, avatarUrl, connection, eyebrow, title, tone, surfaceColor, reviewCount, onOpenReviews }: AppHeaderProps) {
-  const { palette } = usePreferences();
+  const themed = useStyles();
+  const { colors: c, isDark } = useTheme();
   const dark = tone === "dark";
+  // Violet accents move to lavender on dark surfaces, where violet on the deep canvas reads dim.
+  const accent = dark || isDark ? colors.lavender : c.violet;
   const first = placeholder ? "" : firstName(name);
   const greeting = variant === "greeting";
   const eyebrowText = greeting ? (first ? `Hello, ${first}` : "Hello there") : eyebrow ?? "";
   const titleText = greeting ? (newAccount ? "Welcome aboard!" : "Welcome back!") : title ?? "";
   const sync = SYNC[connection];
+  // The dark shell looks the same in both themes, so its dots stay static; light-tone pills follow the theme.
+  const syncDot = dark ? colors[sync.dot] : c[sync.dot];
   const count = Math.max(0, Math.floor(reviewCount));
 
   const eyebrowStyle = greeting
-    ? [styles.greeting, { color: dark ? colors.lavender : colors.violet }]
-    : [styles.eyebrow, { color: dark ? "rgba(255,255,255,0.6)" : colors.slate }];
+    ? [styles.greeting, { color: accent }]
+    : [styles.eyebrow, { color: dark ? "rgba(255,255,255,0.6)" : c.slate }];
 
   return (
     <View style={styles.row}>
@@ -61,12 +70,12 @@ export function AppHeader({ variant, name, placeholder, newAccount, avatarUrl, c
           <View
             accessible
             accessibilityLabel={`Sync status: ${sync.label}`}
-            style={[styles.pill, dark ? styles.pillDark : { backgroundColor: palette.surface, borderColor: colors.line }]}
+            style={[styles.pill, dark ? styles.pillDark : themed.pillLight]}
           >
-            <View style={[styles.pillDot, { backgroundColor: sync.dot }]} />
+            <View style={[styles.pillDot, { backgroundColor: syncDot }]} />
             {createElement(
               NativeText,
-              { numberOfLines: 1, maxFontSizeMultiplier: 1.3, style: [styles.pillLabel, { color: dark ? "rgba(255,255,255,0.75)" : colors.slate }] },
+              { numberOfLines: 1, maxFontSizeMultiplier: 1.3, style: [styles.pillLabel, { color: dark ? "rgba(255,255,255,0.75)" : c.slate }] },
               sync.label,
             )}
           </View>
@@ -78,7 +87,7 @@ export function AppHeader({ variant, name, placeholder, newAccount, avatarUrl, c
             numberOfLines: 1,
             adjustsFontSizeToFit: true,
             minimumFontScale: 0.8,
-            style: [styles.title, { color: dark ? colors.white : colors.ink }],
+            style: [styles.title, { color: dark ? colors.white : c.ink }],
           },
           titleText,
         )}
@@ -93,9 +102,9 @@ export function AppHeader({ variant, name, placeholder, newAccount, avatarUrl, c
           accessibilityRole="button"
           accessibilityLabel={count > 0 ? `Payment reviews, ${count} need attention` : "Payment reviews, nothing waiting"}
           containerStyle={styles.buttonBox}
-          pressableStyle={[styles.bell, dark ? styles.bellDark : styles.bellLight]}
+          pressableStyle={[styles.bell, dark ? styles.bellDark : themed.bellLight]}
         >
-          <Icon name="bell" size={22} color={dark ? colors.white : colors.violet} />
+          <Icon name="bell" size={22} color={dark ? colors.white : accent} />
           {count > 0 ? (
             <View pointerEvents="none" style={[styles.badge, { borderColor: surfaceColor }]}>
               {createElement(NativeText, { maxFontSizeMultiplier: 1.2, style: styles.badgeLabel }, count > 9 ? "9+" : String(count))}
@@ -114,14 +123,14 @@ export function AppHeader({ variant, name, placeholder, newAccount, avatarUrl, c
         >
           {placeholder ? (
             // No real profile yet: a neutral person glyph in the Avatar frame instead of initials from the placeholder name.
-            <View style={[styles.placeholderAvatar, dark ? styles.placeholderAvatarDark : styles.placeholderAvatarLight]}>
-              <Icon name="user" size={18} color={dark ? colors.white : colors.violet} />
+            <View style={[styles.placeholderAvatar, dark ? styles.placeholderAvatarDark : themed.placeholderAvatarLight]}>
+              <Icon name="user" size={18} color={dark ? colors.white : accent} />
             </View>
           ) : (
             <Avatar name={name} uri={avatarUrl} size="sm" inverted={dark} />
           )}
-          <View pointerEvents="none" style={[styles.gear, { backgroundColor: palette.surface }]}>
-            <Icon name="settings" size={11} color={colors.slate} />
+          <View pointerEvents="none" style={[styles.gear, themed.gear]}>
+            <Icon name="settings" size={11} color={c.slate} />
           </View>
         </Touch>
       </View>
@@ -207,10 +216,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  bellLight: {
-    backgroundColor: colors.violetSoft,
-    borderColor: "rgba(118,87,246,0.10)",
-  },
   bellDark: {
     backgroundColor: "rgba(255,255,255,0.10)",
     borderColor: "rgba(255,255,255,0.15)",
@@ -226,6 +231,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
+    // Static coral in both themes: the dark palette's brighter coral would drop the white count below 3:1.
     backgroundColor: colors.coral,
   },
   badgeLabel: {
@@ -248,10 +254,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  placeholderAvatarLight: {
-    backgroundColor: colors.violetSoft,
-    borderColor: colors.line,
-  },
   placeholderAvatarDark: {
     backgroundColor: "rgba(255,255,255,0.15)",
     borderColor: "rgba(255,255,255,0.20)",
@@ -264,8 +266,27 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 9,
     borderWidth: 1,
-    borderColor: colors.line,
     alignItems: "center",
     justifyContent: "center",
   },
 });
+
+/** Theme-following chrome: the light-tone pill, bell and placeholder, and the settings gear on every tab. The dark-tone (shell) styles above never change. */
+const useStyles = makeStyles((c, { isDark }) => ({
+  pillLight: {
+    backgroundColor: c.raised,
+    borderColor: c.line,
+  },
+  bellLight: {
+    backgroundColor: c.violetSoft,
+    borderColor: isDark ? DARK_HAIRLINE : "rgba(118,87,246,0.10)",
+  },
+  placeholderAvatarLight: {
+    backgroundColor: c.violetSoft,
+    borderColor: c.line,
+  },
+  gear: {
+    backgroundColor: c.raised,
+    borderColor: c.line,
+  },
+}));

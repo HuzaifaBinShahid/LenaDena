@@ -2,6 +2,7 @@ import { createContext, createElement, useCallback, useContext, useEffect, useMe
 import type { ReactNode } from "react";
 import { AccessibilityInfo, Pressable, StyleSheet, Text as NativeText, View } from "react-native";
 import * as Haptics from "expo-haptics";
+import { useColorScheme } from "nativewind";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -111,17 +112,19 @@ export function useToast() {
 
 function ToastViewport({ toasts, onDismiss }: { toasts: ToastRecord[]; onDismiss: (id: number) => void }) {
   const insets = useSafeAreaInsets();
+  // The viewport sits above the ThemeProvider, so it reads the scheme NativeWind is painting (the app's appearance).
+  const onDarkScreen = useColorScheme().colorScheme === "dark";
   return createElement(
     View,
     {
       pointerEvents: "box-none",
       style: [styles.viewport, { top: insets.top + 8, left: Math.max(insets.left, 12), right: Math.max(insets.right, 12) }],
     },
-    toasts.map((toast) => <ToastCard key={toast.id} toast={toast} onDismiss={onDismiss} />),
+    toasts.map((toast) => <ToastCard key={toast.id} toast={toast} onDismiss={onDismiss} onDarkScreen={onDarkScreen} />),
   );
 }
 
-function ToastCard({ toast, onDismiss }: { toast: ToastRecord; onDismiss: (id: number) => void }) {
+function ToastCard({ toast, onDismiss, onDarkScreen }: { toast: ToastRecord; onDismiss: (id: number) => void; onDarkScreen: boolean }) {
   const reduceMotion = useReducedMotion();
   const tone = tones[toast.tone];
   const offset = useSharedValue(0);
@@ -211,7 +214,7 @@ function ToastCard({ toast, onDismiss }: { toast: ToastRecord; onDismiss: (id: n
             accessibilityLiveRegion: "polite",
             accessibilityLabel: toast.message ? `${toast.title}. ${toast.message}` : toast.title,
             accessibilityHint: "Double tap to dismiss",
-            style: styles.card,
+            style: onDarkScreen ? [styles.card, styles.cardOnDark] : styles.card,
           },
           createElement(View, { style: [styles.iconFrame, { backgroundColor: `${tone.color}24` }] }, <Icon name={tone.icon} size={18} color={tone.color} />),
           createElement(
@@ -275,6 +278,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.34,
     shadowRadius: 26,
     elevation: 18,
+  },
+  // Toasts are always dark. On the dark theme's night canvas the plum card would sink in (1.03:1), so it lifts to the
+  // dark palette's plum and takes a lavender hairline, like the other dark shells where they meet the canvas.
+  cardOnDark: {
+    borderColor: "rgba(181,165,255,0.22)",
+    backgroundColor: "rgba(37,24,82,0.97)",
   },
   iconFrame: {
     width: 34,

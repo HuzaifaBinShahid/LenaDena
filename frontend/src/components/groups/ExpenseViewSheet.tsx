@@ -6,9 +6,8 @@ import { Button } from "@/components/ui/Button";
 import { useScreenObscured } from "@/components/ui/ScreenObscured";
 import { TopTabs } from "@/components/ui/TopTabs";
 import { defaultGroupExpenseView, groupViewFilterCount, type GroupExpenseView } from "@/features/ledger/groupLedger";
-import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { shadows } from "@/theme/shadows";
-import { colors } from "@/theme/tokens";
+import { makeStyles } from "@/theme/ThemeProvider";
 
 type ExpenseViewSheetProps = {
   visible: boolean;
@@ -23,10 +22,11 @@ const SORT_TABS = [
   { key: "largest" as const, label: "Largest" },
 ];
 
+// The pill takes the money colour of the side it shows: mint for money coming to you, coral for money you owe.
 const SIDE_TABS = [
   { key: "all" as const, label: "All" },
-  { key: "incoming" as const, label: "Owed to you", icon: "arrow-down" as const },
-  { key: "outgoing" as const, label: "You owe", icon: "arrow-up" as const },
+  { key: "incoming" as const, label: "Owed to you", icon: "arrow-down" as const, tone: "mint" as const },
+  { key: "outgoing" as const, label: "You owe", icon: "arrow-up" as const, tone: "coral" as const },
 ];
 
 const TYPE_TABS = [
@@ -40,7 +40,7 @@ export function ExpenseViewSheet({ visible, view, onChange, onClose }: ExpenseVi
   const obscured = useScreenObscured();
   const reduceMotion = useReducedMotion();
   const insets = useSafeAreaInsets();
-  const { palette } = usePreferences();
+  const styles = useStyles();
   const changed = view.sort !== defaultGroupExpenseView.sort || groupViewFilterCount(view) > 0;
 
   return (
@@ -51,7 +51,7 @@ export function ExpenseViewSheet({ visible, view, onChange, onClose }: ExpenseVi
           Animated.View,
           {
             entering: reduceMotion ? FadeIn.duration(140) : FadeInDown.duration(220),
-            style: [styles.sheet, { backgroundColor: palette.surface, paddingBottom: Math.max(28, insets.bottom + 16) }],
+            style: [styles.sheet, { paddingBottom: Math.max(28, insets.bottom + 16) }],
           },
           <View style={styles.handle} />,
           <NativeText accessibilityRole="header" maxFontSizeMultiplier={1.3} style={styles.title}>Show expenses</NativeText>,
@@ -80,27 +80,31 @@ export function ExpenseViewSheet({ visible, view, onChange, onClose }: ExpenseVi
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c, { isDark }) => ({
   root: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(16,8,35,0.52)",
+    // Light keeps this sheet's original, slightly deeper scrim; dark uses the themed one.
+    backgroundColor: isDark ? c.backdrop : "rgba(16,8,35,0.52)",
   },
   sheet: {
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: c.line,
+    backgroundColor: c.raised,
     paddingHorizontal: 20,
     paddingTop: 12,
     ...shadows.sheet,
+    shadowColor: c.shadow,
   },
   handle: {
     width: 42,
     height: 5,
     alignSelf: "center",
     borderRadius: 3,
-    backgroundColor: colors.line,
+    // The line colour is too faint for a grab handle on the dark sheet; a soft slate reads without shouting.
+    backgroundColor: isDark ? "rgba(167,159,195,0.32)" : c.line,
     marginBottom: 22,
   },
   title: {
@@ -108,14 +112,14 @@ const styles = StyleSheet.create({
     fontSize: 22,
     lineHeight: 28,
     letterSpacing: -0.3,
-    color: colors.ink,
+    color: c.ink,
   },
   detail: {
     marginTop: 4,
     fontFamily: "Manrope_500Medium",
     fontSize: 13,
     lineHeight: 19,
-    color: colors.slate,
+    color: c.slate,
   },
   section: {
     marginTop: 18,
@@ -125,7 +129,7 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_700Bold",
     fontSize: 13,
     lineHeight: 18,
-    color: colors.ink,
+    color: c.ink,
   },
   actions: {
     marginTop: 24,
@@ -136,4 +140,4 @@ const styles = StyleSheet.create({
   done: {
     flex: 1,
   },
-});
+}));

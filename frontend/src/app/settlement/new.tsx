@@ -20,6 +20,7 @@ import { useAppLock } from "@/features/security/AppLockProvider";
 import { errorMessage } from "@/lib/api";
 import { firstName, formatMoney, toMinorUnits } from "@/lib/format";
 import { layout } from "@/theme/layout";
+import { useTheme } from "@/theme/ThemeProvider";
 
 /** Screen padding (px-[18px] on each side). */
 const SCREEN_GUTTER = 18;
@@ -29,6 +30,7 @@ export default function ClaimPaymentScreen() {
   const { plan, connection, claimSettlement } = useLedger();
   const { runWithoutLocking } = useAppLock();
   const toast = useToast();
+  const { isDark } = useTheme();
   const { width: windowWidth } = useWindowDimensions();
   const group = plan.groups.find((item) => item.id === groupId) ?? plan.groups[0];
   const recipients = group?.members.filter((member) => member.id !== plan.user.id) ?? [];
@@ -142,7 +144,8 @@ export default function ClaimPaymentScreen() {
           <Input value={note} onChangeText={setNote} placeholder="Bank transfer" multiline />
         </Field>
         <Field label="Proof screenshot" hint="Optional and private to you and the recipient. Crop sensitive details before attaching.">
-          {proofUri ? <Image source={{ uri: proofUri }} className="h-56 w-full rounded-card bg-gray-100" resizeMode="contain" /> : null}
+          {/* The light well stays gray-100; in dark a grey well would glow, so it is the themed surface with a hairline ring. */}
+          {proofUri ? <Image source={{ uri: proofUri }} className={`h-56 w-full rounded-card ${isDark ? "border border-line bg-surface" : "bg-gray-100"}`} resizeMode="contain" /> : null}
           <View className="mt-2 flex-row gap-3">
             <Button label={proofUri ? "Replace proof" : "Attach proof"} icon="image" variant="secondary" onPress={chooseProof} />
             {proofUri ? <Button label="Remove" icon="trash-2" variant="ghost" onPress={() => setProofUri(undefined)} /> : null}

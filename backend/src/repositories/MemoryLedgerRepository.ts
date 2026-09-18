@@ -1,20 +1,24 @@
 import { randomUUID } from "node:crypto";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../domain/errors.js";
 import { pairKey, validateShares } from "../domain/money.js";
+import { cleanNewPerson, cleanPersonChanges, cleanPersonName, PersonExistsError, PersonNotFoundError, personNameKey } from "../domain/people.js";
 import type {
   ActivityItem,
   CreateExpenseInput,
   CreateGroupInput,
   CreatePersonalTransactionInput,
+  CreatePersonInput,
   CreateSettlementInput,
   Expense,
   Group,
   InviteLink,
   Member,
+  Person,
   Plan,
   Settlement,
   SettlementStatus,
   TransactionItem,
+  UpdatePersonInput,
   UpdateProfileInput,
   UploadKind,
 } from "../domain/types.js";
@@ -22,10 +26,13 @@ import type { LedgerRepository } from "./LedgerRepository.js";
 
 type StoredGroup = Omit<Group, "balanceMinor">;
 type StoredPersonalTransaction = TransactionItem & { userId: string };
+type StoredPerson = Omit<Person, "avatarUrl"> & { ownerId: string };
 
 const demoUser: Member = { id: "demo-user", name: "Huzaifa", email: "huzaifa@example.com", createdAt: "2026-09-01T09:00:00.000Z" };
 const sara: Member = { id: "sara", name: "Sara", email: "sara@example.com", createdAt: "2026-09-04T09:00:00.000Z" };
 const hamza: Member = { id: "hamza", name: "Hamza", email: "hamza@example.com", createdAt: "2026-09-03T09:00:00.000Z" };
+// A real UUID, so demo clients can send it as `personId` (the API validates the format).
+const demoPersonAliId = "5d1c9a7e-3b2f-4e8a-9c6d-2f7b8e4a1c03";
 
 export class MemoryLedgerRepository implements LedgerRepository {
   private readonly users = new Map<string, Member>([
@@ -89,8 +96,12 @@ export class MemoryLedgerRepository implements LedgerRepository {
     { id: "activity-2", groupId: "weekend-crew", icon: "file-text", title: "Dinner at Monal", detail: "Rs 4,800 split with 2 friends", createdAt: "2026-09-11T19:10:00.000Z", tone: "neutral" },
   ];
   private readonly personalTransactions: StoredPersonalTransaction[] = [
-    { id: "personal-1", userId: demoUser.id, source: "personal", title: "Coffee money", eventDate: "2026-09-13", amountMinor: 185000, currency: "PKR", direction: "outgoing", kind: "expense", counterparty: "Ali", status: "open", createdAt: "2026-09-13T08:20:00.000Z" },
-    { id: "personal-2", userId: demoUser.id, source: "personal", title: "Camera loan", eventDate: "2026-09-08", amountMinor: 1200000, currency: "PKR", direction: "incoming", kind: "loan", counterparty: "Ali", status: "settled", settledAt: "2026-09-10T17:45:00.000Z", createdAt: "2026-09-08T17:45:00.000Z" },
+    { id: "personal-1", userId: demoUser.id, source: "personal", title: "Coffee money", eventDate: "2026-09-13", amountMinor: 185000, currency: "PKR", direction: "outgoing", kind: "expense", counterparty: "Ali", personId: demoPersonAliId, status: "open", createdAt: "2026-09-13T08:20:00.000Z" },
+    { id: "personal-2", userId: demoUser.id, source: "personal", title: "Camera loan", eventDate: "2026-09-08", amountMinor: 1200000, currency: "PKR", direction: "incoming", kind: "loan", counterparty: "Ali", personId: demoPersonAliId, status: "settled", settledAt: "2026-09-10T17:45:00.000Z", createdAt: "2026-09-08T17:45:00.000Z" },
+  ];
+  // Matches the seeded individual balances, like the migration's backfill does for existing entries.
+  private readonly people: StoredPerson[] = [
+    { id: demoPersonAliId, ownerId: demoUser.id, name: "Ali", email: "ali@example.com", createdAt: "2026-09-08T17:45:00.000Z" },
   ];
   private readonly idempotency = new Map<string, unknown>();
   private readonly invites = new Map<string, { groupId: string; email?: string; expiresAt: string; accepted: boolean }>();
@@ -169,7 +180,7 @@ export class MemoryLedgerRepository implements LedgerRepository {
       oweMinor: groups.filter((group) => group.currency === currency).reduce((sum, group) => sum + Math.max(0, -group.balanceMinor), 0),
       owedMinor: groups.filter((group) => group.currency === currency).reduce((sum, group) => sum + Math.max(0, group.balanceMinor), 0),
     }));
-    return { user, totals, groups, reviews, claims, activity, transactions };
+    return { user, totals, groups, reviews, claims, activity, transactions, people: this.listPeople(userId) };
   }
 
   async updateProfile(userId: string, input: UpdateProfileInput): Promise<Member> {
@@ -246,7 +257,15 @@ export class MemoryLedgerRepository implements LedgerRepository {
     const cached = this.idempotency.get(key) as { id: string } | undefined;
     if (cached) return cached;
     if (!this.users.has(userId)) throw new NotFoundError("Profile not found");
-    if (!input.counterparty.trim()) throw new DomainError("Choose who this amount is with");
+    let person: StoredPerson;
+    if (input.personId) {
+      const owned = this.people.find((item) => item.id === input.personId && item.ownerId === userId);
+      if (!owned) throw new PersonNotFoundError();
+      person = owned;
+    } else {
+      if (!input.counterparty.trim()) throw new DomainError("Choose who this amount is with");
+      person = this.findPersonByName(userId, input.counterparty) ?? this.addPerson(userId, { name: cleanPersonName(input.counterparty), email: null, avatarPath: null });
+    }
     const transaction: StoredPersonalTransaction = {
       id: randomUUID(),
       userId,
@@ -257,7 +276,9 @@ export class MemoryLedgerRepository implements LedgerRepository {
       currency: input.currency.toUpperCase(),
       direction: input.direction,
       kind: input.kind,
-      counterparty: input.counterparty.trim(),
+      // The person's current name, so every entry with them reads the same.
+      counterparty: person.name,
+      personId: person.id,
       ...(input.note?.trim() ? { note: input.note.trim() } : {}),
       ...(input.receiptUri ? { receiptUri: input.receiptUri } : {}),
       status: "open",
@@ -279,6 +300,50 @@ export class MemoryLedgerRepository implements LedgerRepository {
       transaction.settledAt = new Date().toISOString();
     }
     this.idempotency.set(key, true);
+  }
+
+  async createPerson(userId: string, input: CreatePersonInput): Promise<Person> {
+    if (!this.users.has(userId)) throw new NotFoundError("Profile not found");
+    const details = cleanNewPerson(userId, input, { allowLocalUri: true });
+    if (this.findPersonByName(userId, details.name)) throw new PersonExistsError();
+    return this.toPerson(this.addPerson(userId, details));
+  }
+
+  async updatePerson(userId: string, personId: string, input: UpdatePersonInput): Promise<Person> {
+    const person = this.people.find((item) => item.id === personId && item.ownerId === userId);
+    if (!person) throw new PersonNotFoundError();
+    // Validate every field before changing any, like the single SQL update.
+    const changes = cleanPersonChanges(userId, input, { allowLocalUri: true });
+    if (changes.name !== undefined) {
+      const namesake = this.findPersonByName(userId, changes.name);
+      if (namesake && namesake.id !== person.id) throw new PersonExistsError();
+    }
+    if (changes.name !== undefined && changes.name !== person.name) {
+      person.name = changes.name;
+      // History shows the person's current name.
+      for (const transaction of this.personalTransactions) {
+        if (transaction.userId === userId && transaction.personId === person.id) transaction.counterparty = person.name;
+      }
+    }
+    if (changes.email !== undefined) {
+      if (changes.email) person.email = changes.email;
+      else delete person.email;
+    }
+    if (changes.avatarPath !== undefined) {
+      if (changes.avatarPath) person.avatarPath = changes.avatarPath;
+      else delete person.avatarPath;
+    }
+    return this.toPerson(person);
+  }
+
+  async deletePerson(userId: string, personId: string): Promise<void> {
+    const index = this.people.findIndex((item) => item.id === personId && item.ownerId === userId);
+    if (index < 0) throw new PersonNotFoundError();
+    this.people.splice(index, 1);
+    // Their entries stay in the ledger under the same counterparty text; only the link goes.
+    for (const transaction of this.personalTransactions) {
+      if (transaction.personId === personId) delete transaction.personId;
+    }
   }
 
   async createSettlement(userId: string, input: CreateSettlementInput, idempotencyKey: string): Promise<{ id: string }> {
@@ -391,6 +456,44 @@ export class MemoryLedgerRepository implements LedgerRepository {
     invite.accepted = true;
     this.activity.unshift({ id: randomUUID(), groupId: group.id, icon: "users", title: `${user.name} joined ${group.name}`, detail: `${group.members.length} members`, createdAt: new Date().toISOString(), tone: "positive" });
     return this.getGroup(userId, group.id);
+  }
+
+  private listPeople(userId: string): Person[] {
+    return this.people
+      .filter((person) => person.ownerId === userId)
+      .sort((left, right) => personNameKey(left.name).localeCompare(personNameKey(right.name)) || left.id.localeCompare(right.id))
+      .map((person) => this.toPerson(person));
+  }
+
+  private findPersonByName(userId: string, name: string) {
+    const key = personNameKey(name);
+    return this.people.find((person) => person.ownerId === userId && personNameKey(person.name) === key);
+  }
+
+  /** Adds a person and links the owner's unlinked entries that already use this name. */
+  private addPerson(userId: string, details: { name: string; email: string | null; avatarPath: string | null }) {
+    const person: StoredPerson = {
+      id: randomUUID(),
+      ownerId: userId,
+      name: details.name,
+      ...(details.email ? { email: details.email } : {}),
+      ...(details.avatarPath ? { avatarPath: details.avatarPath } : {}),
+      createdAt: new Date().toISOString(),
+    };
+    this.people.push(person);
+    const key = personNameKey(person.name);
+    for (const transaction of this.personalTransactions) {
+      if (transaction.userId === userId && !transaction.personId && personNameKey(transaction.counterparty ?? "") === key) {
+        transaction.personId = person.id;
+        transaction.counterparty = person.name;
+      }
+    }
+    return person;
+  }
+
+  /** Demo mode has no storage to sign from, so the photo URL is the stored local URI, as for profile photos. */
+  private toPerson({ ownerId: _ownerId, ...person }: StoredPerson): Person {
+    return person.avatarPath ? { ...person, avatarUrl: person.avatarPath } : { ...person };
   }
 
   private requireMembership(userId: string, groupId: string) {

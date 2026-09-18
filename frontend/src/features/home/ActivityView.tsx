@@ -1,7 +1,7 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LayoutChangeEvent } from "react-native";
-import { AppState, ScrollView, StyleSheet, Text as NativeText, useWindowDimensions, View } from "react-native";
-import { router } from "expo-router";
+import { AppState, ScrollView, Text as NativeText, useWindowDimensions, View } from "react-native";
+import { router, type Href } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { FadeIn, useReducedMotion } from "react-native-reanimated";
@@ -43,17 +43,25 @@ import {
 } from "@/features/ledger/activity";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import { getPlanState } from "@/features/ledger/planState";
-import { describeTransaction } from "@/features/ledger/rowCopy";
+import { describeTransaction, personLink } from "@/features/ledger/rowCopy";
 import type { TransactionDirection, TransactionItem, TransactionKind, TransactionStatus } from "@/features/ledger/types";
-import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { errorMessage } from "@/lib/api";
 import { chartX } from "@/lib/curve";
 import { formatMoney, formatSignedMoney, relativeDayLabel, todayDate } from "@/lib/format";
 import { layout } from "@/theme/layout";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
+// Static tokens are for the header panel only: it is the brand's dark shell in both themes.
 import { colors } from "@/theme/tokens";
 
 const AXIS = { height: 32, labelWidth: 44, selectedWidth: 96, clearance: 70 } as const;
 const CATEGORY_SNAP = 148;
+/** Where a dark shell meets the dark canvas (dark mode only). */
+const SHELL_EDGE = "rgba(181,165,255,0.16)";
+
+/** Saved people live at /person/[id]. The cast keeps typed routes happy until that route is generated. */
+function openPerson(id: string) {
+  router.push(`/person/${encodeURIComponent(id)}` as Href);
+}
 
 const PERIOD_TABS: { key: ActivityPeriod; label: string }[] = [
   { key: "week", label: "Week" },
@@ -90,7 +98,8 @@ function isGroupScope(scope: string) {
 
 export function ActivityView({ onAddEntry }: HomeTabProps) {
   const { plan, connection, refresh, settlePersonalTransaction } = useLedger();
-  const { palette } = usePreferences();
+  const { colors: c } = useTheme();
+  const styles = useStyles();
   const toast = useToast();
   const reduceMotion = useReducedMotion();
   const { width: windowWidth } = useWindowDimensions();
@@ -137,6 +146,7 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
   const series = useMemo(() => bucketSeries(chartItems(plan, query), buckets, today), [plan, query, buckets, today]);
   const listItems = useMemo(() => filterList(plan, query), [plan, query]);
   const days = useMemo(() => groupByDay(listItems), [listItems]);
+  const peopleById = useMemo(() => new Map(plan.people.map((person) => [person.id, person])), [plan.people]);
   const categories = useMemo<Category[]>(() => {
     const built = buildCategories(plan, query);
     return built.length ? built : fallbackCategories(plan, query);
@@ -306,7 +316,7 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
             accessibilityState={{ selected }}
             pressableStyle={[styles.pill, selected ? styles.pillSelected : styles.pillIdle]}
           >
-            {createElement(NativeText, { style: [styles.pillLabel, { color: selected ? colors.white : "rgba(255,255,255,0.6)" }] }, code)}
+            {createElement(NativeText, { style: [styles.pillLabel, selected ? styles.pillLabelSelected : styles.pillLabelIdle] }, code)}
           </Touch>
         );
       }),
@@ -336,7 +346,7 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
 
   const panel = (
     <LinearGradient
-      colors={[palette.header, palette.header, colors.night]}
+      colors={[c.shell, c.shell, colors.night]}
       locations={[0, 0.35, 1]}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
@@ -438,9 +448,9 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
           pressedScale={0.92}
           accessibilityRole="button"
           accessibilityLabel="Filter by source"
-          pressableStyle={[styles.squareButton, { backgroundColor: palette.surface }]}
+          pressableStyle={styles.squareButton}
         >
-          <Icon name="chevron-right" size={18} color={colors.violet} />
+          <Icon name="chevron-right" size={18} color={c.violet} />
         </Touch>
       )
       : (
@@ -450,9 +460,9 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
           pressedScale={0.92}
           accessibilityRole="button"
           accessibilityLabel="Clear source filter"
-          pressableStyle={[styles.squareButton, { backgroundColor: palette.surface }]}
+          pressableStyle={styles.squareButton}
         >
-          <Icon name="close" size={18} color={colors.violet} />
+          <Icon name="close" size={18} color={c.violet} />
         </Touch>
       );
 
@@ -569,27 +579,51 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
             <LedgerList>
               {day.items.map((item, index) => {
                 const copy = describeTransaction(item, { context: "activity", today });
+                const person = personLink(item, peopleById);
+                const key = `${item.source}-${item.id}`;
+                const row = {
+                  // The ring cuts the corner badge into the list surface (LedgerList paints `raised`).
+                  leading: <EntryTile icon={copy.tile.icon} tone={copy.tile.tone} badge={copy.tile.badge} ringColor={c.raised} />,
+                  title: copy.title,
+                  subtitle: copy.subtitle,
+                  amount: copy.amount,
+                  status: copy.status,
+                  divider: index > 0,
+                  accessibilityLabel: copy.accessibilityLabel,
+                };
+                if (!copy.canSettle) {
+                  // A row is either pressable or carries footer buttons, so only rows without "Mark settled" open the person.
+                  return person
+                    ? <LedgerRow key={key} {...row} onPress={() => openPerson(person.id)} chevron accessibilityHint={person.hint} />
+                    : <LedgerRow key={key} {...row} />;
+                }
                 return (
                   <LedgerRow
-                    key={`${item.source}-${item.id}`}
-                    leading={<EntryTile icon={copy.tile.icon} tone={copy.tile.tone} badge={copy.tile.badge} ringColor={palette.surface} />}
-                    title={copy.title}
-                    subtitle={copy.subtitle}
-                    amount={copy.amount}
-                    status={copy.status}
-                    divider={index > 0}
-                    accessibilityLabel={copy.accessibilityLabel}
-                    footer={copy.canSettle ? (
-                      <Button
-                        label="Mark settled"
-                        icon="check"
-                        size="md"
-                        variant="secondary"
-                        loading={settlingId === item.id}
-                        onPress={() => setSettlementTarget(item)}
-                        accessibilityHint={`Marks ${copy.title} as settled after you confirm`}
-                      />
-                    ) : undefined}
+                    key={key}
+                    {...row}
+                    footer={(
+                      <View style={styles.rowActions}>
+                        <Button
+                          label="Mark settled"
+                          icon="check"
+                          size="md"
+                          variant="secondary"
+                          loading={settlingId === item.id}
+                          onPress={() => setSettlementTarget(item)}
+                          accessibilityHint={`Marks ${copy.title} as settled after you confirm`}
+                        />
+                        {person ? (
+                          <Button
+                            label={person.label}
+                            icon="person-circle"
+                            size="md"
+                            variant="ghost"
+                            onPress={() => openPerson(person.id)}
+                            accessibilityHint={person.hint}
+                          />
+                        ) : null}
+                      </View>
+                    )}
                   />
                 );
               })}
@@ -664,9 +698,12 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c, { isDark }) => ({
   panel: {
     overflow: "hidden",
+    // The gradient ends in night, a shade below the dark canvas, so dark mode draws the seam.
+    borderBottomWidth: isDark ? 1 : 0,
+    borderBottomColor: SHELL_EDGE,
   },
   glow: {
     position: "absolute",
@@ -741,8 +778,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   pillSelected: {
-    backgroundColor: "rgba(255,255,255,0.16)",
-    borderColor: "rgba(255,255,255,0.22)",
+    // A solid lavender fill, not a white tint: the chart's currency has to read at a glance.
+    backgroundColor: colors.lavender,
+    borderColor: colors.lavender,
   },
   pillIdle: {
     borderColor: "rgba(255,255,255,0.12)",
@@ -751,6 +789,12 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_700Bold",
     fontSize: 12,
     lineHeight: 16,
+  },
+  pillLabelSelected: {
+    color: colors.night,
+  },
+  pillLabelIdle: {
+    color: "rgba(255,255,255,0.6)",
   },
   divider: {
     marginTop: 16,
@@ -774,6 +818,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
+    // The bright control on the always-dark header, so it stays light in both themes.
     backgroundColor: colors.raised,
   },
   filterBadge: {
@@ -830,13 +875,13 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_500Medium",
     fontSize: 12,
     lineHeight: 16,
-    color: colors.slate,
+    color: c.slate,
   },
   axisLabelSelected: {
     fontFamily: "Manrope_800ExtraBold",
     fontSize: 13,
     lineHeight: 16,
-    color: colors.ink,
+    color: c.ink,
   },
   section: {
     marginTop: layout.sectionGap,
@@ -850,7 +895,8 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: c.line,
+    backgroundColor: c.raised,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -889,7 +935,7 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_700Bold",
     fontSize: 13,
     lineHeight: 18,
-    color: colors.ink,
+    color: c.ink,
   },
   dayCount: {
     fontFamily: "Manrope_600SemiBold",
@@ -897,7 +943,13 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    color: colors.slate,
+    color: c.slate,
+  },
+  rowActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
   },
   olderFooter: {
     marginTop: 4,
@@ -908,6 +960,6 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_500Medium",
     fontSize: 12,
     lineHeight: 16,
-    color: colors.slate,
+    color: c.slate,
   },
-});
+}));

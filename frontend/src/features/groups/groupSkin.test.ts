@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { darkPalette } from "../../theme/palettes";
 import { colors } from "../../theme/tokens";
-import { groupSkin } from "./groupSkin";
+import { groupSkin, groupSkinTone } from "./groupSkin";
+
+/** WCAG 2 contrast ratio between two "#RRGGBB" colours. */
+function contrast(a: string, b: string) {
+  const luminance = (hex: string) => {
+    const channel = (offset: number) => {
+      const value = parseInt(hex.slice(offset, offset + 2), 16) / 255;
+      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+  };
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+  return (light + 0.05) / (dark + 0.05);
+}
+
+const SEED_ACCENTS = ["#6657E8", "#168AAD", "#16A77E", "#E88B3D", "#EC6075"];
 
 describe("groupSkin: seed accents", () => {
   it("#6657E8 is the violet skin", () => {
@@ -86,5 +102,37 @@ describe("groupSkin: hue boundaries", () => {
     expect(groupSkin("#F0007C").key).toBe("violet"); // 329
     expect(groupSkin("#FF0000").key).toBe("rose"); // 0
     expect(groupSkin("#FF0004").key).toBe("rose"); // 359
+  });
+});
+
+describe("groupSkinTone", () => {
+  it("light is the skin's own tint and icon, unchanged", () => {
+    for (const accent of SEED_ACCENTS) {
+      const skin = groupSkin(accent);
+      expect(groupSkinTone(skin, "light")).toEqual({ tint: skin.tint, icon: skin.icon });
+    }
+  });
+
+  it("dark never uses a light pastel tint", () => {
+    const pastels = new Set<string>([colors.violetSoft, colors.lavenderSoft, colors.limeSoft, colors.goldSoft, colors.coralSoft]);
+    const darkTints = new Set<string>([darkPalette.violetSoft, darkPalette.lavenderSoft, darkPalette.limeSoft, darkPalette.goldSoft, darkPalette.coralSoft]);
+    for (const accent of SEED_ACCENTS) {
+      const { tint } = groupSkinTone(groupSkin(accent), "dark");
+      expect(pastels.has(tint)).toBe(false);
+      expect(darkTints.has(tint)).toBe(true);
+    }
+  });
+
+  it("dark icons keep at least 3:1 against their tile and against the dark canvas", () => {
+    for (const accent of SEED_ACCENTS) {
+      const { tint, icon } = groupSkinTone(groupSkin(accent), "dark");
+      expect(contrast(icon, tint)).toBeGreaterThanOrEqual(3);
+      expect(contrast(icon, darkPalette.canvas)).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("returns a stable object per skin and scheme", () => {
+    expect(groupSkinTone(groupSkin("#6657E8"), "dark")).toBe(groupSkinTone(groupSkin(undefined), "dark"));
+    expect(groupSkinTone(groupSkin("#16A77E"), "light")).toBe(groupSkinTone(groupSkin("#16a77e"), "light"));
   });
 });

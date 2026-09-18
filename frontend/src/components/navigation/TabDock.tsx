@@ -7,6 +7,7 @@ import { FabButton } from "@/components/ui/FabButton";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Touch } from "@/components/ui/Touch";
 import { layout } from "@/theme/layout";
+import { useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
 
 export type DockTab<T extends string> = { key: T; label: string; icon: IconName; activeIcon: IconName; badge?: number };
@@ -17,7 +18,7 @@ export type TabDockProps<T extends string> = {
   value: T;
   onChange: (key: T) => void;
   centerAction: { label: string; hint: string; onPress: () => void };
-  /** Normally `palette.header`. Also rings the count badge. */
+  /** The brand shell (`useTheme().colors.shell`). Also rings the count badge. */
   barColor: string;
 };
 
@@ -32,7 +33,15 @@ const ROW_PADDING = 8;
 const CENTER_GAP = 100;
 const MIN_CENTER_GAP = 64;
 const MIN_SLOT = 65;
+// The bar is the dark brand shell in both themes, so the tab colours are fixed rather than themed.
 const INACTIVE = "rgba(244,240,255,0.56)";
+const ACTIVE_ICON = colors.lavender;
+const ACTIVE_LABEL = colors.white;
+/** Soft lavender pill behind the selected tab's icon, so the selection reads at a glance. */
+const INDICATOR = "rgba(181,165,255,0.2)";
+/** Top edge of the bar: a faint white highlight on the light canvas; a lavender hairline where the shell meets the dark canvas. */
+const EDGE_LIGHT = "rgba(255,255,255,0.08)";
+const EDGE_DARK = "rgba(181,165,255,0.16)";
 
 /** ScrollView bottom padding that keeps the last content clear of the dock: 31 + 72 + max(insetBottom, 8) + 24. */
 export function dockContentPadding(insetBottom: number): number {
@@ -68,6 +77,7 @@ function round(value: number) {
 
 /** Dark notched bottom navigation: [tab][tab] (centre Add entry) [tab][tab]. Replaces TopTabs "navigation" on the home shell. */
 export function TabDock<T extends string>({ tabs, value, onChange, centerAction, barColor }: TabDockProps<T>) {
+  const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const screen = useWindowDimensions();
   const capped = Platform.OS === "web" && screen.width > layout.dockMax;
@@ -103,7 +113,7 @@ export function TabDock<T extends string>({ tabs, value, onChange, centerAction,
       { pointerEvents: "none", style: [styles.bar, { top: RISE - 1, width: W, height: barHeight + 1 }] },
       <Svg width={W} height={barHeight + 1}>
         <Path d={barPath(W, barHeight, 1, capped, false)} fill={barColor} />
-        <Path d={barPath(W, barHeight, 1, capped, true)} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={1} />
+        <Path d={barPath(W, barHeight, 1, capped, true)} fill="none" stroke={isDark ? EDGE_DARK : EDGE_LIGHT} strokeWidth={1} />
       </Svg>,
     ),
     // Swallows taps between items so they never reach the cards scrolling behind the bar.
@@ -134,17 +144,18 @@ export function TabDock<T extends string>({ tabs, value, onChange, centerAction,
 
 function DockItem<T extends string>({ tab, selected, barColor, onPress }: { tab: DockTab<T>; selected: boolean; barColor: string; onPress: () => void }) {
   const reduceMotion = useReducedMotion();
-  const color = selected ? colors.lavender : INACTIVE;
   const badge = tab.badge && tab.badge > 0 ? tab.badge : 0;
   const label = badge ? `${tab.label}, ${badge} pending` : tab.label;
 
+  // Selected: filled lavender icon on a soft pill, white bold label. Unselected: muted outline icon and label.
   const glyph = selected
     ? createElement(
       Animated.View,
       { key: "on", entering: reduceMotion ? undefined : FadeIn.duration(150), style: styles.glyph },
-      <Icon name={tab.activeIcon} size={24} color={color} />,
+      createElement(View, { pointerEvents: "none", style: styles.indicator }),
+      <Icon name={tab.activeIcon} size={24} color={ACTIVE_ICON} />,
     )
-    : createElement(View, { key: "off", style: styles.glyph }, <Icon name={tab.icon} size={24} color={color} />);
+    : createElement(View, { key: "off", style: styles.glyph }, <Icon name={tab.icon} size={24} color={INACTIVE} />);
 
   return (
     <Touch
@@ -174,7 +185,7 @@ function DockItem<T extends string>({ tab, selected, barColor, onPress }: { tab:
         {
           numberOfLines: 1,
           maxFontSizeMultiplier: 1.3,
-          style: [styles.label, { color, fontFamily: selected ? "Manrope_700Bold" : "Manrope_600SemiBold" }],
+          style: [styles.label, selected ? styles.labelSelected : styles.labelIdle],
         },
         tab.label,
       )}
@@ -234,10 +245,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  indicator: {
+    position: "absolute",
+    left: -13,
+    top: -3,
+    width: 52,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: INDICATOR,
+  },
   label: {
     marginTop: 4,
     fontSize: 11.5,
     lineHeight: 14,
+  },
+  labelSelected: {
+    color: ACTIVE_LABEL,
+    fontFamily: "Manrope_700Bold",
+  },
+  labelIdle: {
+    color: INACTIVE,
+    fontFamily: "Manrope_600SemiBold",
   },
   badge: {
     position: "absolute",

@@ -1,14 +1,15 @@
 import { createElement, useMemo } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
-import { ScrollView, StyleSheet, Text as NativeText, View } from "react-native";
+import { ScrollView, Text as NativeText, View } from "react-native";
 import { Avatar } from "@/components/ui/Avatar";
 import { DashedOutline } from "@/components/ui/DashedOutline";
 import { Icon } from "@/components/ui/Icon";
 import { Spinner } from "@/components/ui/Spinner";
 import { Touch } from "@/components/ui/Touch";
 import type { Group, Member } from "@/features/ledger/types";
-import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { firstName } from "@/lib/format";
+import type { Palette } from "@/theme/palettes";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
 
 const ITEM_W = 64;
@@ -17,6 +18,9 @@ const DISC = 64;
 const GAP = 22;
 const ROW_GAP = 14;
 const SIDE_PAD = 20;
+/** Selection badge: a violet (or quiet) disc inside a ring cut from the surface behind the row. */
+const BADGE = 24;
+const BADGE_INNER = 20;
 
 export type MemberRowProps = {
   group: Group;
@@ -32,14 +36,23 @@ export type MemberRowProps = {
   layout?: "scroll" | "wrap";
   /** Trailing caption beside the items. In members mode a group with only you gets "Invite friends to split costs in {name}." */
   caption?: string;
+  /** What the row sits on: the screen canvas (default) or a raised card. The selection badge's ring is cut from it. */
+  surface?: "canvas" | "raised";
   style?: StyleProp<ViewStyle>;
 };
 
-function memberTint(id: string, surface: string): string {
-  const tints = [colors.violetSoft, colors.limeSoft, colors.goldSoft, surface];
+function memberTint(id: string, c: Palette, isDark: boolean): string {
+  // The last tint is the raised white in light. In dark, raised would vanish inside raised cards, so it lifts to surface.
+  const fallback = isDark ? c.surface : c.raised;
+  const tints = [c.violetSoft, c.limeSoft, c.goldSoft, fallback];
   let hash = 0;
   for (let index = 0; index < id.length; index += 1) hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
-  return tints[hash % tints.length] ?? surface;
+  return tints[hash % tints.length] ?? fallback;
+}
+
+/** Initials on the tinted discs: violetStrong on light pastels, lavender on the deep dark tints. */
+function initialsColor(isDark: boolean) {
+  return isDark ? colors.lavender : colors.violetStrong;
 }
 
 function byName(a: Member, b: Member) {
@@ -47,8 +60,10 @@ function byName(a: Member, b: Member) {
 }
 
 /** Invite, You, then everyone else by name (§2.24). Radio mode lists only the other members. */
-export function MemberRow({ group, currentUserId, onInvite, inviting = false, mode, selectedIds, onToggle, layout = "scroll", caption, style }: MemberRowProps) {
-  const { palette } = usePreferences();
+export function MemberRow({ group, currentUserId, onInvite, inviting = false, mode, selectedIds, onToggle, layout = "scroll", caption, surface = "canvas", style }: MemberRowProps) {
+  const styles = useStyles();
+  const { colors: c, isDark } = useTheme();
+  const backdrop = surface === "raised" ? c.raised : c.canvas;
   const members = useMemo(() => {
     const you = group.members.find((member) => member.id === currentUserId);
     const others = group.members.filter((member) => member.id !== currentUserId).sort(byName);
@@ -62,7 +77,7 @@ export function MemberRow({ group, currentUserId, onInvite, inviting = false, mo
     onInvite ? <InviteCircle key="invite" name={groupName} onPress={onInvite} inviting={inviting} /> : null,
     ...members.map((member) => {
       const isYou = member.id === currentUserId;
-      const tint = memberTint(member.id, palette.surface);
+      const tint = memberTint(member.id, c, isDark);
       if (mode === "members") {
         return <StaticMember key={member.id} member={member} isYou={isYou} tint={tint} />;
       }
@@ -74,7 +89,7 @@ export function MemberRow({ group, currentUserId, onInvite, inviting = false, mo
           tint={tint}
           role={mode}
           selected={Boolean(selectedIds?.includes(member.id))}
-          surface={palette.surface}
+          backdrop={backdrop}
           onPress={() => onToggle?.(member.id)}
         />
       );
@@ -114,24 +129,31 @@ export function MemberRow({ group, currentUserId, onInvite, inviting = false, mo
   );
 }
 
-function ItemLabel({ text, strong }: { text: string; strong?: boolean }) {
+/** default: ink. selected: the name picks up the selection violet. quiet: an unselected option recedes to slate. */
+type LabelTone = "default" | "selected" | "quiet";
+
+function ItemLabel({ text, strong, tone = "default" }: { text: string; strong?: boolean; tone?: LabelTone }) {
+  const styles = useStyles();
   return (
-    <NativeText numberOfLines={1} maxFontSizeMultiplier={1.3} style={[styles.label, strong ? styles.labelStrong : null]}>{text}</NativeText>
+    <NativeText
+      numberOfLines={1}
+      maxFontSizeMultiplier={1.3}
+      style={[styles.label, strong ? styles.labelStrong : null, tone === "selected" ? styles.labelSelected : tone === "quiet" ? styles.labelQuiet : null]}
+    >
+      {text}
+    </NativeText>
   );
 }
 
 function StaticMember({ member, isYou, tint }: { member: Member; isYou: boolean; tint: string }) {
+  const styles = useStyles();
+  const { isDark } = useTheme();
   const spoken = `${isYou ? "You" : member.name}${member.email ? `, ${member.email}` : ""}`;
+  const avatar = <Avatar name={member.name} uri={member.avatarUrl} size="row" shape="circle" tint={tint} accent={initialsColor(isDark)} />;
   return (
     <View style={styles.item} accessible accessibilityLabel={spoken}>
       <View style={styles.disc}>
-        {isYou ? (
-          <View style={styles.youRing}>
-            <Avatar name={member.name} uri={member.avatarUrl} size="row" shape="circle" tint={tint} accent={colors.violetStrong} />
-          </View>
-        ) : (
-          <Avatar name={member.name} uri={member.avatarUrl} size="row" shape="circle" tint={tint} accent={colors.violetStrong} />
-        )}
+        {isYou ? <View style={styles.youRing}>{avatar}</View> : avatar}
       </View>
       <ItemLabel text={isYou ? "You" : firstName(member.name) || member.name} strong={isYou} />
     </View>
@@ -144,11 +166,18 @@ type SelectableMemberProps = {
   tint: string;
   role: "radio" | "checkbox";
   selected: boolean;
-  surface: string;
+  /** The surface behind the row: the badge's cut-out ring and the unselected badge fill. */
+  backdrop: string;
   onPress: () => void;
 };
 
-function SelectableMember({ member, isYou, tint, role, selected, surface, onPress }: SelectableMemberProps) {
+/**
+ * Selected: a solid violet ring, a filled violet check badge and the name in violet, bold.
+ * Unselected: a hairline ring, a hollow "+" badge and a slate name, so the chosen people stand out in both themes.
+ */
+function SelectableMember({ member, isYou, tint, role, selected, backdrop, onPress }: SelectableMemberProps) {
+  const styles = useStyles();
+  const { colors: c, isDark } = useTheme();
   const name = isYou ? "You" : member.name;
   return (
     <Touch
@@ -162,19 +191,24 @@ function SelectableMember({ member, isYou, tint, role, selected, surface, onPres
       pressableStyle={styles.itemPressable}
     >
       <View style={styles.disc}>
-        <Avatar name={member.name} uri={member.avatarUrl} size="row" shape="circle" tint={tint} accent={colors.violetStrong} />
+        <Avatar name={member.name} uri={member.avatarUrl} size="row" shape="circle" tint={tint} accent={initialsColor(isDark)} />
         <View pointerEvents="none" style={[styles.selectRing, selected ? styles.selectRingOn : styles.selectRingOff]} />
-        <View pointerEvents="none" style={[styles.badge, selected ? styles.badgeOn : [styles.badgeOff, { backgroundColor: surface }]]}>
-          <Icon name={selected ? "check" : "plus"} size={11} color={selected ? colors.white : colors.slate} />
+        <View pointerEvents="none" style={[styles.badge, { backgroundColor: backdrop }]}>
+          <View style={[styles.badgeInner, selected ? styles.badgeOn : [styles.badgeOff, { backgroundColor: backdrop }]]}>
+            {/* White on the violet fill in both themes. */}
+            <Icon name={selected ? "check" : "plus"} size={selected ? 13 : 11} color={selected ? colors.white : c.slate} />
+          </View>
         </View>
       </View>
-      <ItemLabel text={isYou ? "You" : firstName(member.name) || member.name} strong={isYou || selected} />
+      <ItemLabel text={isYou ? "You" : firstName(member.name) || member.name} strong={isYou || selected} tone={selected ? "selected" : "quiet"} />
     </Touch>
   );
 }
 
-/** Dashed Invite circle: 64pt violetStrong dashed ring around a 52pt plum disc. Presses are ignored while inviting. */
+/** Dashed Invite circle: 64pt dashed ring around a 52pt plum disc (violet in dark). Presses are ignored while inviting. */
 export function InviteCircle({ name, onPress, inviting = false }: { name: string; onPress: () => void; inviting?: boolean }) {
+  const styles = useStyles();
+  const { isDark } = useTheme();
   return (
     <Touch
       onPress={() => {
@@ -189,7 +223,7 @@ export function InviteCircle({ name, onPress, inviting = false }: { name: string
       pressableStyle={styles.itemPressable}
     >
       <View style={styles.disc}>
-        <DashedOutline width={DISC} height={DISC} radius={DISC / 2} color={colors.violetStrong} strokeWidth={1.75} dashCount={24} />
+        <DashedOutline width={DISC} height={DISC} radius={DISC / 2} color={dashColor(isDark)} strokeWidth={1.75} dashCount={24} />
         <View style={styles.inviteInner}>
           {inviting ? <Spinner tone="light" /> : <Icon name="user-plus" size={22} color={colors.white} />}
         </View>
@@ -199,17 +233,22 @@ export function InviteCircle({ name, onPress, inviting = false }: { name: string
   );
 }
 
+/** Dashed outlines: violetStrong on light surfaces; it sinks into the night canvas, so dark uses lavender. */
+function dashColor(isDark: boolean) {
+  return isDark ? colors.lavender : colors.violetStrong;
+}
+
 /** Loading placeholder: three static 56pt circles with 36×8 bars. No shimmer. */
 export function MemberRowLoading({ style }: { style?: StyleProp<ViewStyle> }) {
-  const { palette } = usePreferences();
+  const styles = useStyles();
   return (
     <View style={[styles.captionRow, style]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       {[0, 1, 2].map((key) => (
         <View key={key} style={styles.item}>
           <View style={styles.disc}>
-            <View style={[styles.placeholderCircle, { backgroundColor: palette.surface }]} />
+            <View style={styles.placeholderCircle} />
           </View>
-          <View style={[styles.placeholderBar, { backgroundColor: palette.surface }]} />
+          <View style={styles.placeholderBar} />
         </View>
       ))}
     </View>
@@ -218,6 +257,8 @@ export function MemberRowLoading({ style }: { style?: StyleProp<ViewStyle> }) {
 
 /** No-groups row: a dashed "New group" circle and the caption "Friends you invite will show up here." */
 export function MemberRowCreate({ onPress, style }: { onPress: () => void; style?: StyleProp<ViewStyle> }) {
+  const styles = useStyles();
+  const { isDark } = useTheme();
   return (
     <View style={[styles.captionRow, style]}>
       <Touch
@@ -231,8 +272,8 @@ export function MemberRowCreate({ onPress, style }: { onPress: () => void; style
         pressableStyle={styles.itemPressable}
       >
         <View style={styles.disc}>
-          <DashedOutline width={DISC} height={DISC} radius={DISC / 2} color={colors.violetStrong} strokeWidth={1.75} dashCount={24} />
-          <Icon name="plus" size={22} color={colors.violetStrong} />
+          <DashedOutline width={DISC} height={DISC} radius={DISC / 2} color={dashColor(isDark)} strokeWidth={1.75} dashCount={24} />
+          <Icon name="plus" size={22} color={dashColor(isDark)} />
         </View>
         <ItemLabel text="New group" strong />
       </Touch>
@@ -243,7 +284,7 @@ export function MemberRowCreate({ onPress, style }: { onPress: () => void; style
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c, { isDark }) => ({
   scrollContent: {
     paddingHorizontal: SIDE_PAD,
     gap: GAP,
@@ -279,7 +320,7 @@ const styles = StyleSheet.create({
     height: 62,
     borderRadius: 31,
     borderWidth: 2,
-    borderColor: colors.violet,
+    borderColor: c.violet,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -292,29 +333,37 @@ const styles = StyleSheet.create({
     borderRadius: DISC / 2,
   },
   selectRingOn: {
-    borderWidth: 2.5,
-    borderColor: colors.violet,
+    borderWidth: 3,
+    borderColor: c.violet,
   },
   selectRingOff: {
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: c.line,
   },
+  // Centred on the ring at 45°, slightly outside the 64pt disc.
   badge: {
     position: "absolute",
-    right: 0,
-    bottom: 0,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    right: -2,
+    bottom: -2,
+    width: BADGE,
+    height: BADGE,
+    borderRadius: BADGE / 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeInner: {
+    width: BADGE_INNER,
+    height: BADGE_INNER,
+    borderRadius: BADGE_INNER / 2,
     alignItems: "center",
     justifyContent: "center",
   },
   badgeOn: {
-    backgroundColor: colors.violet,
+    backgroundColor: c.violet,
   },
   badgeOff: {
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: c.line,
   },
   inviteInner: {
     position: "absolute",
@@ -323,7 +372,8 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: colors.plum,
+    // Plum is the strongest disc on the light canvas; in dark it would vanish, so the invite takes the violet fill.
+    backgroundColor: isDark ? c.violet : c.plum,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -334,10 +384,17 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_600SemiBold",
     fontSize: 12,
     lineHeight: 16,
-    color: colors.ink,
+    color: c.ink,
   },
   labelStrong: {
     fontFamily: "Manrope_700Bold",
+  },
+  labelSelected: {
+    // violetStrong keeps 8:1 on the light canvas; lavender keeps 8:1 on the dark one.
+    color: isDark ? colors.lavender : colors.violetStrong,
+  },
+  labelQuiet: {
+    color: c.slate,
   },
   caption: {
     flex: 1,
@@ -352,12 +409,13 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_600SemiBold",
     fontSize: 13,
     lineHeight: 18,
-    color: colors.slate,
+    color: c.slate,
   },
   placeholderCircle: {
     width: 56,
     height: 56,
     borderRadius: 28,
+    backgroundColor: c.raised,
   },
   placeholderBar: {
     alignSelf: "center",
@@ -365,5 +423,6 @@ const styles = StyleSheet.create({
     height: 8,
     marginTop: 12,
     borderRadius: 4,
+    backgroundColor: c.raised,
   },
-});
+}));

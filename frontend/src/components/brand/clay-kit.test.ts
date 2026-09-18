@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { darkPalette } from "../../theme/palettes";
 import { colors } from "../../theme/tokens";
 import {
   circlePath,
   clayDetailFor,
+  clayDuskRamps,
   clayGlyphs,
   clayHeightFor,
   clayIdPrefix,
   clayMaterial,
   clayMinSize,
+  clayPaperWhite,
   clayPaths,
+  clayRampFor,
   clayRamps,
   clayViewBox,
   cloudFitTransform,
@@ -19,6 +23,7 @@ import {
   sweptCircle,
   type ClayGlyph,
   type ClayName,
+  type ClayTone,
 } from "./clay-kit";
 
 const numbersIn = (path: string) => (path.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
@@ -129,6 +134,55 @@ describe("clay ramps", () => {
     expect(clayRamps.coral).toMatchObject({ hi: colors.coralSoft, base: colors.coralBright, deep: colors.coral });
     expect(clayRamps.cloud).toMatchObject({ hi: colors.white, light: colors.raised, base: colors.lavenderSoft });
     expect(clayRamps.lavenderCloud).toMatchObject({ hi: colors.white, light: colors.lavenderSoft, shade: colors.lavender, edge: colors.violet });
+  });
+});
+
+/** WCAG relative luminance of "#RRGGBB". */
+function luminance(hex: string) {
+  const channel = (start: number) => {
+    const value = parseInt(hex.slice(start, start + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+
+const RAMP_STEPS = ["hi", "light", "base", "shade", "deep", "edge"] as const;
+
+describe("clay dusk paper (dark theme)", () => {
+  it("uses upper-case six-digit hex for every dusk value", () => {
+    for (const ramp of Object.values(clayDuskRamps)) {
+      for (const value of Object.values(ramp)) expect(value).toMatch(/^#[0-9A-F]{6}$/);
+    }
+  });
+
+  it("swaps only the paper tones, and only when dimmed", () => {
+    const tones = Object.keys(clayRamps) as ClayTone[];
+    for (const tone of tones) expect(clayRampFor(tone, false)).toBe(clayRamps[tone]);
+    for (const tone of tones) {
+      const paper = tone === "cloud" || tone === "lavenderCloud";
+      expect(clayRampFor(tone, true)).toBe(paper ? clayDuskRamps[tone] : clayRamps[tone]);
+    }
+    expect(clayPaperWhite(false)).toBe("#FFFFFF");
+    expect(clayPaperWhite(true)).toBe(clayDuskRamps.cloud.hi);
+  });
+
+  it("darkens every step of the paper it replaces and still shades from hi to edge", () => {
+    for (const tone of ["cloud", "lavenderCloud"] as const) {
+      const day = clayRamps[tone];
+      const dusk = clayDuskRamps[tone];
+      RAMP_STEPS.forEach((step, index) => {
+        expect(luminance(dusk[step])).toBeLessThan(luminance(day[step]));
+        const next = RAMP_STEPS[index + 1];
+        if (next) expect(luminance(dusk[next])).toBeLessThan(luminance(dusk[step]));
+      });
+    }
+  });
+
+  it("never lets the paper outshine the dark theme's text", () => {
+    for (const ramp of Object.values(clayDuskRamps)) expect(luminance(ramp.hi)).toBeLessThan(luminance(darkPalette.ink));
+    // The body tone sits mid-way: clearly off the night canvas, far from white.
+    expect(luminance(clayDuskRamps.cloud.base)).toBeGreaterThan(luminance(darkPalette.slate) * 0.8);
+    expect(luminance(clayDuskRamps.cloud.base)).toBeLessThan(0.5);
   });
 });
 

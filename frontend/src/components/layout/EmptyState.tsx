@@ -1,7 +1,7 @@
 import { StyleSheet, View } from "react-native";
 import { Text } from "@/components/ui/Text";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { colors } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeProvider";
 import { Button } from "@/components/ui/Button";
 import { ClayEmpty } from "@/components/brand/Clay";
 
@@ -20,12 +20,13 @@ type EmptyStateProps = {
 };
 
 export function EmptyState({ icon, title, detail, action, secondaryAction, illustration, variant }: EmptyStateProps) {
+  const { colors: c } = useTheme();
   // With none of the new props this is exactly the original markup.
   if (!variant && !illustration && !secondaryAction) {
     return (
       <View className="items-center rounded-card border border-line bg-raised px-6 py-10 shadow-sm shadow-black/5">
         <View className="h-14 w-14 items-center justify-center rounded-[18px] bg-violet-soft">
-          <Icon name={icon} size={25} color={colors.violet} />
+          <Icon name={icon} size={25} color={c.violet} />
         </View>
         <Text className="mt-4 text-center text-lg font-bold text-ink">{title}</Text>
         <Text className="mt-2 text-center text-sm leading-5 text-slate">{detail}</Text>
@@ -35,11 +36,12 @@ export function EmptyState({ icon, title, detail, action, secondaryAction, illus
   }
 
   const inset = variant === "inset";
+  // The card is a themed surface, so the clay dims its pale paper by itself in dark mode.
   const art = illustration ? (
     <ClayEmpty subject={illustration} size={inset ? 128 : 148} surface="light" />
   ) : (
     <View className="h-14 w-14 items-center justify-center rounded-[18px] bg-violet-soft">
-      <Icon name={icon} size={25} color={colors.violet} />
+      <Icon name={icon} size={25} color={c.violet} />
     </View>
   );
   // The card frame and its icon-only copy keep the original classes. The new treatments use exact point values

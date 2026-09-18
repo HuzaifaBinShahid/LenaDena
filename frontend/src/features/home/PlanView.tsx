@@ -13,10 +13,10 @@ import { useLedger } from "@/features/ledger/LedgerProvider";
 import { getPlanState, type PlanState } from "@/features/ledger/planState";
 import { getOpenBalanceTotals } from "@/features/ledger/selectors";
 import type { Plan, Settlement } from "@/features/ledger/types";
-import { usePreferences } from "@/features/preferences/PreferencesProvider";
+import { PeopleStrip } from "@/features/people/PeopleStrip";
 import { formatMoney, formatShortDate, todayDate } from "@/lib/format";
 import { layout } from "@/theme/layout";
-import { colors } from "@/theme/tokens";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 
 /** Currency shown on the single placeholder page (loading, offline, empty); the same fallback ActivityView uses. */
 const FALLBACK_CURRENCY = "PKR";
@@ -55,7 +55,7 @@ function buildPages(plan: Plan, planState: PlanState, today: string): BalancePag
   }));
 }
 
-/** Plan tab: balance pager, the payment waiting for review, quick actions and top movers. */
+/** Plan tab: balance pager, the payment waiting for review, quick actions, people and top movers. */
 export function PlanView({ onAddEntry, onChangeTab }: HomeTabProps) {
   const { plan, connection } = useLedger();
   const { width } = useWindowDimensions();
@@ -71,6 +71,7 @@ export function PlanView({ onAddEntry, onChangeTab }: HomeTabProps) {
       <BalancePager pages={pages} onAddEntry={onAddEntry} />
       {plan.reviews.length ? <Attention plan={plan} onChangeTab={onChangeTab} /> : null}
       <QuickActions needsGroup={!waiting && plan.groups.length === 0} />
+      <PeopleStrip />
       <BalanceMovers movers={movers} planState={planState} hasGroups={plan.groups.length > 0} column={column} onChangeTab={onChangeTab} />
     </View>
   );
@@ -82,7 +83,8 @@ function reviewSubtitle(review: Settlement, plan: Plan) {
 }
 
 function Attention({ plan, onChangeTab }: Pick<HomeTabProps, "onChangeTab"> & { plan: Plan }) {
-  const { palette } = usePreferences();
+  const themed = useStyles();
+  const { colors: c } = useTheme();
   const review = plan.reviews[0];
   if (!review) return null;
   const amount = formatMoney(review.amountMinor, review.currency);
@@ -93,7 +95,7 @@ function Attention({ plan, onChangeTab }: Pick<HomeTabProps, "onChangeTab"> & { 
     <View style={styles.attention}>
       <LedgerList>
         <LedgerRow
-          leading={<EntryTile icon="send" tone="gold" ringColor={palette.surface} />}
+          leading={<EntryTile icon="send" tone="gold" ringColor={c.raised} />}
           title={`${review.debtor.name} paid?`}
           subtitle={reviewSubtitle(review, plan)}
           amount={{ text: amount, tone: "neutral" }}
@@ -111,7 +113,7 @@ function Attention({ plan, onChangeTab }: Pick<HomeTabProps, "onChangeTab"> & { 
           accessibilityLabel={`${more} more ${more === 1 ? "payment" : "payments"} to review. View all`}
           pressableStyle={styles.moreButton}
         >
-          {createElement(NativeText, { numberOfLines: 1, style: styles.moreLabel }, `+${more} more · View all`)}
+          {createElement(NativeText, { numberOfLines: 1, style: [styles.moreLabel, themed.moreLabel] }, `+${more} more · View all`)}
         </Touch>
       ) : null}
     </View>
@@ -135,6 +137,12 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_600SemiBold",
     fontSize: 12,
     lineHeight: 16,
-    color: colors.violet,
   },
 });
+
+const useStyles = makeStyles((c, { isDark }) => ({
+  moreLabel: {
+    // Violet link in light; lavender in dark, where violet is only 4.1:1 on the canvas.
+    color: isDark ? c.lavender : c.violet,
+  },
+}));

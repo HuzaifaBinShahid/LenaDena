@@ -1,3 +1,48 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Theme colours as space-separated RGB channels (see tailwind.config.js and src/theme/palettes.ts). */
+:root {
+  --ld-ink: 23 17 41;
+  --ld-ink-soft: 39 27 75;
+  --ld-plum: 27 16 59;
+  --ld-canvas: 245 242 250;
+  --ld-raised: 252 250 255;
+  --ld-surface: 234 228 244;
+  --ld-violet: 118 87 246;
+  --ld-violet-soft: 238 233 255;
+  --ld-lavender-soft: 240 236 255;
+  --ld-lime-soft: 232 250 244;
+  --ld-mint: 19 154 120;
+  --ld-mint-soft: 229 247 241;
+  --ld-coral: 232 99 131;
+  --ld-coral-soft: 253 236 241;
+  --ld-gold: 199 138 53;
+  --ld-gold-soft: 255 243 226;
+  --ld-slate: 110 104 128;
+  --ld-muted: 163 156 175;
+  --ld-line: 227 221 236;
+}
+
+.dark:root {
+  --ld-ink: 243 239 255;
+  --ld-ink-soft: 212 204 240;
+  --ld-plum: 37 24 82;
+  --ld-canvas: 17 11 34;
+  --ld-raised: 27 20 51;
+  --ld-surface: 39 30 69;
+  --ld-violet: 118 87 246;
+  --ld-violet-soft: 43 33 96;
+  --ld-lavender-soft: 33 26 69;
+  --ld-lime-soft: 21 48 44;
+  --ld-mint: 90 214 172;
+  --ld-mint-soft: 16 48 42;
+  --ld-coral: 255 126 154;
+  --ld-coral-soft: 59 23 48;
+  --ld-gold: 242 189 107;
+  --ld-gold-soft: 51 37 15;
+  --ld-slate: 167 159 195;
+  --ld-muted: 118 110 147;
+  --ld-line: 47 38 83;
+}

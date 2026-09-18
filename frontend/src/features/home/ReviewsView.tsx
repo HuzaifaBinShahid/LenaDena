@@ -1,5 +1,5 @@
 import { createElement, useEffect, type ReactNode } from "react";
-import { StyleSheet, Text as NativeText, useWindowDimensions, View } from "react-native";
+import { Text as NativeText, useWindowDimensions, View } from "react-native";
 import { router } from "expo-router";
 import { SectionHeader } from "@/components/layout/SectionHeader";
 import { Avatar } from "@/components/ui/Avatar";
@@ -13,10 +13,9 @@ import { useLedger } from "@/features/ledger/LedgerProvider";
 import { getPlanState } from "@/features/ledger/planState";
 import type { CornerBadgeKind } from "@/features/ledger/rowCopy";
 import type { Member, Settlement } from "@/features/ledger/types";
-import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { formatDateTime, formatMoney, formatShortDate } from "@/lib/format";
 import { layout } from "@/theme/layout";
-import { colors } from "@/theme/tokens";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 
 function openPayment(item: Settlement) {
   router.push({ pathname: "/settlement/[id]", params: { id: item.id } });
@@ -56,6 +55,7 @@ function PersonLeading({ person, badge, ringColor }: { person: Member; badge: Co
 }
 
 function SpinnerRow() {
+  const styles = useStyles();
   return (
     <View style={styles.spinnerRow} accessible accessibilityLabel="Loading payments">
       <Spinner />
@@ -65,7 +65,8 @@ function SpinnerRow() {
 
 export function ReviewsView(_props: HomeTabProps) {
   const { plan, connection, refresh } = useLedger();
-  const { palette } = usePreferences();
+  const { colors: c } = useTheme();
+  const styles = useStyles();
   const { width: windowWidth } = useWindowDimensions();
   const col = Math.min(windowWidth, layout.contentMax);
   const planState = getPlanState(plan, connection);
@@ -155,7 +156,7 @@ export function ReviewsView(_props: HomeTabProps) {
   } else if (offline) {
     reviewRows = (
       <LedgerRow
-        leading={<EntryTile icon="alert-circle" tone="neutral" ringColor={palette.surface} />}
+        leading={<EntryTile icon="alert-circle" tone="neutral" ringColor={c.raised} />}
         title="Payments unavailable"
         subtitle="Can't reach LenaDena"
         note="Reviews and sent payments appear once LenaDena reconnects."
@@ -166,7 +167,7 @@ export function ReviewsView(_props: HomeTabProps) {
   } else if (reviewCount === 0) {
     reviewRows = (
       <LedgerRow
-        leading={<EntryTile icon="check-circle" tone="violet" ringColor={palette.surface} />}
+        leading={<EntryTile icon="check-circle" tone="violet" ringColor={c.raised} />}
         title="Nothing to review"
         subtitle="You're all caught up"
         note="When a friend says they paid you, it appears here."
@@ -182,7 +183,7 @@ export function ReviewsView(_props: HomeTabProps) {
           onPress={() => openPayment(review)}
           chevron
           divider={index > 0}
-          leading={<PersonLeading person={review.debtor} badge="clock" ringColor={palette.surface} />}
+          leading={<PersonLeading person={review.debtor} badge="clock" ringColor={c.raised} />}
           title={`${review.debtor.name} says they paid`}
           subtitle={paymentSubtitle(review)}
           amount={{ text: amount, tone: "neutral" }}
@@ -203,7 +204,7 @@ export function ReviewsView(_props: HomeTabProps) {
   } else if (offline) {
     claimRows = (
       <LedgerRow
-        leading={<EntryTile icon="send" tone="neutral" ringColor={palette.surface} />}
+        leading={<EntryTile icon="send" tone="neutral" ringColor={c.raised} />}
         title="Sent payments unavailable"
         subtitle="Waiting for a connection"
         accessibilityLabel="Sent payments unavailable while offline."
@@ -214,7 +215,7 @@ export function ReviewsView(_props: HomeTabProps) {
     const explanation = hasGroups ? "Tap I paid after you pay someone back." : "Payments settle group balances. Create a group to start.";
     claimRows = (
       <LedgerRow
-        leading={<EntryTile icon="send" tone="violet" ringColor={palette.surface} />}
+        leading={<EntryTile icon="send" tone="violet" ringColor={c.raised} />}
         title="No payments sent"
         subtitle={hasGroups ? "Nothing waiting for confirmation" : "No groups yet"}
         note={explanation}
@@ -235,7 +236,7 @@ export function ReviewsView(_props: HomeTabProps) {
           onPress={() => openPayment(claim)}
           chevron
           divider={index > 0}
-          leading={<PersonLeading person={claim.recipient} badge={claim.canSelfSettle ? "check" : "send"} ringColor={palette.surface} />}
+          leading={<PersonLeading person={claim.recipient} badge={claim.canSelfSettle ? "check" : "send"} ringColor={c.raised} />}
           title={`Sent to ${claim.recipient.name}`}
           subtitle={paymentSubtitle(claim)}
           note={note}
@@ -270,7 +271,7 @@ export function ReviewsView(_props: HomeTabProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   root: {
     alignSelf: "center",
     paddingHorizontal: 20,
@@ -282,7 +283,7 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_500Medium",
     fontSize: 13,
     lineHeight: 19,
-    color: colors.slate,
+    color: c.slate,
   },
   summary: {
     flexDirection: "row",
@@ -296,4 +297,4 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-});
+}));

@@ -33,6 +33,8 @@ type Overlay = NonNullable<AreaChartProps["overlay"]>;
 
 const FALLBACK_OVERLAY: Overlay = { icon: "pulse", title: "Nothing to chart yet", detail: "Entries you add will draw a curve here." };
 
+// The chart always sits on the Activity panel, the dark brand shell in both themes, so its colours are deliberately
+// static (white-alpha grid, lavender curve, bright markers and tooltips) rather than following the light/dark palette.
 const SIDE_COLORS = {
   incoming: { halo: "#6FE0B838", dot: colors.mintBright, tipBackground: colors.lime, tipText: colors.night },
   outgoing: { halo: "#FF8DA638", dot: colors.coralBright, tipBackground: colors.coralSoft, tipText: colors.ink },

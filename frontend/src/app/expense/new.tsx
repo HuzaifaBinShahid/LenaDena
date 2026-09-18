@@ -29,7 +29,7 @@ import { errorMessage } from "@/lib/api";
 import { dateFromIso, dateToIso, formatLongDate, formatMoney, toMinorUnits, todayDate } from "@/lib/format";
 import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { layout } from "@/theme/layout";
-import { colors } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeProvider";
 
 type FormStep = "details" | "split" | "finish";
 
@@ -47,7 +47,8 @@ const SCREEN_GUTTERS = 36;
 export default function NewExpenseScreen() {
   const params = useLocalSearchParams<{ groupId?: string; receiptUri?: string }>();
   const { plan, connection, createExpense } = useLedger();
-  const { speechLocale, palette } = usePreferences();
+  const { speechLocale } = usePreferences();
+  const { colors: c, isDark } = useTheme();
   const { width: windowWidth } = useWindowDimensions();
   const { runWithoutLocking } = useAppLock();
   const toast = useToast();
@@ -226,7 +227,7 @@ export default function NewExpenseScreen() {
       <PageHeader title="Add expense" subtitle="Three short steps, one clear split" />
       <View className="mb-5 gap-3">
         <View className="flex-row items-center justify-between px-1">
-          <Text className="text-[11px] font-bold uppercase tracking-[1.2px] text-violet">Step {stepRank[step] + 1} of 3</Text>
+          <Text className="text-[11px] font-bold uppercase tracking-[1.2px] text-violet dark:text-lavender">Step {stepRank[step] + 1} of 3</Text>
           <Text className="text-xs text-slate">You can go back anytime</Text>
         </View>
         <TopTabs tabs={formSteps} value={step} onChange={goToStep} />
@@ -268,7 +269,8 @@ export default function NewExpenseScreen() {
               />
             </Field>
             <Field label="Receipt" hint="Optional. We read it on your device and you review every suggestion.">
-              {receiptUri ? <Image source={{ uri: receiptUri }} className="h-40 w-full rounded-[18px] bg-surface" resizeMode="cover" /> : null}
+              {/* In dark the photo gets a hairline ring so it doesn't float on the card. */}
+              {receiptUri ? <Image source={{ uri: receiptUri }} className={`h-40 w-full rounded-[18px] bg-surface${isDark ? " border border-line" : ""}`} resizeMode="cover" /> : null}
               <View className="mt-1 flex-row gap-2">
                 <Button label={receiptUri ? "Replace" : "Choose photo"} icon="image" variant="secondary" loading={scanning} onPress={chooseReceipt} />
                 {receiptUri ? <Button label="Scan again" icon="maximize" variant="ghost" loading={scanning} onPress={() => void scan(receiptUri)} /> : null}
@@ -278,7 +280,7 @@ export default function NewExpenseScreen() {
               <Input value={amount} onChangeText={setAmount} placeholder="6,000" keyboardType="decimal-pad" leadingIcon="credit-card" invalid={Boolean(amountError)} />
             </Field>
             <Field label="Event name" required error={eventError}>
-              <Input value={eventName} onChangeText={setEventName} placeholder="Dinner at Monal" trailingIcon={listeningField === "event" ? "square" : "mic"} onTrailingPress={() => void listen("event")} invalid={Boolean(eventError)} />
+              <Input value={eventName} onChangeText={setEventName} placeholder="Dinner at Monal" trailingIcon="mic" listening={listeningField === "event"} onTrailingPress={() => void listen("event")} invalid={Boolean(eventError)} />
             </Field>
             <Field label="Event date" required error={dateError} hint="Shown as day, month name, and year.">
               <Input
@@ -320,6 +322,7 @@ export default function NewExpenseScreen() {
                   currentUserId={plan.user.id}
                   mode="checkbox"
                   layout="wrap"
+                  surface="raised"
                   selectedIds={selectedIds}
                   onToggle={(memberId) => setSelectedIds((current) => current.includes(memberId) ? current.filter((id) => id !== memberId) : [...current, memberId])}
                 />
@@ -357,7 +360,7 @@ export default function NewExpenseScreen() {
             <View style={styles.summary}>
               <LedgerList>
                 <LedgerRow
-                  leading={<EntryTile icon="file-text" tone="violet" ringColor={palette.surface} />}
+                  leading={<EntryTile icon="file-text" tone="violet" ringColor={c.raised} />}
                   title={eventName.trim() || "New expense"}
                   subtitle={`${formatLongDate(eventDate)} · ${group?.name ?? "Group"}`}
                   note={splitSummary}
@@ -368,19 +371,19 @@ export default function NewExpenseScreen() {
               <View style={styles.getBack}>
                 {getBackMinor > 0 ? (
                   <>
-                    <Icon name="arrow-down" size={16} color={colors.mint} />
+                    <Icon name="arrow-down" size={16} color={c.mint} />
                     <Text className="flex-1 font-medium text-slate" style={styles.getBackLabel}>You get back {formatMoney(getBackMinor, group?.currency)}</Text>
                   </>
                 ) : (
                   <>
-                    <Icon name="info" size={16} color={colors.slate} />
+                    <Icon name="info" size={16} color={c.slate} />
                     <Text className="flex-1 font-medium text-slate" style={styles.getBackLabel}>Only you are in this split, so nobody will owe you.</Text>
                   </>
                 )}
               </View>
             </View>
             <Field label="Note" hint="Optional and visible to the group.">
-              <Input value={note} onChangeText={setNote} placeholder="Add a final detail" multiline trailingIcon={listeningField === "note" ? "square" : "mic"} onTrailingPress={() => void listen("note")} />
+              <Input value={note} onChangeText={setNote} placeholder="Add a final detail" multiline trailingIcon="mic" listening={listeningField === "note"} onTrailingPress={() => void listen("note")} />
             </Field>
           </View>
           <View className="flex-row gap-3">

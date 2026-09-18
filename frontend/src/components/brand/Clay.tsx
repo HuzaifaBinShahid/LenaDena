@@ -14,8 +14,10 @@ import {
   clayIdPrefix,
   clayMaterial,
   clayMinSize,
+  clayPaperWhite,
   clayPaths,
   clayPeopleFigures,
+  clayRampFor,
   clayRamps,
   clayStackDiscs,
   clayViewBox,
@@ -31,6 +33,7 @@ import {
   type ClayRamp,
   type ClaySurface,
 } from "./clay-kit";
+import { useTheme } from "@/theme/ThemeProvider";
 
 // Glossy clay illustrations drawn only with react-native-svg primitives.
 // Light comes from the upper left. Layer order: glow, ground AO, parts behind, extrusion, bounce, body,
@@ -48,9 +51,17 @@ export type ClayEmptySubject = "activity" | "groups" | "expenses" | "reviews";
 export type ClayCommonProps = {
   /** Width in points (an integer). Height is `round(size · vb.h / vb.w)`. */
   size: number;
-  /** What sits directly behind the art. Default "light". */
+  /**
+   * What sits directly behind the art. Default "light": the app's themed canvas and cards, so in dark mode the
+   * art dims itself (see `dim`). "dark": an always-dark brand shell (splash, balance card, violet tiles).
+   */
   surface?: ClaySurface;
-  /** Lavender halo behind the piece. Default `surface === "dark"`. */
+  /**
+   * Paints the pale paper materials (trays, clouds, paper, platforms) at dusk and drops the glow, so nothing
+   * glows on a dark themed surface. Default: on when the app is in dark mode and `surface` is "light".
+   */
+  dim?: boolean;
+  /** Lavender halo behind the piece. Default `surface === "dark"` (never on dimmed art). */
   glow?: boolean;
   /** Ground shadow under the piece. Default true. */
   grounded?: boolean;
@@ -59,7 +70,13 @@ export type ClayCommonProps = {
   style?: StyleProp<ViewStyle>;
 };
 
-export type ClayPartBase = { id: string; surface: ClaySurface; detail: ClayDetail };
+export type ClayPartBase = {
+  id: string;
+  surface: ClaySurface;
+  detail: ClayDetail;
+  /** Dusk paper for a dark themed surface; pass it with `surface="dark"` (see `ClayCommonProps.dim`). Default false. */
+  dim?: boolean;
+};
 type PieceOptions = { transform?: string; glow?: boolean; grounded?: boolean };
 
 export type ClayCoinPartProps = ClayPartBase & {
@@ -207,7 +224,7 @@ function GlyphMark({ glyph, cx, cy, box, ramp, finish, detail }: { glyph: ClayGl
 // ---------------------------------------------------------------------------------------------------------
 // Parts. Each places its own Defs first and draws in viewBox units, so several parts can share one Svg root.
 
-function CoinPart({ id, surface, detail, cx, cy, r, depth, tone, glyph = "none", glyphStyle = "emboss", rotate = 0, glow = surface === "dark", grounded = true }: ClayCoinPartProps) {
+function CoinPart({ id, surface, detail, dim = false, cx, cy, r, depth, tone, glyph = "none", glyphStyle = "emboss", rotate = 0, glow = surface === "dark" && !dim, grounded = true }: ClayCoinPartProps) {
   const ramp = clayRamps[tone];
   const dx = depth ? depth[0] : 0.2 * r;
   const dy = depth ? depth[1] : 0.175 * r;
@@ -296,8 +313,8 @@ function BadgePart({ id, detail, cx, cy, r, tone, glyph }: ClayBadgePartProps) {
   );
 }
 
-function CloudPart({ id, surface, detail, transform, tone, mirror = false }: ClayCloudPartProps) {
-  const ramp = clayRamps[tone];
+function CloudPart({ id, surface, detail, dim = false, transform, tone, mirror = false }: ClayCloudPartProps) {
+  const ramp = clayRampFor(tone, dim);
   const dark = surface === "dark";
   const { x: bx, y: by, width: bw, height: bh } = clayCloudBounds;
   const base = clayCloudBase;
@@ -337,8 +354,8 @@ function CloudPart({ id, surface, detail, transform, tone, mirror = false }: Cla
   );
 }
 
-function PuffPart({ id, cx, cy, k }: ClayPuffPartProps) {
-  const ramp = clayRamps.cloud;
+function PuffPart({ id, dim = false, cx, cy, k }: ClayPuffPartProps) {
+  const ramp = clayRampFor("cloud", dim);
   const balls = [
     { x: cx - 10 * k, y: cy + 7 * k, r: 16 * k },
     { x: cx + 6 * k, y: cy - k, r: 20 * k },
@@ -356,7 +373,7 @@ function PuffPart({ id, cx, cy, k }: ClayPuffPartProps) {
   );
 }
 
-function CoinStackPart({ id, surface, detail, transform, glow = surface === "dark", grounded = true }: ClayCoinStackPartProps) {
+function CoinStackPart({ id, surface, detail, dim = false, transform, glow = surface === "dark" && !dim, grounded = true }: ClayCoinStackPartProps) {
   const gold = clayRamps.gold;
   const full = detail === "full";
   const top = clayStackDiscs[3];
@@ -395,14 +412,14 @@ function CoinStackPart({ id, surface, detail, transform, glow = surface === "dar
         <Specular fill={url(`${id}-spec`)} cx={48} cy={52} rx={16} ry={9} rotate={-35} />
         <Specular fill={WHITE} opacity={0.9} cx={44} cy={47} rx={5} ry={2.8} rotate={-35} />
       </G>
-      <CoinPart id={`${id}-mint`} surface={surface} detail="low" cx={18} cy={34} r={12} tone="mint" glyph="none" rotate={20} glow={false} grounded={false} />
+      <CoinPart id={`${id}-mint`} surface={surface} detail="low" dim={dim} cx={18} cy={34} r={12} tone="mint" glyph="none" rotate={20} glow={false} grounded={false} />
       <Path d={clayPaths.stackSparkleBig} fill={clayRamps.lavender.base} opacity={0.9} />
-      <Path d={clayPaths.stackSparkleSmall} fill={surface === "dark" ? WHITE : clayRamps.lavender.base} opacity={0.7} />
+      <Path d={clayPaths.stackSparkleSmall} fill={surface === "dark" && !dim ? WHITE : clayRamps.lavender.base} opacity={0.7} />
     </G>
   );
 }
 
-function WalletPart({ id, surface, detail, transform, glow = surface === "dark", grounded = true }: ClayWalletPartProps) {
+function WalletPart({ id, surface, detail, dim = false, transform, glow = surface === "dark" && !dim, grounded = true }: ClayWalletPartProps) {
   const violet = clayRamps.violet;
   const mint = clayRamps.mint;
   const gold = clayRamps.gold;
@@ -452,8 +469,9 @@ const RECEIPT_ROWS = [
   { y: 70, width: 30 },
 ] as const;
 
-function ReceiptPart({ id, surface, detail, transform, stamp = "check", glow = surface === "dark", grounded = true }: ClayReceiptPartProps) {
-  const cloud = clayRamps.cloud;
+function ReceiptPart({ id, surface, detail, dim = false, transform, stamp = "check", glow = surface === "dark" && !dim, grounded = true }: ClayReceiptPartProps) {
+  const cloud = clayRampFor("cloud", dim);
+  const paper = clayPaperWhite(dim);
   const lavender = clayRamps.lavender;
   const violet = clayRamps.violet;
   return (
@@ -464,7 +482,7 @@ function ReceiptPart({ id, surface, detail, transform, stamp = "check", glow = s
         </ClipPath>
         {linear(`${id}-paper`, [[0, cloud.hi], [0.45, cloud.light], [0.8, cloud.base], [1, cloud.shade]], 0, 0, 0.9, 1)}
         {linear(`${id}-side`, [[0, cloud.edge, 0], [1, cloud.edge, 0.2]], 0, 0, 1, 0)}
-        {linear(`${id}-roll`, [[0, WHITE], [0.7, cloud.shade], [1, cloud.deep]], 0, 0, 0, 1)}
+        {linear(`${id}-roll`, [[0, paper], [0.7, cloud.shade], [1, cloud.deep]], 0, 0, 0, 1)}
         {linear(`${id}-total`, [[0, violet.light], [1, violet.shade]])}
         {radial(`${id}-spec`, clayMaterial.specular)}
       </Defs>
@@ -477,33 +495,33 @@ function ReceiptPart({ id, surface, detail, transform, stamp = "check", glow = s
           <Rect x={82} y={8} width={14} height={128} fill={url(`${id}-side`)} />
         </G>
         <Rect x={20} y={4} width={80} height={12} rx={6} fill={url(`${id}-roll`)} />
-        <Rect x={28} y={6} width={40} height={2.5} rx={1.25} fill={WHITE} opacity={0.9} />
+        <Rect x={28} y={6} width={40} height={2.5} rx={1.25} fill={WHITE} opacity={dim ? 0.5 : 0.9} />
         {RECEIPT_ROWS.map((row, index) => (
           <G key={index}>
             <Rect x={34} y={row.y} width={row.width} height={5} rx={2.5} fill={lavender.base} opacity={0.55} />
-            <Rect x={34} y={row.y + 5.5} width={row.width} height={1.2} rx={0.6} fill={WHITE} opacity={0.8} />
+            <Rect x={34} y={row.y + 5.5} width={row.width} height={1.2} rx={0.6} fill={WHITE} opacity={dim ? 0.35 : 0.8} />
             <Rect x={row.width > 40 ? 84 : 76} y={row.y} width={row.width > 40 ? 4 : 12} height={5} rx={2} fill={lavender.base} opacity={0.55} />
           </G>
         ))}
         <Path d="M34 84H86" fill="none" stroke={lavender.base} strokeOpacity={0.6} strokeWidth={1.5} strokeDasharray="4 3" strokeLinecap="round" />
         <Rect x={34} y={94} width={24} height={7} rx={3.5} fill={violet.base} opacity={0.85} />
         <Rect x={64} y={93} width={24} height={9} rx={4.5} fill={url(`${id}-total`)} />
-        {stamp === "none" ? null : <BadgePart id={`${id}-stamp`} surface={surface} detail={detail} cx={84} cy={110} r={12} tone="mint" glyph={stamp} />}
+        {stamp === "none" ? null : <BadgePart id={`${id}-stamp`} surface={surface} detail={detail} dim={dim} cx={84} cy={110} r={12} tone="mint" glyph={stamp} />}
         <Ellipse cx={42} cy={24} rx={12} ry={4} fill={url(`${id}-spec`)} />
       </G>
     </G>
   );
 }
 
-function PeoplePart({ id, surface, detail, transform, accessory = "plus", glow = surface === "dark", grounded = true }: ClayPeoplePartProps) {
-  const cloud = clayRamps.cloud;
+function PeoplePart({ id, surface, detail, dim = false, transform, accessory = "plus", glow = surface === "dark" && !dim, grounded = true }: ClayPeoplePartProps) {
+  const cloud = clayRampFor("cloud", dim);
   const lavender = clayRamps.lavender;
   const violet = clayRamps.violet;
   return (
     <G transform={transform}>
       <Defs>
         {linear(`${id}-band`, [[0, lavender.shade], [0.3, lavender.base], [0.8, violet.shade], [1, violet.deep]], 0, 0, 1, 0)}
-        {radial(`${id}-platform`, [[0, WHITE], [0.6, cloud.base], [1, cloud.shade]], 0.4, 0.3, 0.8)}
+        {radial(`${id}-platform`, [[0, clayPaperWhite(dim)], [0.6, cloud.base], [1, cloud.shade]], 0.4, 0.3, 0.8)}
         {radial(`${id}-contact`, contactStops(cloud.edge))}
         {radial(`${id}-spec`, clayMaterial.specular)}
         {clayPeopleFigures.flatMap((figure, index) => {
@@ -518,7 +536,7 @@ function PeoplePart({ id, surface, detail, transform, accessory = "plus", glow =
       <Halo id={id} surface={surface} glow={glow} grounded={grounded} glowBox={{ cx: 70, cy: 72, rx: 68, ry: 54 }} aoBox={{ cx: 72, cy: 121, rx: 62, ry: 6 }} />
       <Path d={clayPaths.peoplePlatform} fill={url(`${id}-band`)} />
       <Ellipse cx={70} cy={100} rx={58} ry={14} fill={url(`${id}-platform`)} />
-      {detail === "full" ? <Path d="M12 100A58 14 0 0 0 128 100" fill="none" stroke={WHITE} strokeOpacity={0.7} strokeWidth={1.5} strokeLinecap="round" /> : null}
+      {detail === "full" ? <Path d="M12 100A58 14 0 0 0 128 100" fill="none" stroke={WHITE} strokeOpacity={dim ? 0.3 : 0.7} strokeWidth={1.5} strokeLinecap="round" /> : null}
       {clayPeopleFigures.map((figure, index) => {
         const { x, baseY, s } = figure;
         return (
@@ -532,23 +550,24 @@ function PeoplePart({ id, surface, detail, transform, accessory = "plus", glow =
           </G>
         );
       })}
-      {accessory === "none" ? null : <BadgePart id={`${id}-badge`} surface={surface} detail={detail} cx={116} cy={34} r={15} tone="violet" glyph={accessory} />}
+      {accessory === "none" ? null : <BadgePart id={`${id}-badge`} surface={surface} detail={detail} dim={dim} cx={116} cy={34} r={15} tone="violet" glyph={accessory} />}
     </G>
   );
 }
 
 const CALENDAR_CELLS = [0, 1, 2].flatMap((row) => [0, 1, 2, 3].map((column) => ({ x: 29 + 17 * column, y: 56 + 14 * row, active: row === 1 && column === 2 })));
 
-function CalendarPart({ id, surface, transform, accent = "mint", glow = surface === "dark", grounded = true }: ClayCalendarPartProps) {
-  const cloud = clayRamps.cloud;
+function CalendarPart({ id, surface, dim = false, transform, accent = "mint", glow = surface === "dark" && !dim, grounded = true }: ClayCalendarPartProps) {
+  const cloud = clayRampFor("cloud", dim);
+  const paper = clayPaperWhite(dim);
   const violet = clayRamps.violet;
   const tint = clayRamps[accent];
   return (
     <G transform={transform}>
       <Defs>
-        {linear(`${id}-page`, [[0, WHITE], [0.4, cloud.light], [0.8, cloud.base], [1, cloud.shade]], 0, 0, 0.8, 1)}
+        {linear(`${id}-page`, [[0, paper], [0.4, cloud.light], [0.8, cloud.base], [1, cloud.shade]], 0, 0, 0.8, 1)}
         {linear(`${id}-header`, [[0, violet.light], [0.55, violet.base], [1, violet.shade]], 0, 0, 0, 1)}
-        {linear(`${id}-rod`, [[0, cloud.shade], [0.35, WHITE], [1, cloud.edge]], 0, 0, 1, 0)}
+        {linear(`${id}-rod`, [[0, cloud.shade], [0.35, paper], [1, cloud.edge]], 0, 0, 1, 0)}
         {radial(`${id}-day`, [[0, tint.light], [0.6, tint.base], [1, tint.shade]], 0.35, 0.3, 0.8)}
       </Defs>
       <Halo id={id} surface={surface} glow={glow} grounded={grounded} glowBox={{ cx: 60, cy: 64, rx: 58, ry: 54 }} aoBox={{ cx: 62, cy: 110, rx: 42, ry: 6 }} />
@@ -580,14 +599,14 @@ function CalendarPart({ id, surface, transform, accent = "mint", glow = surface 
   );
 }
 
-function TrayPart({ id, surface, transform, glow = surface === "dark", grounded = true }: ClayTrayPartProps) {
-  const cloud = clayRamps.cloud;
+function TrayPart({ id, surface, dim = false, transform, glow = surface === "dark" && !dim, grounded = true }: ClayTrayPartProps) {
+  const cloud = clayRampFor("cloud", dim);
   const lavender = clayRamps.lavender;
   return (
     <G transform={transform}>
       <Defs>
         {linear(`${id}-wall`, [[0, cloud.deep], [0.3, cloud.base], [0.8, lavender.base], [1, lavender.shade]], 0, 0, 1, 0)}
-        {radial(`${id}-rim`, [[0, WHITE], [0.6, cloud.base], [1, cloud.shade]], 0.4, 0.3, 0.8)}
+        {radial(`${id}-rim`, [[0, clayPaperWhite(dim)], [0.6, cloud.base], [1, cloud.shade]], 0.4, 0.3, 0.8)}
         {linear(`${id}-well`, [[0, cloud.deep], [0.5, cloud.shade], [1, cloud.base]], 0, 0, 0, 1)}
         {radial(`${id}-floor`, [[0, lavender.shade, 0.35], [1, lavender.shade, 0]])}
       </Defs>
@@ -598,7 +617,7 @@ function TrayPart({ id, surface, transform, glow = surface === "dark", grounded 
       <Ellipse cx={100} cy={110} rx={62} ry={16} fill={url(`${id}-well`)} />
       <Ellipse cx={100} cy={112} rx={24} ry={5} fill={url(`${id}-floor`)} />
       <Ellipse cx={100} cy={112} rx={32} ry={7.5} fill="none" stroke={lavender.shade} strokeOpacity={0.55} strokeWidth={1.6} strokeDasharray="4 4" />
-      <Path d={clayPaths.trayHighlight} fill="none" stroke={WHITE} strokeOpacity={0.85} strokeWidth={2.5} strokeLinecap="round" />
+      <Path d={clayPaths.trayHighlight} fill="none" stroke={WHITE} strokeOpacity={dim ? 0.35 : 0.85} strokeWidth={2.5} strokeLinecap="round" />
     </G>
   );
 }
@@ -626,6 +645,17 @@ const warnedSizes = new Set<string>();
 function useClayPrefix(name: ClayName) {
   const reactId = useId();
   return useMemo(() => clayIdPrefix(reactId, name), [reactId, name]);
+}
+
+/**
+ * Resolves the requested surface against the theme. "light" art in dark mode is drawn dimmed, with the dark-surface
+ * geometry (no pale outlines, dark ground shadow). `shell` is true only for the undimmed brand-shell look, which
+ * alone gets the glow and white sparkles.
+ */
+function useClayFinish(surface: ClaySurface, dim: boolean | undefined) {
+  const { isDark } = useTheme();
+  const dimmed = dim ?? (isDark && surface === "light");
+  return { surface: dimmed ? ("dark" as const) : surface, dim: dimmed, shell: surface === "dark" && !dimmed };
 }
 
 const hiddenFromScreenReaders = {
@@ -656,14 +686,16 @@ function ClayRoot({ name, size, accessibilityLabel, style, children }: { name: C
 
 export type ClayCoinProps = ClayCommonProps & { tone?: ClayCoinTone; glyph?: ClayGlyph | "none"; glyphStyle?: ClayGlyphStyle; tilt?: number };
 
-export const ClayCoin = memo(function ClayCoin({ size, surface = "light", glow, grounded = true, accessibilityLabel, style, tone = "gold", glyph = "exchange", glyphStyle = "emboss", tilt = 0 }: ClayCoinProps) {
+export const ClayCoin = memo(function ClayCoin({ size, surface = "light", dim, glow, grounded = true, accessibilityLabel, style, tone = "gold", glyph = "exchange", glyphStyle = "emboss", tilt = 0 }: ClayCoinProps) {
   const id = useClayPrefix("coin");
+  const finish = useClayFinish(surface, dim);
   return (
     <ClayRoot name="coin" size={size} accessibilityLabel={accessibilityLabel} style={style}>
       <CoinPart
         id={id}
-        surface={surface}
+        surface={finish.surface}
         detail={clayDetailFor("coin", size)}
+        dim={finish.dim}
         cx={54}
         cy={52}
         r={40}
@@ -672,7 +704,7 @@ export const ClayCoin = memo(function ClayCoin({ size, surface = "light", glow, 
         glyph={glyph}
         glyphStyle={glyphStyle}
         rotate={tilt}
-        glow={glow ?? surface === "dark"}
+        glow={glow ?? finish.shell}
         grounded={grounded}
       />
     </ClayRoot>
@@ -681,87 +713,94 @@ export const ClayCoin = memo(function ClayCoin({ size, surface = "light", glow, 
 
 export type ClayCoinStackProps = ClayCommonProps;
 
-export const ClayCoinStack = memo(function ClayCoinStack({ size, surface = "light", glow, grounded = true, accessibilityLabel, style }: ClayCoinStackProps) {
+export const ClayCoinStack = memo(function ClayCoinStack({ size, surface = "light", dim, glow, grounded = true, accessibilityLabel, style }: ClayCoinStackProps) {
   const id = useClayPrefix("coin-stack");
+  const finish = useClayFinish(surface, dim);
   return (
     <ClayRoot name="coin-stack" size={size} accessibilityLabel={accessibilityLabel} style={style}>
-      <CoinStackPart id={id} surface={surface} detail={clayDetailFor("coin-stack", size)} glow={glow ?? surface === "dark"} grounded={grounded} />
+      <CoinStackPart id={id} surface={finish.surface} detail={clayDetailFor("coin-stack", size)} dim={finish.dim} glow={glow ?? finish.shell} grounded={grounded} />
     </ClayRoot>
   );
 });
 
 export type ClayCloudProps = ClayCommonProps & { tone?: "cloud" | "lavenderCloud"; mirror?: boolean };
 
-export const ClayCloud = memo(function ClayCloud({ size, surface = "light", glow, accessibilityLabel, style, tone = "cloud", mirror = false }: ClayCloudProps) {
+export const ClayCloud = memo(function ClayCloud({ size, surface = "light", dim, glow, accessibilityLabel, style, tone = "cloud", mirror = false }: ClayCloudProps) {
   const id = useClayPrefix("cloud");
+  const finish = useClayFinish(surface, dim);
   return (
     <ClayRoot name="cloud" size={size} accessibilityLabel={accessibilityLabel} style={style}>
-      <Halo id={id} surface={surface} glow={glow ?? surface === "dark"} grounded={false} glowBox={{ cx: 100, cy: 68, rx: 98, ry: 62 }} aoBox={{ cx: 100, cy: 124, rx: 70, ry: 5 }} />
-      <CloudPart id={id} surface={surface} detail={clayDetailFor("cloud", size)} tone={tone} mirror={mirror} />
+      <Halo id={id} surface={finish.surface} glow={glow ?? finish.shell} grounded={false} glowBox={{ cx: 100, cy: 68, rx: 98, ry: 62 }} aoBox={{ cx: 100, cy: 124, rx: 70, ry: 5 }} />
+      <CloudPart id={id} surface={finish.surface} detail={clayDetailFor("cloud", size)} dim={finish.dim} tone={tone} mirror={mirror} />
     </ClayRoot>
   );
 });
 
 export type ClayWalletProps = ClayCommonProps;
 
-export const ClayWallet = memo(function ClayWallet({ size, surface = "light", glow, grounded = true, accessibilityLabel, style }: ClayWalletProps) {
+export const ClayWallet = memo(function ClayWallet({ size, surface = "light", dim, glow, grounded = true, accessibilityLabel, style }: ClayWalletProps) {
   const id = useClayPrefix("wallet");
+  const finish = useClayFinish(surface, dim);
   return (
     <ClayRoot name="wallet" size={size} accessibilityLabel={accessibilityLabel} style={style}>
-      <WalletPart id={id} surface={surface} detail={clayDetailFor("wallet", size)} glow={glow ?? surface === "dark"} grounded={grounded} />
+      <WalletPart id={id} surface={finish.surface} detail={clayDetailFor("wallet", size)} dim={finish.dim} glow={glow ?? finish.shell} grounded={grounded} />
     </ClayRoot>
   );
 });
 
 export type ClayReceiptProps = ClayCommonProps & { stamp?: "check" | "plus" | "none" };
 
-export const ClayReceipt = memo(function ClayReceipt({ size, surface = "light", glow, grounded = true, accessibilityLabel, style, stamp = "check" }: ClayReceiptProps) {
+export const ClayReceipt = memo(function ClayReceipt({ size, surface = "light", dim, glow, grounded = true, accessibilityLabel, style, stamp = "check" }: ClayReceiptProps) {
   const id = useClayPrefix("receipt");
+  const finish = useClayFinish(surface, dim);
   return (
     <ClayRoot name="receipt" size={size} accessibilityLabel={accessibilityLabel} style={style}>
-      <ReceiptPart id={id} surface={surface} detail={clayDetailFor("receipt", size)} stamp={stamp} glow={glow ?? surface === "dark"} grounded={grounded} />
+      <ReceiptPart id={id} surface={finish.surface} detail={clayDetailFor("receipt", size)} dim={finish.dim} stamp={stamp} glow={glow ?? finish.shell} grounded={grounded} />
     </ClayRoot>
   );
 });
 
 export type ClayPeopleProps = ClayCommonProps & { accessory?: "plus" | "check" | "none" };
 
-export const ClayPeople = memo(function ClayPeople({ size, surface = "light", glow, grounded = true, accessibilityLabel, style, accessory = "plus" }: ClayPeopleProps) {
+export const ClayPeople = memo(function ClayPeople({ size, surface = "light", dim, glow, grounded = true, accessibilityLabel, style, accessory = "plus" }: ClayPeopleProps) {
   const id = useClayPrefix("people");
+  const finish = useClayFinish(surface, dim);
   return (
     <ClayRoot name="people" size={size} accessibilityLabel={accessibilityLabel} style={style}>
-      <PeoplePart id={id} surface={surface} detail={clayDetailFor("people", size)} accessory={accessory} glow={glow ?? surface === "dark"} grounded={grounded} />
+      <PeoplePart id={id} surface={finish.surface} detail={clayDetailFor("people", size)} dim={finish.dim} accessory={accessory} glow={glow ?? finish.shell} grounded={grounded} />
     </ClayRoot>
   );
 });
 
 export type ClayBadgeProps = ClayCommonProps & { tone?: ClayBadgeTone; glyph?: ClayGlyph };
 
-export const ClayBadge = memo(function ClayBadge({ size, surface = "light", glow, grounded = true, accessibilityLabel, style, tone = "mint", glyph = "check" }: ClayBadgeProps) {
+export const ClayBadge = memo(function ClayBadge({ size, surface = "light", dim, glow, grounded = true, accessibilityLabel, style, tone = "mint", glyph = "check" }: ClayBadgeProps) {
   const id = useClayPrefix("badge");
+  const finish = useClayFinish(surface, dim);
   return (
     <ClayRoot name="badge" size={size} accessibilityLabel={accessibilityLabel} style={style}>
       <Halo
         id={id}
-        surface={surface}
-        glow={glow ?? surface === "dark"}
+        surface={finish.surface}
+        glow={glow ?? finish.shell}
         grounded={grounded}
         glowTone={tone === "mint" ? "mint" : "lavender"}
         glowBox={{ cx: 60, cy: 58, rx: 52, ry: 48 }}
         aoBox={{ cx: 60, cy: 108, rx: 36, ry: 6 }}
       />
-      <BadgePart id={id} surface={surface} detail={clayDetailFor("badge", size)} cx={60} cy={54} r={40} tone={tone} glyph={glyph} />
+      <BadgePart id={id} surface={finish.surface} detail={clayDetailFor("badge", size)} dim={finish.dim} cx={60} cy={54} r={40} tone={tone} glyph={glyph} />
     </ClayRoot>
   );
 });
 
 export type ClayCalendarProps = ClayCommonProps & { accent?: "mint" | "violet" };
 
-export const ClayCalendar = memo(function ClayCalendar({ size, surface = "light", glow, grounded = true, accessibilityLabel, style, accent = "mint" }: ClayCalendarProps) {
+export const ClayCalendar = memo(function ClayCalendar({ size, surface = "light", dim, glow, grounded = true, accessibilityLabel, style, accent = "mint" }: ClayCalendarProps) {
   const id = useClayPrefix("calendar");
+  const finish = useClayFinish(surface, dim);
   return (
     <ClayRoot name="calendar" size={size} accessibilityLabel={accessibilityLabel} style={style}>
-      <CalendarPart id={id} surface={surface} detail={clayDetailFor("calendar", size)} accent={accent} glow={glow ?? surface === "dark"} grounded={grounded} />
+      <CalendarPart id={id} surface={finish.surface} detail={clayDetailFor("calendar", size)} dim={finish.dim} accent={accent} glow={glow ?? finish.shell} grounded={grounded} />
     </ClayRoot>
   );
 });
@@ -769,24 +808,25 @@ export const ClayCalendar = memo(function ClayCalendar({ size, surface = "light"
 export type ClayEmptyProps = ClayCommonProps & { subject: ClayEmptySubject };
 
 /** "Nothing here yet": an empty lavender tray with a dashed landing ring; the subject floats above it. */
-export const ClayEmpty = memo(function ClayEmpty({ size, surface = "light", glow, grounded = true, accessibilityLabel, style, subject }: ClayEmptyProps) {
+export const ClayEmpty = memo(function ClayEmpty({ size, surface = "light", dim, glow, grounded = true, accessibilityLabel, style, subject }: ClayEmptyProps) {
   const id = useClayPrefix("empty");
   const detail = clayDetailFor("empty", size);
-  const dark = surface === "dark";
+  const finish = useClayFinish(surface, dim);
+  const part = { surface: finish.surface, dim: finish.dim };
   return (
     <ClayRoot name="empty" size={size} accessibilityLabel={accessibilityLabel} style={style}>
-      <TrayPart id={`${id}-tray`} surface={surface} detail={detail} glow={glow ?? dark} grounded={grounded} />
-      <CloudPart id={`${id}-cloud`} surface={surface} detail="low" tone="cloud" transform="translate(12 30) scale(0.42)" />
+      <TrayPart id={`${id}-tray`} {...part} detail={detail} glow={glow ?? finish.shell} grounded={grounded} />
+      <CloudPart id={`${id}-cloud`} {...part} detail="low" tone="cloud" transform="translate(12 30) scale(0.42)" />
       {subject === "activity" ? (
-        <CalendarPart id={`${id}-subject`} surface={surface} detail={detail} transform="translate(68 18) scale(0.6)" accent="mint" glow={false} grounded={false} />
+        <CalendarPart id={`${id}-subject`} {...part} detail={detail} transform="translate(68 18) scale(0.6)" accent="mint" glow={false} grounded={false} />
       ) : subject === "groups" ? (
-        <PeoplePart id={`${id}-subject`} surface={surface} detail={detail} transform="translate(58 22) scale(0.62)" accessory="none" glow={false} grounded={false} />
+        <PeoplePart id={`${id}-subject`} {...part} detail={detail} transform="translate(58 22) scale(0.62)" accessory="none" glow={false} grounded={false} />
       ) : subject === "expenses" ? (
-        <ReceiptPart id={`${id}-subject`} surface={surface} detail={detail} transform="translate(76 14) scale(0.52)" stamp="none" glow={false} grounded={false} />
+        <ReceiptPart id={`${id}-subject`} {...part} detail={detail} transform="translate(76 14) scale(0.52)" stamp="none" glow={false} grounded={false} />
       ) : (
-        <BadgePart id={`${id}-subject`} surface={surface} detail={detail} cx={102} cy={60} r={26} tone="mint" glyph="check" />
+        <BadgePart id={`${id}-subject`} {...part} detail={detail} cx={102} cy={60} r={26} tone="mint" glyph="check" />
       )}
-      <Path d={clayPaths.emptySparkleBig} fill={dark ? WHITE : clayRamps.lavender.base} opacity={0.9} />
+      <Path d={clayPaths.emptySparkleBig} fill={finish.shell ? WHITE : clayRamps.lavender.base} opacity={0.9} />
       <Path d={clayPaths.emptySparkleSmall} fill={clayRamps.mint.light} opacity={0.95} />
     </ClayRoot>
   );

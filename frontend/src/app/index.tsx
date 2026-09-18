@@ -11,14 +11,14 @@ import { Spinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { ActivityView } from "@/features/home/ActivityView";
 import { GroupsView } from "@/features/home/GroupsView";
+import { homeChrome } from "@/features/home/homeChrome";
 import { PlanView } from "@/features/home/PlanView";
 import { ReviewsView } from "@/features/home/ReviewsView";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import { getPlanState, isNewAccount } from "@/features/ledger/planState";
 import type { TabKey } from "@/features/ledger/types";
-import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { layout } from "@/theme/layout";
-import { colors } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeProvider";
 
 /** Header copy for the tabs that use the title variant (§3.2). Plan uses the greeting. */
 const TITLES: Record<Exclude<TabKey, "plan">, { eyebrow: string; title: string }> = {
@@ -31,7 +31,7 @@ export default function HomeScreen() {
   const params = useLocalSearchParams<{ tab?: string }>();
   const { plan, connection } = useLedger();
   const { configured, ready, session } = useAuth();
-  const { palette } = usePreferences();
+  const { colors: c, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const scrollRef = useRef<ScrollView>(null);
@@ -59,15 +59,21 @@ export default function HomeScreen() {
   }, [changeTab, params.tab]);
 
   if (configured && !ready) {
-    return <SafeAreaView className="flex-1 items-center justify-center bg-ink"><Spinner size="large" tone="mint" /></SafeAreaView>;
+    // The always-dark brand night in both themes (bg-ink would turn light in dark mode).
+    return (
+      <SafeAreaView className="flex-1 items-center justify-center bg-night">
+        <StatusBar style="light" />
+        <Spinner size="large" tone="mint" />
+      </SafeAreaView>
+    );
   }
 
   if (ready && configured && !session) {
     return <Redirect href="/auth" />;
   }
 
-  const topSurface = { plan: palette.screen, groups: colors.lavenderSoft, reviews: palette.screen, activity: palette.header }[tab];
-  const dark = tab === "activity";
+  const chrome = homeChrome(tab, c, isDark);
+  const topSurface = chrome.surface;
   const column = Math.min(width, layout.contentMax);
   const planState = getPlanState(plan, connection);
   const placeholder = planState === "loading" || planState === "offline";
@@ -78,7 +84,7 @@ export default function HomeScreen() {
     placeholder,
     newAccount: planState === "empty" && isNewAccount(plan),
     connection,
-    tone: dark ? "dark" : "light",
+    tone: chrome.tone,
     surfaceColor: topSurface,
     reviewCount,
     onOpenReviews: openReviews,
@@ -87,8 +93,8 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: palette.screen }]}>
-      <StatusBar style={dark ? "light" : "dark"} />
+    <View style={[styles.root, { backgroundColor: c.canvas }]}>
+      <StatusBar style={chrome.statusBar} />
       <ScrollView
         ref={scrollRef}
         contentInsetAdjustmentBehavior="never"
@@ -112,14 +118,14 @@ export default function HomeScreen() {
       <View pointerEvents="none" style={[styles.scrim, { height: insets.top, backgroundColor: topSurface }]} />
       <LinearGradient
         pointerEvents="none"
-        colors={[topSurface, `${topSurface}00`]}
+        colors={[topSurface, chrome.surfaceClear]}
         style={[styles.scrimFade, { top: insets.top }]}
       />
       <TabDock
         tabs={dockTabs}
         value={tab}
         onChange={changeTab}
-        barColor={palette.header}
+        barColor={c.shell}
         centerAction={{ label: "Add entry", hint: "Choose an individual or group entry", onPress: openAddEntry }}
       />
       <ExpenseScopeModal

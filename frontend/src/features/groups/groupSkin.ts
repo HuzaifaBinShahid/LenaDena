@@ -1,7 +1,12 @@
 // Maps a stored group accent hex onto one of five fixed LenaDena skins. The raw accent is never rendered (§1.7).
 // No react-native imports: Vitest runs this file, so runtime imports stay relative (D21).
+import { darkPalette, type Scheme } from "../../theme/palettes";
 import { colors } from "../../theme/tokens";
 
+/**
+ * `disc` and `discOpacity` decorate the always-dark group card art, so they are the same in both themes.
+ * `tint` and `icon` are the light-theme colours of the small group tile; use `groupSkinTone` for the current theme.
+ */
 export type GroupSkin = { key: "violet" | "indigo" | "mint" | "gold" | "rose"; name: string; disc: string; discOpacity: number; tint: string; icon: string };
 
 const SKINS: Record<GroupSkin["key"], GroupSkin> = {
@@ -11,6 +16,40 @@ const SKINS: Record<GroupSkin["key"], GroupSkin> = {
   gold: Object.freeze({ key: "gold", name: "Gold", disc: colors.goldBright, discOpacity: 0.85, tint: colors.goldSoft, icon: colors.gold }),
   rose: Object.freeze({ key: "rose", name: "Rose", disc: colors.coralBright, discOpacity: 0.8, tint: colors.coralSoft, icon: colors.coral }),
 };
+
+export type GroupSkinTone = { tint: string; icon: string };
+
+function lightTone(skin: GroupSkin): GroupSkinTone {
+  return Object.freeze({ tint: skin.tint, icon: skin.icon });
+}
+
+/**
+ * Tile colours per theme. Light is the skin's own pastel tint and icon. Dark swaps the pastels (which would glow on
+ * the night canvas) for the deep themed tints, with an icon colour that keeps at least 3:1 against them; the
+ * indigo icon moves from violetStrong, which sinks into dark tints, to lavender.
+ */
+const TONES: Record<Scheme, Record<GroupSkin["key"], GroupSkinTone>> = {
+  light: {
+    violet: lightTone(SKINS.violet),
+    indigo: lightTone(SKINS.indigo),
+    mint: lightTone(SKINS.mint),
+    gold: lightTone(SKINS.gold),
+    rose: lightTone(SKINS.rose),
+  },
+  dark: {
+    // A lifted violet (4.9:1 on the tint) keeps this tile distinct from indigo's lavender icon; the brand violet is only 3:1 here.
+    violet: Object.freeze({ tint: darkPalette.violetSoft, icon: "#9C85FF" }),
+    indigo: Object.freeze({ tint: darkPalette.lavenderSoft, icon: darkPalette.lavender }),
+    mint: Object.freeze({ tint: darkPalette.limeSoft, icon: darkPalette.mint }),
+    gold: Object.freeze({ tint: darkPalette.goldSoft, icon: darkPalette.gold }),
+    rose: Object.freeze({ tint: darkPalette.coralSoft, icon: darkPalette.coral }),
+  },
+};
+
+/** The small group tile's background and icon colour for a skin in the current theme (`useTheme().scheme`). */
+export function groupSkinTone(skin: GroupSkin, scheme: Scheme): GroupSkinTone {
+  return TONES[scheme][skin.key];
+}
 
 const MIN_SATURATION = 0.15;
 

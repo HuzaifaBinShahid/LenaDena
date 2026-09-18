@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { COMPACT_CARD, LayeredGroupCard } from "@/components/groups/LayeredGroupCard";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -16,6 +17,7 @@ import { useLedger } from "@/features/ledger/LedgerProvider";
 import { errorMessage } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { layout } from "@/theme/layout";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
 
 // Stored accent values stay the same; they are rendered only through groupSkin().
@@ -27,6 +29,8 @@ const SCREEN_GUTTERS = 36;
 export default function CreateGroupScreen() {
   const { createGroup } = useLedger();
   const toast = useToast();
+  const styles = useStyles();
+  const { isDark } = useTheme();
   const { width: windowWidth } = useWindowDimensions();
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState<"PKR" | "USD" | "EUR">("PKR");
@@ -111,6 +115,9 @@ export default function CreateGroupScreen() {
                   pressableStyle={[styles.swatch, selected ? styles.swatchSelected : null]}
                 >
                   <View style={styles.swatchTile}>
+                    {isDark ? (
+                      <LinearGradient pointerEvents="none" colors={SWATCH_ART_DARK} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+                    ) : null}
                     <View style={[styles.swatchDisc, { backgroundColor: swatchSkin.disc }]} />
                     {selected ? <Icon name="check" size={16} color={colors.white} /> : null}
                   </View>
@@ -125,7 +132,14 @@ export default function CreateGroupScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+/**
+ * Each swatch is a tiny group card: the art's colour with the skin's disc in the corner. Light shows the flat plum;
+ * on the dark canvas plum disappears, so dark shows the card art's own violetStrong → plum gradient (the disc still
+ * sits on its darkest corner) with a hairline edge.
+ */
+const SWATCH_ART_DARK = [colors.violetStrong, colors.plum] as const;
+
+const useStyles = makeStyles((c, { isDark }) => ({
   preview: {
     marginLeft: COMPACT_CARD.MARGIN_LEFT,
     marginTop: 2,
@@ -150,8 +164,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  // Selected: a solid 2pt ring outside the tile plus the white check on it; violetStrong on light, bright violet on dark.
   swatchSelected: {
-    borderColor: colors.violetStrong,
+    borderColor: isDark ? c.violet : colors.violetStrong,
   },
   swatchTile: {
     width: 36,
@@ -159,6 +174,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: "hidden",
     backgroundColor: colors.plum,
+    borderWidth: isDark ? 1 : 0,
+    borderColor: "rgba(181,165,255,0.2)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -170,4 +187,4 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 11,
   },
-});
+}));

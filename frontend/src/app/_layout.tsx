@@ -18,6 +18,7 @@ import { SplashTransition } from "@/components/brand/SplashTransition";
 import { PreferencesProvider } from "@/features/preferences/PreferencesProvider";
 import { AppLockProvider } from "@/features/security/AppLockProvider";
 import { ToastProvider } from "@/components/ui/Toast";
+import { useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
@@ -55,9 +56,7 @@ export default function RootLayout() {
                 <LedgerProvider>
                   <AppLockProvider canPrompt={!showTransition}>
                     <StatusBar style="auto" />
-                    <Stack screenOptions={{ headerShown: false, animation: "fade_from_bottom", contentStyle: { backgroundColor: "#F6F7FA" } }}>
-                      <Stack.Screen name="auth" options={{ animation: "fade", contentStyle: { backgroundColor: colors.night } }} />
-                    </Stack>
+                    <ThemedStack />
                   </AppLockProvider>
                 </LedgerProvider>
               </AuthProvider>
@@ -67,5 +66,15 @@ export default function RootLayout() {
         </KeyboardProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+}
+
+/** Screen transitions paint the theme canvas, so dark mode never flashes a light frame between routes. */
+function ThemedStack() {
+  const { colors: theme } = useTheme();
+  return (
+    <Stack screenOptions={{ headerShown: false, animation: "fade_from_bottom", contentStyle: { backgroundColor: theme.canvas } }}>
+      <Stack.Screen name="auth" options={{ animation: "fade", contentStyle: { backgroundColor: colors.night } }} />
+    </Stack>
   );
 }

@@ -1,6 +1,7 @@
 import { View } from "react-native";
 import { Text } from "@/components/ui/Text";
 import { LinearGradient } from "expo-linear-gradient";
+import { CoinMark } from "@/components/brand/CoinMark";
 import { colors } from "@/theme/tokens";
 
 type BrandMarkProps = {
@@ -9,12 +10,14 @@ type BrandMarkProps = {
   tone?: "light" | "dark";
 };
 
+// Tile sizes are unchanged from the original monogram, so screens keep their layout.
 const sizes = {
-  sm: { frame: 40, radius: 14, mark: 16, dot: 6, text: "text-lg" },
-  md: { frame: 54, radius: 18, mark: 22, dot: 7, text: "text-2xl" },
-  lg: { frame: 76, radius: 24, mark: 31, dot: 9, text: "text-[30px]" },
+  sm: { frame: 40, radius: 14, coin: 30, text: "text-lg" },
+  md: { frame: 54, radius: 18, coin: 40, text: "text-2xl" },
+  lg: { frame: 76, radius: 24, coin: 56, text: "text-[30px]" },
 };
 
+/** The app-icon tile (violet ground, split gold coin) with the optional LenaDena wordmark. */
 export function BrandMark({ size = "md", showName = true, tone = "dark" }: BrandMarkProps) {
   const config = sizes[size];
   return (
@@ -25,8 +28,7 @@ export function BrandMark({ size = "md", showName = true, tone = "dark" }: Brand
         end={{ x: 1, y: 1 }}
         style={{ width: config.frame, height: config.frame, borderRadius: config.radius, alignItems: "center", justifyContent: "center" }}
       >
-        <Text className="font-extrabold text-white" style={{ fontSize: config.mark, lineHeight: config.mark * 1.15, letterSpacing: -1.8 }}>LD</Text>
-        <View style={{ position: "absolute", right: config.frame * 0.13, top: config.frame * 0.16, width: config.dot, height: config.dot, borderRadius: config.dot, backgroundColor: colors.lime }} />
+        <CoinMark size={config.coin} />
       </LinearGradient>
       {showName ? <Text className={`${config.text} font-bold tracking-tight ${tone === "light" ? "text-white" : "text-ink"}`}>LenaDena</Text> : null}
     </View>

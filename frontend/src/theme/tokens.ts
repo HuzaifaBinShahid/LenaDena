@@ -27,6 +27,12 @@ export const colors = {
   coralBright: "#FF8DA6",
   goldBright: "#F4C27A",
   night: "#0D0720",
+  // Modal and sheet scrims, and the shadow colour for raised surfaces.
+  backdrop: "rgba(16,8,35,0.45)",
+  shadow: "#1B103B",
+  // The brand's dark shell (Activity header, dock bar, account card) and its gradient end.
+  shell: "#1A1037",
+  shellEnd: "#6040AE",
 } as const;
 
 export const motion = {

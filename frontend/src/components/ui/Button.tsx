@@ -5,6 +5,7 @@ import { Text } from "@/components/ui/Text";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Spinner } from "@/components/ui/Spinner";
 import { Touch } from "@/components/ui/Touch";
+import { useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
 
 /** `gradient` is the violet-to-blue call to action used on the dark space screens. */
@@ -23,6 +24,8 @@ type ButtonProps = {
   fullWidth?: boolean;
   accessibilityHint?: string;
   description?: string;
+  /** For buttons used as filter chips or choices: tells screen readers which one is chosen. Style the chosen one with `variant`. */
+  selected?: boolean;
   children?: ReactNode;
 };
 
@@ -67,17 +70,25 @@ export function Button({
   fullWidth = false,
   accessibilityHint,
   description,
+  selected,
   children,
 }: ButtonProps) {
+  const { colors: c, isDark } = useTheme();
   const blocked = disabled || loading;
   const onDark = variant === "primary" || variant === "glass" || variant === "gradient";
+  // Ghost labels move to lavender in dark mode: violet text is only ~4.2:1 on the dark raised sheets.
+  const ghostOnDark = variant === "ghost" && isDark;
+  const labelClass = ghostOnDark ? "text-lavender" : labelClasses[variant];
+  // White stays static on the violet, glass and gradient fills, and `bright` is always a white fill, so its ink icon is static too.
   const iconColor = onDark
     ? colors.white
     : variant === "danger"
-      ? colors.coral
+      ? c.coral
       : variant === "ghost"
-        ? colors.violet
-        : colors.ink;
+        ? (ghostOnDark ? colors.lavender : c.violet)
+        : variant === "bright"
+          ? colors.ink
+          : c.ink;
 
   return (
     <Touch
@@ -88,7 +99,7 @@ export function Button({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={accessibilityHint ?? description}
-      accessibilityState={{ disabled: blocked, busy: loading }}
+      accessibilityState={{ disabled: blocked, busy: loading, ...(selected === undefined ? {} : { selected }) }}
       className={`${fullWidth ? "w-full" : "self-start"} ${variantClasses[variant]} ${sizeClasses[size]} flex-row items-center ${description ? "justify-start gap-3" : "justify-center gap-2"} border ${blocked ? "opacity-45" : "opacity-100"}`}
     >
       {variant === "gradient" ? (
@@ -101,21 +112,21 @@ export function Button({
           <>
             {icon ? (
               <View className={`h-11 w-11 items-center justify-center rounded-2xl ${variant === "primary" ? "bg-white/15" : "bg-violet-soft"}`}>
-                <Icon name={icon} size={21} color={variant === "primary" ? colors.white : colors.violet} />
+                <Icon name={icon} size={21} color={variant === "primary" ? colors.white : c.violet} />
               </View>
             ) : null}
             <View className="min-w-0 flex-1 items-start">
-              <Text className={`text-[15px] font-bold ${labelClasses[variant]}`}>{children ?? label}</Text>
+              <Text className={`text-[15px] font-bold ${labelClass}`}>{children ?? label}</Text>
               <Text className={`mt-1 text-left text-[11px] leading-4 ${variant === "primary" ? "text-white/70" : "text-slate"}`}>{description}</Text>
             </View>
             <View className={`h-8 w-8 items-center justify-center rounded-full ${variant === "primary" ? "bg-white/15" : "bg-surface"}`}>
-              <Icon name="arrow-right" size={16} color={variant === "primary" ? colors.white : colors.violet} />
+              <Icon name="arrow-right" size={16} color={variant === "primary" ? colors.white : c.violet} />
             </View>
           </>
         ) : (
           <>
             {icon && iconSide === "left" ? <Icon name={icon} size={18} color={iconColor} /> : null}
-            <Text className={`text-[15px] font-semibold ${labelClasses[variant]}`}>{children ?? label}</Text>
+            <Text className={`text-[15px] font-semibold ${labelClass}`}>{children ?? label}</Text>
             {icon && iconSide === "right" ? <Icon name={icon} size={18} color={iconColor} /> : null}
           </>
         )

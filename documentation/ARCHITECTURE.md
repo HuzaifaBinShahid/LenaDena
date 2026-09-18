@@ -141,8 +141,11 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 | POST | `/v1/invites/:token/accept` | Accept a single-use invite |
 | POST | `/v1/uploads/:kind` | Store a private receipt, proof, or profile image |
 | POST | `/v1/expenses` | Create an expense and shares |
-| POST | `/v1/personal-transactions` | Create a private individual expense or loan |
+| POST | `/v1/personal-transactions` | Create a private individual expense or loan; links it to a saved person (`personId`, or find-or-create by `counterparty`, case-insensitive) |
 | POST | `/v1/personal-transactions/:id/settle` | Mark the owner's private individual obligation as settled |
+| POST | `/v1/people` | Save a person (name required; email and photo optional); 409 `person_exists` on a case-insensitive duplicate |
+| PATCH | `/v1/people/:id` | Rename (also renames their history rows) or change/clear email and photo |
+| DELETE | `/v1/people/:id` | Remove a person; their entries stay in Activity, unlinked |
 | POST | `/v1/settlements` | Claim an external payment |
 | POST | `/v1/settlements/:id/confirm` | Confirm receipt |
 | POST | `/v1/settlements/:id/attention` | Flag a payment for private follow-up |
@@ -154,9 +157,13 @@ The database creates outbox rows for invites, new expenses, payment claims, reci
 
 The worker claims rows with `FOR UPDATE SKIP LOCKED`, a worker UUID, and a five-minute stale-lock timeout. SMTP failures are released and delayed for five minutes. Friendly, cheeky, chaos, and quiet templates are supported; quiet suppresses recurring reminders. Emails never contain receipt or proof content.
 
+Every email shares one branded layout (`backend/src/notifications/layout.ts`): logo lockup, heading, short body, a details card with properly formatted money, one button, a fallback link, a safety note and a footer, with a dark palette for clients that support it. The logo is attached inline (CID) unless `EMAIL_LOGO_URL` points at a hosted copy; `EMAIL_LINK_BASE_URL` turns `lenadena://` links into https links for Gmail. `pnpm --filter @lenadena/backend preview:emails` writes every event × tone plus the Supabase auth templates to `backend/.email-preview/`. Supabase Auth emails (sign-in link, confirm signup, invite, recovery, email change, reauthentication) use the templates in `supabase/templates/`, applied with `supabase/templates/apply.mjs` (see DEPLOYMENT.md).
+
+**People.** `public.people` (owner-scoped, unique per owner by `lower(name)`) holds the user's saved people; `personal_transactions.person_id` links individual entries. Creating a person links earlier unlinked entries with the same name; renaming rewrites their `counterparty`; deleting unlinks. `GET /v1/me/plan` returns `people` (signed photo URLs) and `personId` on linked personal rows. Until migration 202609180007 is applied, the plan returns `people: []` and people writes answer 503 `people_unavailable`.
+
 ## Production checklist
 
-- Apply the migrations to a fresh Supabase project and inspect the Security Advisor. `202609140005_pgcrypto_search_path.sql` is required on Supabase, where pgcrypto lives in the `extensions` schema.
+- Apply the migrations to a fresh Supabase project and inspect the Security Advisor. `202609140005_pgcrypto_search_path.sql` is required on Supabase, where pgcrypto lives in the `extensions` schema. `202609180007_people.sql` requires `202609180006` first.
 - Keep `ALLOW_INSTANT_AUTH` unset in any shared or production environment, and replace email-only sign-in with passwords, one-time codes, or passkeys before real users.
 - Test Face ID, Touch ID, and Android biometric unlock in development builds on physical devices.
 - Configure redirect URLs for `lenadena://` and the invite deep-link path.

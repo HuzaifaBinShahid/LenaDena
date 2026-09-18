@@ -12,6 +12,19 @@ The LenaDena Free project is provisioned in Supabase's Singapore region. The mig
 
 Apply `202609140005_pgcrypto_search_path.sql` next (SQL editor or Supabase CLI). Supabase keeps pgcrypto in the `extensions` schema, and until this runs every financial write function fails with `function digest(text, unknown) does not exist`.
 
+Then apply, in order, `202609180006_personal_transaction_receipts.sql` and `202609180007_people.sql` (People: saved people, `person_id` on individual entries, backfilled from existing counterparties). 0007 needs 0006. If the new functions still answer "not found" afterwards, run `notify pgrst, 'reload schema';`. Until 0007 is applied the app keeps working: the plan returns no people and saving a person reports that the database needs the update.
+
+### Branded Auth emails
+
+`supabase/templates/` holds branded templates for all six Supabase Auth emails (sign-in link, confirm signup, invite, reset password, change email, reauthentication) and `subjects.json`.
+
+- Apply them with a personal access token from https://supabase.com/dashboard/account/tokens:
+  `SUPABASE_ACCESS_TOKEN=<token> node --env-file=backend/.env supabase/templates/apply.mjs`
+  It uploads the logo to a public `brand` bucket (created if missing), fills in the logo URL and link expiry, and updates the Auth email settings.
+- Without a token: add `--dry-run` to write the finished HTML to `supabase/templates/dist/` and paste each file into Dashboard → Authentication → Emails with the printed subject.
+- **Free-plan projects created on or after 3 June 2026 cannot edit Auth email templates while they use Supabase's default sender**, and the default sender only delivers to project team members (about 2 emails an hour) as "Supabase Auth". Configure custom SMTP first (Authentication → SMTP; any provider such as Resend, Brevo or Postmark), turn off the provider's click tracking (it rewrites the one-time links), then run the script.
+- Keep the redirect allowlist in step with the app's return addresses (`lenadena://**`, your Expo `exp://…/--/**` address, the web origin), or links open the Site URL instead.
+
 Instant email sign-in is never enabled on Render: `NODE_ENV=production` disables it regardless of `ALLOW_INSTANT_AUTH`, and the app falls back to Supabase email links. Add the email-link redirect URLs you use (for example your Expo development URL) to the Supabase Auth allowlist.
 
 The backend needs:

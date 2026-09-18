@@ -15,12 +15,13 @@ import { useToast } from "@/components/ui/Toast";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import { errorMessage } from "@/lib/api";
 import { formatDateTime, formatMoney, formatShortDate } from "@/lib/format";
-import { colors } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeProvider";
 
 export default function SettlementReviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { plan, reviewSettlement, selfConfirmSettlement } = useLedger();
   const toast = useToast();
+  const { colors: c, isDark } = useTheme();
   const incoming = plan.reviews.find((item) => item.id === id);
   const claim = plan.claims.find((item) => item.id === id);
   const payment = incoming ?? claim;
@@ -106,10 +107,11 @@ export default function SettlementReviewScreen() {
         {payment.proofUri ? (
           <View>
             <Text className="mb-3 text-lg font-bold text-ink">Private proof</Text>
-            <Image source={{ uri: payment.proofUri }} className="h-64 w-full rounded-card bg-gray-100" resizeMode="contain" />
+            {/* The light well stays gray-100; in dark a grey well would glow, so it is the themed surface with a hairline ring. */}
+            <Image source={{ uri: payment.proofUri }} className={`h-64 w-full rounded-card ${isDark ? "border border-line bg-surface" : "bg-gray-100"}`} resizeMode="contain" />
           </View>
         ) : (
-          <View className="rounded-card bg-gray-100 p-5">
+          <View className={`rounded-card p-5 ${isDark ? "border border-line bg-surface" : "bg-gray-100"}`}>
             <Text className="font-bold text-ink">No screenshot attached</Text>
             <Text className="mt-2 text-sm leading-5 text-slate">Proof is optional. The settlement record still keeps who submitted it and when.</Text>
           </View>
@@ -119,7 +121,7 @@ export default function SettlementReviewScreen() {
           <View className="rounded-card border border-line bg-raised p-5">
             <View className="flex-row items-start gap-3">
               <View className={`h-10 w-10 items-center justify-center rounded-2xl ${payment.canSelfSettle ? "bg-mint-soft" : "bg-violet-soft"}`}>
-                <Icon name={payment.canSelfSettle ? "check-circle" : "clock"} size={21} color={payment.canSelfSettle ? colors.mint : colors.violet} />
+                <Icon name={payment.canSelfSettle ? "check-circle" : "clock"} size={21} color={payment.canSelfSettle ? c.mint : c.violet} />
               </View>
               <View className="min-w-0 flex-1">
                 <Text className="font-bold text-ink">{payment.canSelfSettle ? "Fallback settlement is available" : "Recipient review is still open"}</Text>

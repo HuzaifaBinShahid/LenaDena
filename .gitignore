@@ -12,3 +12,6 @@ frontend/.expo/
 backend/dist/
 frontend/dist-web/
 *.log
+# Email previews (pnpm --filter @lenadena/backend preview:emails) and rendered Supabase templates (apply.mjs --dry-run)
+backend/.email-preview/
+supabase/templates/dist/

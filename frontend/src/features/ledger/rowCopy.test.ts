@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TransactionItem } from "@/features/ledger/types";
 import { formatLongDate, formatMoney, formatShortDate } from "../../lib/format";
-import { describeTransaction } from "./rowCopy";
+import { describeTransaction, personLink } from "./rowCopy";
 
 const today = "2026-09-14";
 const activity = { context: "activity" as const, today };
@@ -150,5 +150,31 @@ describe("describeTransaction: flags and fallbacks", () => {
     expect(describeTransaction(item({ status: "open" }), activity).canSettle).toBe(true);
     expect(describeTransaction(item({ status: "settled" }), activity).canSettle).toBe(false);
     expect(describeTransaction(item({ source: "group", status: "open" }), activity).canSettle).toBe(false);
+  });
+});
+
+describe("personLink", () => {
+  const people = new Map([
+    ["p-ali", { id: "p-ali", name: "  Ali Raza " }],
+    ["p-sara", { id: "p-sara", name: "Sara" }],
+    ["p-blank", { id: "p-blank", name: "   " }],
+  ]);
+
+  it("links a personal row to its saved person, labelled by first name", () => {
+    expect(personLink(item({ personId: "p-ali" }), people)).toEqual({
+      id: "p-ali",
+      name: "Ali Raza",
+      label: "Ali",
+      hint: "Opens Ali Raza's balances and history",
+    });
+    expect(personLink(item({ personId: "p-sara", status: "settled" }), people)?.label).toBe("Sara");
+  });
+
+  it("stays unlinked without a person, for group rows, and once the person is deleted", () => {
+    expect(personLink(item({}), people)).toBeNull();
+    expect(personLink(item({ personId: "" }), people)).toBeNull();
+    expect(personLink(item({ source: "group", personId: "p-ali" }), people)).toBeNull();
+    expect(personLink(item({ personId: "p-deleted" }), people)).toBeNull();
+    expect(personLink(item({ personId: "p-blank" }), people)).toBeNull();
   });
 });

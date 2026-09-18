@@ -1,5 +1,8 @@
 import type { Plan } from "@/features/ledger/types";
 
+/** Same id as the demo API's seeded person (a real UUID, because the API validates `personId`). */
+const demoPersonAliId = "5d1c9a7e-3b2f-4e8a-9c6d-2f7b8e4a1c03";
+
 export const demoPlan: Plan = {
   user: { id: "demo-user", name: "Huzaifa", email: "huzaifa@example.com", createdAt: "2026-09-01T09:00:00.000Z" },
   totals: [{ currency: "PKR", oweMinor: 240000, owedMinor: 110000 }],
@@ -83,6 +86,7 @@ export const demoPlan: Plan = {
       direction: "outgoing",
       kind: "expense",
       counterparty: "Ali",
+      personId: demoPersonAliId,
       status: "open",
       createdAt: "2026-09-13T08:20:00.000Z",
     },
@@ -110,6 +114,7 @@ export const demoPlan: Plan = {
       direction: "incoming",
       kind: "loan",
       counterparty: "Ali",
+      personId: demoPersonAliId,
       status: "settled",
       settledAt: "2026-09-10T17:45:00.000Z",
       createdAt: "2026-09-08T17:45:00.000Z",
@@ -127,5 +132,9 @@ export const demoPlan: Plan = {
       kind: "expense",
       createdAt: "2026-09-05T12:00:00.000Z",
     },
+  ],
+  // Mirrors the demo API's seeded people: everyone the individual balances above are with.
+  people: [
+    { id: demoPersonAliId, name: "Ali", email: "ali@example.com", createdAt: "2026-09-08T17:45:00.000Z" },
   ],
 };

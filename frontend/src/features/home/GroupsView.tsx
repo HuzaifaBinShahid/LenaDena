@@ -1,6 +1,6 @@
 import { createElement, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ListRenderItemInfo, NativeScrollEvent, NativeSyntheticEvent, StyleProp, ViewStyle } from "react-native";
-import { FlatList, Platform, StyleSheet, Text as NativeText, useWindowDimensions, View } from "react-native";
+import { FlatList, Platform, Text as NativeText, useWindowDimensions, View } from "react-native";
 import Animated, { FadeIn, useReducedMotion } from "react-native-reanimated";
 import { router } from "expo-router";
 import { ExpenseViewChip } from "@/components/groups/ExpenseViewChip";
@@ -37,10 +37,10 @@ import { useLedger } from "@/features/ledger/LedgerProvider";
 import { getPlanState, type PlanState } from "@/features/ledger/planState";
 import { describeTransaction } from "@/features/ledger/rowCopy";
 import type { Group, TransactionItem } from "@/features/ledger/types";
-import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { todayDate } from "@/lib/format";
 import { layout } from "@/theme/layout";
 import { shadows } from "@/theme/shadows";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
 
 const MAX_DOTS = 8;
@@ -55,6 +55,7 @@ function clampIndex(value: number, count: number) {
 /** Groups tab (§3.4): lavender band with the layered card carousel, the member row and the group's recent expenses. */
 export function GroupsView(_props: HomeTabProps) {
   const { plan, connection, refresh } = useLedger();
+  const styles = useStyles();
   const { width: windowWidth } = useWindowDimensions();
   const reduceMotion = useReducedMotion();
   const column = Math.min(windowWidth, layout.contentMax);
@@ -222,7 +223,7 @@ export function GroupsView(_props: HomeTabProps) {
 
   return (
     <View>
-      <View style={[styles.band, shadows.band]}>
+      <View style={styles.band}>
         <View style={[styles.column, { width: column }]}>
           <View style={styles.topRow}>
             <NativeText maxFontSizeMultiplier={1.4} style={styles.topDetail}>{detail}</NativeText>
@@ -259,7 +260,7 @@ export function GroupsView(_props: HomeTabProps) {
 }
 
 function CardSeparator() {
-  return <View style={styles.separator} />;
+  return <View style={separatorStyle} />;
 }
 
 const GroupSlide = memo(function GroupSlide({ group, hasActivity, currentUserId, width, height }: { group: Group; hasActivity: boolean; currentUserId: string; width: number; height: number }) {
@@ -288,6 +289,7 @@ const GroupSlide = memo(function GroupSlide({ group, hasActivity, currentUserId,
 });
 
 function CarouselPager({ groups, index, cardWidth, onSelect }: { groups: readonly Group[]; index: number; cardWidth: number; onSelect: (index: number) => void }) {
+  const styles = useStyles();
   if (groups.length <= MAX_DOTS) {
     return createElement(
       View,
@@ -325,6 +327,8 @@ function CarouselPager({ groups, index, cardWidth, onSelect }: { groups: readonl
 }
 
 function PagerArrow({ direction, disabled, onPress, label }: { direction: "left" | "right"; disabled: boolean; onPress: () => void; label: string }) {
+  const styles = useStyles();
+  const { isDark } = useTheme();
   return (
     <Touch
       onPress={onPress}
@@ -338,7 +342,7 @@ function PagerArrow({ direction, disabled, onPress, label }: { direction: "left"
       pressableStyle={[styles.arrowSlot, disabled ? styles.arrowDisabled : null]}
     >
       <View style={styles.arrowCircle}>
-        <Icon name={direction === "left" ? "arrow-left" : "arrow-right"} size={18} color={colors.violetStrong} />
+        <Icon name={direction === "left" ? "arrow-left" : "arrow-right"} size={18} color={isDark ? colors.lavender : colors.violetStrong} />
       </View>
     </Touch>
   );
@@ -358,7 +362,8 @@ export type GroupExpensesProps = {
 
 /** "Recent expenses" section with the sort/filter chip and sheet, and every empty, loading and offline state (§3.4, §3.5). */
 export function GroupExpenses({ group, planState, rows, currentUserId, mode, onInvite, style }: GroupExpensesProps) {
-  const { palette } = usePreferences();
+  const styles = useStyles();
+  const { colors: c } = useTheme();
   const reduceMotion = useReducedMotion();
   const [view, setView] = useState<GroupExpenseView>(defaultGroupExpenseView);
   const [sheetVisible, setSheetVisible] = useState(false);
@@ -457,7 +462,7 @@ export function GroupExpenses({ group, planState, rows, currentUserId, mode, onI
               <LedgerRow
                 key={item.id}
                 divider={index > 0}
-                leading={<EntryTile icon={copy.tile.icon} tone={copy.tile.tone} badge={copy.tile.badge} ringColor={palette.surface} />}
+                leading={<EntryTile icon={copy.tile.icon} tone={copy.tile.tone} badge={copy.tile.badge} ringColor={c.raised} />}
                 title={copy.title}
                 subtitle={copy.subtitle}
                 amount={copy.amount}
@@ -504,12 +509,17 @@ export function GroupExpenses({ group, planState, rows, currentUserId, mode, onI
   );
 }
 
-const styles = StyleSheet.create({
+const separatorStyle = { width: CARD.GAP } as const;
+
+const useStyles = makeStyles((c, { isDark }) => ({
+  // The lavender band under the header; app/index.tsx paints the header above it in the same c.lavenderSoft.
   band: {
-    backgroundColor: colors.lavenderSoft,
+    backgroundColor: c.lavenderSoft,
     borderBottomLeftRadius: 32,
     borderBottomRightRadius: 32,
     paddingBottom: 16,
+    // A shadow can't separate dark surfaces, so in dark the band's lower edge is a hairline instead.
+    ...(isDark ? { borderBottomWidth: 1, borderBottomColor: c.line } : shadows.band),
   },
   column: {
     alignSelf: "center",
@@ -527,7 +537,7 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_500Medium",
     fontSize: 13,
     lineHeight: 18,
-    color: colors.slate,
+    color: c.slate,
   },
   stageGap: {
     marginTop: 12,
@@ -538,9 +548,6 @@ const styles = StyleSheet.create({
   },
   carousel: {
     flexGrow: 0,
-  },
-  separator: {
-    width: CARD.GAP,
   },
   pager: {
     marginTop: -14,
@@ -559,13 +566,14 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
   },
+  // The active dot is the strongest mark on the band: violetStrong on the light band, lavender on the dark one.
   dotActive: {
     width: 18,
-    backgroundColor: colors.violetStrong,
+    backgroundColor: isDark ? colors.lavender : colors.violetStrong,
   },
   dotInactive: {
     width: 6,
-    backgroundColor: colors.lavender,
+    backgroundColor: isDark ? "rgba(181,165,255,0.3)" : colors.lavender,
   },
   pagerCount: {
     minWidth: 64,
@@ -573,7 +581,7 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_600SemiBold",
     fontSize: 12,
     lineHeight: 16,
-    color: colors.slate,
+    color: c.slate,
   },
   arrowSlot: {
     width: 44,
@@ -589,8 +597,8 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.raised,
+    borderColor: c.line,
+    backgroundColor: c.raised,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -612,10 +620,10 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_600SemiBold",
     fontSize: 13,
     lineHeight: 18,
-    color: colors.slate,
+    color: c.slate,
   },
   more: {
     marginTop: 8,
     alignItems: "center",
   },
-});
+}));

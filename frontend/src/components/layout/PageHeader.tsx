@@ -1,7 +1,7 @@
 import { View } from "react-native";
 import { Text } from "@/components/ui/Text";
 import { router } from "expo-router";
-import { colors } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeProvider";
 import { Touch } from "@/components/ui/Touch";
 import { Icon } from "@/components/ui/Icon";
 
@@ -11,6 +11,7 @@ type PageHeaderProps = {
 };
 
 export function PageHeader({ title, subtitle }: PageHeaderProps) {
+  const { colors: c } = useTheme();
   return (
     <View className="flex-row items-center gap-3 pb-7 pt-2">
       <Touch
@@ -20,7 +21,7 @@ export function PageHeader({ title, subtitle }: PageHeaderProps) {
         accessibilityLabel="Go back"
         hitSlop={8}
       >
-        <Icon name="arrow-left" size={20} color={colors.ink} />
+        <Icon name="arrow-left" size={20} color={c.ink} />
       </Touch>
       <View className="flex-1">
         <Text className="text-[22px] font-bold tracking-tight text-ink">{title}</Text>

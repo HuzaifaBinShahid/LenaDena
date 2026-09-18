@@ -9,11 +9,12 @@ import { Screen } from "@/components/ui/Screen";
 import { Icon } from "@/components/ui/Icon";
 import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
-import { colors } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeProvider";
 
 export default function ShareScreen() {
   const { resolvedSharedPayloads, isResolving, error, clearSharedPayloads } = useIncomingShare();
   const toast = useToast();
+  const { colors: c, isDark } = useTheme();
   const image = useMemo(() => resolvedSharedPayloads.find((payload) => payload.contentType === "image" && payload.contentUri), [resolvedSharedPayloads]);
 
   useEffect(() => {
@@ -34,9 +35,10 @@ export default function ShareScreen() {
       {isResolving ? <Spinner size="large" centered /> : null}
       {!isResolving && image?.contentUri ? (
         <View className="gap-6">
-          <Image source={{ uri: image.contentUri }} className="h-80 w-full rounded-card bg-gray-100" resizeMode="contain" />
+          {/* The light well stays gray-100; in dark a grey well would glow, so it is the themed surface with a hairline ring. */}
+          <Image source={{ uri: image.contentUri }} className={`h-80 w-full rounded-card ${isDark ? "border border-line bg-surface" : "bg-gray-100"}`} resizeMode="contain" />
           <View className="flex-row items-start gap-3 px-1">
-            <Icon name="lock-closed" size={17} color={colors.slate} />
+            <Icon name="lock-closed" size={17} color={c.slate} />
             <Text className="flex-1 text-[13px] leading-5 text-slate">Only this image was received, never the chat, contacts or conversation name. Nothing uploads until you save the expense.</Text>
           </View>
           <Button label="Choose group and scan" icon="arrow-right" iconSide="right" size="lg" fullWidth onPress={continueToExpense} />

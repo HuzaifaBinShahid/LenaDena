@@ -4,8 +4,20 @@ import { isAuthRetryableFetchError } from "@supabase/supabase-js";
 import { ApiError, apiRequest, newIdempotencyKey, uploadPrivateImage } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { demoPlan } from "@/features/ledger/demo-data";
-import type { CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, Group, InviteLink, Plan, SettlementStatus } from "@/features/ledger/types";
+import type {
+  CreateExpenseInput,
+  CreateGroupInput,
+  CreatePersonalTransactionInput,
+  CreatePersonInput,
+  Group,
+  InviteLink,
+  Person,
+  Plan,
+  SettlementStatus,
+  UpdatePersonInput,
+} from "@/features/ledger/types";
 import { useAuth } from "@/features/auth/AuthProvider";
+import { peopleErrorMessage } from "@/features/people/people";
 
 type ConnectionState = "loading" | "live" | "demo" | "error";
 
@@ -17,6 +29,7 @@ const emptyPlan: Plan = {
   claims: [],
   activity: [],
   transactions: [],
+  people: [],
 };
 
 type LedgerContextValue = {
@@ -27,6 +40,12 @@ type LedgerContextValue = {
   createExpense: (input: CreateExpenseInput) => Promise<void>;
   createPersonalTransaction: (input: CreatePersonalTransactionInput) => Promise<void>;
   settlePersonalTransaction: (id: string) => Promise<void>;
+  /** Saves someone to People. Rejects with a friendly message for a duplicate name or a server without People. */
+  createPerson: (input: CreatePersonInput) => Promise<Person>;
+  /** Renaming also renames their history rows (server side). */
+  updatePerson: (id: string, input: UpdatePersonInput) => Promise<Person>;
+  /** Their entries stay in Activity, unlinked. */
+  deletePerson: (id: string) => Promise<void>;
   updateProfile: (input: { name: string; avatarUri?: string | null }) => Promise<void>;
   claimSettlement: (input: { groupId: string; recipientMemberId: string; amountMinor: number; note?: string; proofUri?: string }) => Promise<void>;
   reviewSettlement: (id: string, status: Extract<SettlementStatus, "confirmed" | "needs_attention">, note?: string) => Promise<void>;
@@ -36,6 +55,13 @@ type LedgerContextValue = {
 };
 
 const LedgerContext = createContext<LedgerContextValue | null>(null);
+
+/** Swaps a People error code for friendly copy (naming the person on a duplicate); other errors pass through. */
+function friendlyPeopleError(error: unknown, options: { name?: string | undefined; peopleRoute?: boolean }) {
+  if (!(error instanceof ApiError)) return error;
+  const message = peopleErrorMessage(error, options);
+  return message ? new ApiError(message, error.status, error.code, error.details) : error;
+}
 
 export function LedgerProvider({ children }: { children: ReactNode }) {
   const { configured, ready, session } = useAuth();
@@ -57,7 +83,8 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     try {
       const value = await apiRequest<Plan>("/v1/me/plan");
       if (activeUserId.current !== requestedFor) return;
-      setPlan(value);
+      // An API without People (older deploy) still yields a complete plan.
+      setPlan({ ...value, people: value.people ?? [] });
       setConnection("live");
     } catch (error) {
       if (activeUserId.current !== requestedFor) return;
@@ -100,13 +127,19 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     await refresh();
   }, [refresh]);
 
+  // `personId` passes straight through: with it the entry joins that person; without it the API finds or
+  // creates a person by `counterparty`, which is why a refresh afterwards can show a new person.
   const createPersonalTransaction = useCallback(async (input: CreatePersonalTransactionInput) => {
     const receiptUri = input.receiptUri ? await uploadPrivateImage("receipt", input.receiptUri) : undefined;
-    await apiRequest("/v1/personal-transactions", {
-      method: "POST",
-      body: { ...input, receiptUri },
-      idempotencyKey: newIdempotencyKey(),
-    });
+    try {
+      await apiRequest("/v1/personal-transactions", {
+        method: "POST",
+        body: { ...input, receiptUri },
+        idempotencyKey: newIdempotencyKey(),
+      });
+    } catch (error) {
+      throw friendlyPeopleError(error, { name: input.counterparty });
+    }
     await refresh();
   }, [refresh]);
 
@@ -115,6 +148,49 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       method: "POST",
       idempotencyKey: newIdempotencyKey(),
     });
+    await refresh();
+  }, [refresh]);
+
+  // People are contact details, not money: no idempotency key. Demo mode goes through the demo API like every
+  // other mutation here (its memory store keeps people too), and photos stay local URIs there.
+  const createPerson = useCallback(async (input: CreatePersonInput) => {
+    const name = input.name.trim();
+    const email = input.email?.trim();
+    try {
+      const avatarPath = input.avatarUri ? await uploadPrivateImage("avatar", input.avatarUri) : undefined;
+      const person = await apiRequest<Person>("/v1/people", {
+        method: "POST",
+        body: { name, ...(email ? { email } : {}), ...(avatarPath ? { avatarPath } : {}) },
+      });
+      await refresh();
+      return person;
+    } catch (error) {
+      throw friendlyPeopleError(error, { name, peopleRoute: true });
+    }
+  }, [refresh]);
+
+  const updatePerson = useCallback(async (id: string, input: UpdatePersonInput) => {
+    const body: { name?: string; email?: string | null; avatarPath?: string | null } = {};
+    if (input.name !== undefined) body.name = input.name.trim();
+    if (Object.hasOwn(input, "email")) body.email = input.email?.trim() || null;
+    try {
+      if (Object.hasOwn(input, "avatarUri")) {
+        body.avatarPath = input.avatarUri ? await uploadPrivateImage("avatar", input.avatarUri) : null;
+      }
+      const person = await apiRequest<Person>(`/v1/people/${encodeURIComponent(id)}`, { method: "PATCH", body });
+      await refresh();
+      return person;
+    } catch (error) {
+      throw friendlyPeopleError(error, { name: body.name, peopleRoute: true });
+    }
+  }, [refresh]);
+
+  const deletePerson = useCallback(async (id: string) => {
+    try {
+      await apiRequest(`/v1/people/${encodeURIComponent(id)}`, { method: "DELETE" });
+    } catch (error) {
+      throw friendlyPeopleError(error, { peopleRoute: true });
+    }
     await refresh();
   }, [refresh]);
 
@@ -171,8 +247,25 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const value = useMemo(
-    () => ({ plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, settlePersonalTransaction, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite }),
-    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, settlePersonalTransaction, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite],
+    () => ({
+      plan,
+      connection,
+      refresh,
+      createGroup,
+      createExpense,
+      createPersonalTransaction,
+      settlePersonalTransaction,
+      createPerson,
+      updatePerson,
+      deletePerson,
+      updateProfile,
+      claimSettlement,
+      reviewSettlement,
+      selfConfirmSettlement,
+      createInvite,
+      acceptInvite,
+    }),
+    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, settlePersonalTransaction, createPerson, updatePerson, deletePerson, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite],
   );
 
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;

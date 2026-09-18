@@ -12,6 +12,12 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: true,
     bundleIdentifier: "com.lenadena.app",
+    // iOS 18 home-screen appearances: the dark and tinted icons sit on a system-supplied ground.
+    icon: {
+      light: "./assets/icon.png",
+      dark: "./assets/icon-dark.png",
+      tinted: "./assets/icon-tinted.png",
+    },
   },
   android: {
     package: "com.lenadena.app",
@@ -19,8 +25,13 @@ const config: ExpoConfig = {
     softwareKeyboardLayoutMode: "resize",
     permissions: ["RECORD_AUDIO"],
     adaptiveIcon: {
+      // Split gold coin on a transparent layer, kept inside the 66dp safe zone so every launcher
+      // mask (circle, squircle, rounded square) shows the whole coin over the violet gradient layer.
       foregroundImage: "./assets/adaptive-icon.png",
-      backgroundColor: "#1A1037",
+      backgroundImage: "./assets/adaptive-background.png",
+      // Android 13+ themed icons tint this silhouette.
+      monochromeImage: "./assets/adaptive-monochrome.png",
+      backgroundColor: "#6848E6",
     },
     edgeToEdgeEnabled: true,
   },

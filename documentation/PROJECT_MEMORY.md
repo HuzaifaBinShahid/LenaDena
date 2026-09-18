@@ -34,7 +34,7 @@ Last updated: 2026-09-14
 
 ## UI contract
 
-- There is one exported base `Button`, one `Input`, one `Field`, one `TopTabs`, one `Switch`, one `Spinner`, one person `Avatar`, and one `ToastProvider`.
+- There is one exported base `Button`, one `Input`, one `Field`, one `TopTabs`, one `Switch`, one `Spinner`, one account `Avatar`, and one `ToastProvider`. Saved People (not accounts) use `PersonAvatar` in `components/people` — fixed name-hash tints, any size, balance status rings.
 - Feedback (results, errors, hints) uses `useToast()`: stacked toasts slide in from the top right, can be swiped right or tapped away, pause while touched, and announce to screen readers. Pastel status panels (`bg-gold-soft`, `bg-mint-soft` boxes) are rejected by the product owner; explanatory copy is a quiet inline line instead. Native `Alert` is only for two-choice confirmations.
 - `Input` and `Field` have a `dark` appearance and `Button` has a `gradient` variant for the space-themed auth and lock screens; `SpaceBackdrop` is the shared illustration there.
 - `Badge` and status pills are neutral outlines with a small semantic dot; color never fills the pill.
@@ -43,7 +43,7 @@ Last updated: 2026-09-14
 - Touch feedback uses short opacity and scale transitions. The splash uses a finite transform-and-opacity sequence; looping loaders, video splashes, and large runtime blur effects are excluded.
 - `Touch` renders its `Pressable` through raw React Native creation, Reanimated styles stay on the outer animated view, and optional NativeWind classes render on a non-interactive inner view.
 - `Input` renders its `Animated.View` and `TextInput` through raw React Native creation; focus styling runs through a Reanimated shared value and never triggers a React rerender.
-- Dusk, Cloud, Midnight, and System preferences alter the dark shell and light working surface without creating a fully dark or fully light product.
+- Appearance is Light, Dark, or System (default System). Dark is a full deep night-purple theme (canvas < raised < surface by lightness, hairline borders instead of shadows, brand violet shells kept); the older Dusk/Cloud/Midnight choices map to Light/Light/Dark. The sign-in and lock screens stay always-dark in both.
 - Minimum interactive target is 44 by 44 points.
 - Semantic colors always have a text label or icon; color is never the only signal.
 - The visual direction is near-black plum, saturated violet, lavender light, translucent borders, and pale working surfaces with separate positive, negative, and warning colors.

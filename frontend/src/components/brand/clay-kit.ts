@@ -6,7 +6,7 @@ export type ClayRamp = { hi: string; light: string; base: string; shade: string;
 export type ClaySurface = "light" | "dark";
 export type ClayDetail = "full" | "low";
 
-/** Fixed brand material. Ramps never change with the Dusk, Cloud or Midnight themes; only `surface` does. */
+/** Fixed brand material. Coloured ramps never change with the theme; only `surface` does, and dimmed art swaps the paper tones (see `clayRampFor`). */
 export const clayRamps: Record<ClayTone, ClayRamp> = {
   violet: { hi: "#EEE9FF", light: "#957EFA", base: "#7657F6", shade: "#6040CD", deep: "#4B2AA4", edge: "#321C6F" },
   lavender: { hi: "#FCFAFF", light: "#F0ECFF", base: "#B5A5FF", shade: "#957EFA", deep: "#7657F6", edge: "#6040CD" },
@@ -16,6 +16,32 @@ export const clayRamps: Record<ClayTone, ClayRamp> = {
   cloud: { hi: "#FFFFFF", light: "#FCFAFF", base: "#F0ECFF", shade: "#DCD4FF", deep: "#C9BDFF", edge: "#A08BFC" },
   lavenderCloud: { hi: "#FFFFFF", light: "#F0ECFF", base: "#DCD4FF", shade: "#B5A5FF", deep: "#957EFA", edge: "#7657F6" },
 };
+
+/** The pale "paper" materials: trays, clouds, receipt paper, calendar pages and platforms. */
+export type ClayPaperTone = "cloud" | "lavenderCloud";
+
+/**
+ * The paper materials at dusk, for art drawn on the dark theme's canvas and cards. Near-white paper would glow
+ * there, so it becomes the same lavender clay one light step down; coloured materials keep their ramps.
+ */
+export const clayDuskRamps: Record<ClayPaperTone, ClayRamp> = {
+  cloud: { hi: "#E4DDFF", light: "#C9BEF7", base: "#A594E3", shade: "#8573CC", deep: "#6A57B2", edge: "#4B3990" },
+  lavenderCloud: { hi: "#D2C7FB", light: "#B3A4EE", base: "#8F7DDA", shade: "#735FC4", deep: "#5B47A9", edge: "#3F2D85" },
+};
+
+function isPaperTone(tone: ClayTone): tone is ClayPaperTone {
+  return tone === "cloud" || tone === "lavenderCloud";
+}
+
+/** The ramp a piece paints with: dimmed art swaps only the paper tones for their dusk ramps. */
+export function clayRampFor(tone: ClayTone, dim: boolean): ClayRamp {
+  return dim && isPaperTone(tone) ? clayDuskRamps[tone] : clayRamps[tone];
+}
+
+/** Pure white inside paper gradients (the lit top of a page or rim). Dimmed paper tops out at its dusk `hi`. */
+export function clayPaperWhite(dim: boolean): string {
+  return dim ? clayDuskRamps.cloud.hi : "#FFFFFF";
+}
 
 export type ClayGlyph = "exchange" | "ld" | "check" | "plus" | "arrow-in" | "arrow-out" | "clock" | "people" | "receipt";
 

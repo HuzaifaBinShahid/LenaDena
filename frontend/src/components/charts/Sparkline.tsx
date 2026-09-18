@@ -2,6 +2,7 @@ import { memo, useMemo } from "react";
 import { View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import { sparkPath } from "@/lib/curve";
+import { useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
 
 export type SparklineProps = {
@@ -15,15 +16,15 @@ export type SparklineProps = {
   height?: number;
 };
 
-const TONE_COLORS = { positive: colors.mint, negative: colors.coral, neutral: colors.lavender } as const;
-
 // The end dot (r 3.5 plus half of its 2pt ring) must stay inside the box, so the curve keeps 5pt of padding.
 const PAD = 5;
 
 /** Static trend line from the shared monotone curve (D8). An empty or flat series is a dashed lavender line with no dot. */
 export const Sparkline = memo(function Sparkline({ values, tone, ringColor, width = 60, height = 30 }: SparklineProps) {
+  const { colors: c } = useTheme();
   const spark = useMemo(() => sparkPath(values, width, height, PAD), [values, width, height]);
-  const color = spark.flat ? colors.lavender : TONE_COLORS[tone];
+  // Mint and coral follow the theme (brighter on dark cards); lavender already reads on both.
+  const color = spark.flat || tone === "neutral" ? colors.lavender : tone === "positive" ? c.mint : c.coral;
 
   return (
     <View

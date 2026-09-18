@@ -91,3 +91,27 @@ export function describeTransaction(
     accessibilityLabel: `${title}. ${who}. ${spokenAmount}, ${direction}. ${status.label}. ${formatLongDate(item.eventDate)}.`,
   };
 }
+
+export type PersonLink = {
+  id: string;
+  name: string;
+  /** First name, for the compact link beside "Mark settled". */
+  label: string;
+  /** Screen-reader hint for the row or link that opens the person. */
+  hint: string;
+};
+
+/**
+ * The saved person behind a personal row. Only personal rows link, and only while the person still
+ * exists: deleting a person leaves their entries in Activity, unlinked.
+ */
+export function personLink(
+  item: Pick<TransactionItem, "source" | "personId">,
+  people: ReadonlyMap<string, { id: string; name: string }>,
+): PersonLink | null {
+  if (item.source !== "personal" || !item.personId) return null;
+  const person = people.get(item.personId);
+  const name = person?.name.trim();
+  if (!person || !name) return null;
+  return { id: person.id, name, label: name.split(/\s+/)[0] ?? name, hint: `Opens ${name}'s balances and history` };
+}

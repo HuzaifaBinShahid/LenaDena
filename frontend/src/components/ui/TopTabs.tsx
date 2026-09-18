@@ -1,10 +1,15 @@
-import { createElement } from "react";
-import type { StyleProp, ViewStyle } from "react-native";
+import { createElement, useEffect, useRef, useState } from "react";
+import type { LayoutChangeEvent, StyleProp, ViewStyle } from "react-native";
 import { StyleSheet, Text as NativeText, View } from "react-native";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Touch } from "@/components/ui/Touch";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
+import type { Palette } from "@/theme/palettes";
 import { colors } from "@/theme/tokens";
+
+/** Colour of the selected pill in the segmented control. Use `mint`/`coral` when the choice means owed-to-you / you-owe. */
+export type TabTone = "violet" | "mint" | "coral" | "gold";
 
 type Tab<T extends string> = {
   key: T;
@@ -13,6 +18,8 @@ type Tab<T extends string> = {
   icon?: IconName;
   /** `panel` appearance only: colour of the selected tab's icon (defaults to white). */
   accent?: string;
+  /** `segmented` appearance only: colour of the selected pill (defaults to violet). */
+  tone?: TabTone;
 };
 
 type TopTabsProps<T extends string> = {
@@ -23,15 +30,15 @@ type TopTabsProps<T extends string> = {
   style?: StyleProp<ViewStyle>;
 };
 
-function TabItem<T extends string>({ tab, selected, appearance, onPress }: { tab: Tab<T>; selected: boolean; appearance: "segmented" | "navigation"; onPress: () => void }) {
-  const navigation = appearance === "navigation";
-  const foreground = selected ? navigation ? colors.white : colors.ink : navigation ? "rgba(244,240,255,0.58)" : colors.slate;
+/** The dark floating navigation bar appearance. */
+function TabItem<T extends string>({ tab, selected, onPress }: { tab: Tab<T>; selected: boolean; onPress: () => void }) {
+  const foreground = selected ? colors.white : "rgba(244,240,255,0.58)";
   const selectedSurface = selected
     ? createElement(Animated.View, {
       entering: FadeIn.duration(180),
       exiting: FadeOut.duration(100),
       pointerEvents: "none",
-      style: [StyleSheet.absoluteFill, navigation ? styles.navigationSelection : styles.segmentedSelection],
+      style: [StyleSheet.absoluteFill, styles.navigationSelection],
     })
     : null;
 
@@ -39,7 +46,7 @@ function TabItem<T extends string>({ tab, selected, appearance, onPress }: { tab
     <Touch
       onPress={onPress}
       containerStyle={styles.itemContainer}
-      pressableStyle={[styles.item, navigation ? styles.navigationItem : styles.segmentedItem]}
+      pressableStyle={[styles.item, styles.navigationItem]}
       pressedScale={0.93}
       haptic
       accessibilityRole="tab"
@@ -48,14 +55,14 @@ function TabItem<T extends string>({ tab, selected, appearance, onPress }: { tab
       {selectedSurface}
       {createElement(
         View,
-        { style: [styles.content, !navigation && styles.segmentedContent] },
-        tab.icon ? <Icon name={tab.icon} size={navigation ? 20 : 17} color={foreground} /> : null,
+        { style: styles.content },
+        tab.icon ? <Icon name={tab.icon} size={20} color={foreground} /> : null,
         createElement(NativeText, {
           numberOfLines: 1,
-          style: [styles.label, navigation ? styles.navigationLabel : styles.segmentedLabel, { color: foreground }],
+          style: [styles.label, styles.navigationLabel, { color: foreground }],
         }, tab.label),
       )}
-      {navigation && selected ? createElement(View, { style: styles.activeDot }) : null}
+      {selected ? createElement(View, { style: styles.activeDot }) : null}
       {tab.badge ? createElement(
         View,
         { style: styles.badge },
@@ -69,7 +76,7 @@ type PanelAppearance = "panel" | "underline";
 
 const PANEL_MUTED = "rgba(244,240,255,0.58)";
 
-/** Dark-surface appearances. Kept apart from `TabItem` so the segmented and navigation paths render exactly as before (D15). */
+/** Dark-surface appearances (the Activity header). Kept apart from the segmented and navigation paths so they render exactly as before (D15). */
 function PanelTabItem<T extends string>({ tab, selected, appearance, onPress }: { tab: Tab<T>; selected: boolean; appearance: PanelAppearance; onPress: () => void }) {
   const panel = appearance === "panel";
   const foreground = selected ? panel ? colors.white : colors.lavender : PANEL_MUTED;
@@ -129,17 +136,107 @@ function PanelTabs<T extends string>({ tabs, value, onChange, appearance, style 
   );
 }
 
-export function TopTabs<T extends string>({ tabs, value, onChange, appearance = "segmented", style }: TopTabsProps<T>) {
-  if (appearance === "panel" || appearance === "underline") return <PanelTabs tabs={tabs} value={value} onChange={onChange} appearance={appearance} style={style} />;
-  const navigation = appearance === "navigation";
+const SEGMENT_PAD = 4;
+
+function toneFill(tone: TabTone, palette: Palette) {
+  return tone === "mint" ? palette.mint : tone === "coral" ? palette.coral : tone === "gold" ? palette.gold : palette.violet;
+}
+
+/**
+ * Light surfaces: a solid pill slides under the chosen option, so the selection is obvious at a
+ * glance (the old white-on-lilac pill was too close to the track). Labels switch to white on the
+ * pill; in dark mode the bright mint/coral/gold pills take night text instead, which reads better.
+ */
+function SegmentedTabs<T extends string>({ tabs, value, onChange, style }: Omit<TopTabsProps<T>, "appearance">) {
+  const { colors: theme, isDark } = useTheme();
+  const themed = useSegmentedStyles();
+  const reduceMotion = useReducedMotion();
+  const [trackWidth, setTrackWidth] = useState(0);
+  const selectedIndex = Math.max(0, tabs.findIndex((tab) => tab.key === value));
+  const tone = tabs[selectedIndex]?.tone ?? "violet";
+  const fill = toneFill(tone, theme);
+  const onFill = tone === "violet" || !isDark ? colors.white : colors.night;
+  const itemWidth = trackWidth > 0 ? (trackWidth - SEGMENT_PAD * 2) / Math.max(tabs.length, 1) : 0;
+  const offset = useSharedValue(0);
+  const pillColor = useSharedValue(fill);
+  const placed = useRef(false);
+
+  useEffect(() => {
+    if (itemWidth <= 0) return;
+    const target = selectedIndex * itemWidth;
+    if (!placed.current || reduceMotion) {
+      offset.value = target;
+      pillColor.value = fill;
+      placed.current = true;
+      return;
+    }
+    offset.value = withTiming(target, { duration: 240, easing: Easing.out(Easing.cubic) });
+    pillColor.value = withTiming(fill, { duration: 240 });
+  }, [fill, itemWidth, offset, pillColor, reduceMotion, selectedIndex]);
+
+  const pillStyle = useAnimatedStyle(() => ({
+    backgroundColor: pillColor.value,
+    transform: [{ translateX: offset.value }],
+  }));
+
   return createElement(
     View,
     {
-      style: [navigation ? styles.navigationBar : styles.segmentedBar, style],
+      style: [themed.bar, style],
+      accessibilityRole: "tablist",
+      onLayout: (event: LayoutChangeEvent) => setTrackWidth(event.nativeEvent.layout.width),
+    },
+    itemWidth > 0
+      ? createElement(Animated.View, {
+        pointerEvents: "none",
+        style: [themed.pill, !isDark && { shadowColor: fill }, { width: itemWidth }, pillStyle],
+      })
+      : null,
+    tabs.map((tab, index) => {
+      const selected = index === selectedIndex && tab.key === value;
+      const foreground = selected ? onFill : theme.slate;
+      return (
+        <Touch
+          key={tab.key}
+          onPress={() => onChange(tab.key)}
+          containerStyle={styles.itemContainer}
+          pressableStyle={[styles.item, styles.segmentedItem]}
+          pressedScale={0.95}
+          haptic
+          accessibilityRole="tab"
+          accessibilityState={{ selected }}
+        >
+          {createElement(
+            View,
+            { style: [styles.content, styles.segmentedContent] },
+            tab.icon ? <Icon name={tab.icon} size={17} color={foreground} /> : null,
+            createElement(NativeText, {
+              numberOfLines: 1,
+              style: [styles.segmentedLabel, { color: foreground, fontFamily: selected ? "Manrope_700Bold" : "Manrope_600SemiBold" }],
+            }, tab.label),
+          )}
+          {tab.badge ? createElement(
+            View,
+            { style: styles.badge },
+            createElement(NativeText, { style: styles.badgeLabel }, tab.badge > 9 ? "9+" : String(tab.badge)),
+          ) : null}
+        </Touch>
+      );
+    }),
+  );
+}
+
+export function TopTabs<T extends string>({ tabs, value, onChange, appearance = "segmented", style }: TopTabsProps<T>) {
+  if (appearance === "panel" || appearance === "underline") return <PanelTabs tabs={tabs} value={value} onChange={onChange} appearance={appearance} style={style} />;
+  if (appearance === "segmented") return <SegmentedTabs tabs={tabs} value={value} onChange={onChange} style={style} />;
+  return createElement(
+    View,
+    {
+      style: [styles.navigationBar, style],
       accessibilityRole: "tablist",
     },
     tabs.map((tab) => (
-      <TabItem key={tab.key} tab={tab} selected={tab.key === value} appearance={appearance} onPress={() => onChange(tab.key)} />
+      <TabItem key={tab.key} tab={tab} selected={tab.key === value} onPress={() => onChange(tab.key)} />
     )),
   );
 }
@@ -158,13 +255,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.32,
     shadowRadius: 22,
     elevation: 12,
-  },
-  segmentedBar: {
-    minHeight: 52,
-    flexDirection: "row",
-    padding: 4,
-    borderRadius: 18,
-    backgroundColor: colors.surface,
   },
   itemContainer: {
     flex: 1,
@@ -189,17 +279,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.2)",
     backgroundColor: "rgba(255,255,255,0.15)",
   },
-  segmentedSelection: {
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: "rgba(112,76,245,0.12)",
-    backgroundColor: colors.raised,
-    shadowColor: colors.violetStrong,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
-  },
   content: {
     alignItems: "center",
     justifyContent: "center",
@@ -217,7 +296,7 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   segmentedLabel: {
-    fontSize: 13,
+    fontSize: 13.5,
     lineHeight: 18,
   },
   activeDot: {
@@ -298,3 +377,26 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 });
+
+const useSegmentedStyles = makeStyles((c, { isDark }) => ({
+  bar: {
+    minHeight: 52,
+    flexDirection: "row",
+    padding: SEGMENT_PAD,
+    borderRadius: 18,
+    backgroundColor: c.surface,
+    borderWidth: isDark ? 1 : 0,
+    borderColor: c.line,
+  },
+  pill: {
+    position: "absolute",
+    top: SEGMENT_PAD,
+    bottom: SEGMENT_PAD,
+    left: SEGMENT_PAD,
+    borderRadius: 15,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: isDark ? 0 : 0.28,
+    shadowRadius: 9,
+    elevation: isDark ? 0 : 3,
+  },
+}));

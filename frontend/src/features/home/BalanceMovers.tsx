@@ -6,14 +6,13 @@ import { SectionHeader } from "@/components/layout/SectionHeader";
 import { DashedOutline } from "@/components/ui/DashedOutline";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Touch } from "@/components/ui/Touch";
-import { groupSkin } from "@/features/groups/groupSkin";
+import { groupSkin, groupSkinTone } from "@/features/groups/groupSkin";
 import type { BalanceMover } from "@/features/ledger/balanceSeries";
 import type { PlanState } from "@/features/ledger/planState";
 import type { TabKey } from "@/features/ledger/types";
-import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { shadows } from "@/theme/shadows";
-import { colors } from "@/theme/tokens";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 
 export type BalanceMoversProps = {
   movers: readonly BalanceMover[];
@@ -55,6 +54,9 @@ const TRACK_FRIEND: Placeholder = {
   accessibilityLabel: "Track a friend. Log what you lend or borrow.",
 };
 
+/** Personal balances and placeholders wear the violet skin's tile, as groups without an accent do. */
+const PERSONAL_SKIN = groupSkin(null);
+
 function statusPlaceholders(planState: PlanState): Placeholder[] {
   const offline = planState === "offline";
   const base = {
@@ -94,7 +96,8 @@ export function BalanceMovers({ movers, planState, hasGroups, column, onChangeTa
 }
 
 function MoverCard({ mover, width, onChangeTab }: { mover: BalanceMover; width: number; onChangeTab: (tab: TabKey) => void }) {
-  const { palette } = usePreferences();
+  const themed = useStyles();
+  const { colors: c, isDark, scheme } = useTheme();
   const change = mover.changeMinor;
   const tone = change > 0 ? "positive" : change < 0 ? "negative" : "neutral";
   const changeText = change > 0
@@ -102,7 +105,7 @@ function MoverCard({ mover, width, onChangeTab }: { mover: BalanceMover; width: 
     : change < 0
       ? formatSignedMoney(change, mover.currency, "-")
       : "No change";
-  const changeColor = change > 0 ? colors.mint : change < 0 ? colors.coral : colors.ink;
+  const changeColor = change > 0 ? c.mint : change < 0 ? c.coral : c.ink;
   const balance = formatMoney(Math.abs(mover.balanceMinor), mover.currency);
   const state = mover.balanceMinor > 0 ? `owed ${balance}` : mover.balanceMinor < 0 ? `you owe ${balance}` : "all square";
   const stateLabel = mover.balanceMinor > 0 ? `owed to you ${balance}` : mover.balanceMinor < 0 ? `you owe ${balance}` : "all square";
@@ -112,6 +115,8 @@ function MoverCard({ mover, width, onChangeTab }: { mover: BalanceMover; width: 
       ? `down ${formatMoney(Math.abs(change), mover.currency)} in ${WINDOW_DAYS} days`
       : `no change in ${WINDOW_DAYS} days`;
   const skin = mover.kind === "group" ? groupSkin(mover.accent) : null;
+  // The same themed tile the Groups tab uses, so a group looks alike everywhere.
+  const tile = groupSkinTone(skin ?? PERSONAL_SKIN, scheme);
   const groupId = mover.kind === "group" ? mover.id : undefined;
 
   const onPress = () => {
@@ -129,23 +134,24 @@ function MoverCard({ mover, width, onChangeTab }: { mover: BalanceMover; width: 
       containerStyle={{ width }}
       pressableStyle={styles.pressable}
     >
-      <View style={[styles.card, { backgroundColor: palette.surface }, shadows.card]}>
+      {/* Shadows do not read on the dark canvas; there the card's hairline carries the edge. */}
+      <View style={[styles.card, themed.card, isDark ? null : shadows.card]}>
         <View style={styles.topRow}>
           {createElement(
             NativeText,
             { numberOfLines: 1, adjustsFontSizeToFit: true, minimumFontScale: 0.7, maxFontSizeMultiplier: 1.2, style: [styles.change, { color: changeColor }] },
             changeText,
           )}
-          <View style={[styles.tile, { backgroundColor: skin ? skin.tint : colors.violetSoft }]}>
-            <Icon name={skin ? "users" : "user"} size={14} color={skin ? skin.icon : colors.violet} />
+          <View style={[styles.tile, { backgroundColor: tile.tint }]}>
+            <Icon name={skin ? "users" : "user"} size={14} color={tile.icon} />
           </View>
         </View>
         <View style={styles.bottomRow}>
           <View style={styles.nameColumn}>
-            {createElement(NativeText, { numberOfLines: 1, maxFontSizeMultiplier: 1.2, style: styles.name }, mover.name)}
-            {createElement(NativeText, { numberOfLines: 1, maxFontSizeMultiplier: 1.2, style: styles.state }, state)}
+            {createElement(NativeText, { numberOfLines: 1, maxFontSizeMultiplier: 1.2, style: [styles.name, themed.ink] }, mover.name)}
+            {createElement(NativeText, { numberOfLines: 1, maxFontSizeMultiplier: 1.2, style: [styles.state, themed.slate] }, state)}
           </View>
-          <Sparkline values={mover.series} tone={tone} ringColor={palette.surface} />
+          <Sparkline values={mover.series} tone={tone} ringColor={c.raised} />
         </View>
       </View>
     </Touch>
@@ -153,22 +159,24 @@ function MoverCard({ mover, width, onChangeTab }: { mover: BalanceMover; width: 
 }
 
 function PlaceholderCard({ placeholder, width }: { placeholder: Placeholder; width: number }) {
-  const { palette } = usePreferences();
+  const themed = useStyles();
+  const { colors: c, scheme } = useTheme();
+  const tile = groupSkinTone(PERSONAL_SKIN, scheme);
   const content = (
     // Same frame as a mover card, with the solid border swapped for an SVG dashed outline (D16) and no shadow.
-    <View style={[styles.card, styles.placeholderCard, { backgroundColor: palette.surface }]}>
-      <DashedOutline width={width} height={CARD_HEIGHT} radius={20} color={colors.line} />
+    <View style={[styles.card, themed.card, styles.placeholderCard]}>
+      <DashedOutline width={width} height={CARD_HEIGHT} radius={20} color={c.line} />
       <View style={styles.topRow}>
-        {createElement(NativeText, { numberOfLines: 1, maxFontSizeMultiplier: 1.2, style: styles.placeholderTitle }, placeholder.title)}
-        <View style={[styles.tile, { backgroundColor: colors.violetSoft }]}>
-          <Icon name={placeholder.icon} size={14} color={colors.violet} />
+        {createElement(NativeText, { numberOfLines: 1, maxFontSizeMultiplier: 1.2, style: [styles.placeholderTitle, themed.ink] }, placeholder.title)}
+        <View style={[styles.tile, { backgroundColor: tile.tint }]}>
+          <Icon name={placeholder.icon} size={14} color={tile.icon} />
         </View>
       </View>
       <View style={styles.bottomRow}>
         <View style={styles.nameColumn}>
-          {createElement(NativeText, { numberOfLines: 2, maxFontSizeMultiplier: 1.2, style: styles.placeholderDetail }, placeholder.detail)}
+          {createElement(NativeText, { numberOfLines: 2, maxFontSizeMultiplier: 1.2, style: [styles.placeholderDetail, themed.slate] }, placeholder.detail)}
         </View>
-        <Sparkline values={FLAT_SERIES} tone="neutral" ringColor={palette.surface} />
+        <Sparkline values={FLAT_SERIES} tone="neutral" ringColor={c.raised} />
       </View>
     </View>
   );
@@ -214,7 +222,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 14,
     borderWidth: 1,
-    borderColor: colors.line,
   },
   placeholderCard: {
     borderWidth: 0,
@@ -251,25 +258,34 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_700Bold",
     fontSize: 12,
     lineHeight: 16,
-    color: colors.ink,
   },
   state: {
     fontFamily: "Manrope_500Medium",
     fontSize: 11,
     lineHeight: 14,
-    color: colors.slate,
   },
   placeholderTitle: {
     flex: 1,
     fontFamily: "Manrope_700Bold",
     fontSize: 14,
     lineHeight: 18,
-    color: colors.ink,
   },
   placeholderDetail: {
     fontFamily: "Manrope_500Medium",
     fontSize: 11,
     lineHeight: 14,
-    color: colors.slate,
   },
 });
+
+const useStyles = makeStyles((c) => ({
+  card: {
+    backgroundColor: c.raised,
+    borderColor: c.line,
+  },
+  ink: {
+    color: c.ink,
+  },
+  slate: {
+    color: c.slate,
+  },
+}));

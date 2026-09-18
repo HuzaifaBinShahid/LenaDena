@@ -90,10 +90,26 @@ export type TransactionItem = {
   direction: TransactionDirection;
   kind: TransactionKind;
   counterparty?: string;
+  /** Set on personal rows linked to one of the owner's people. */
+  personId?: string;
   note?: string;
   receiptUri?: string;
   status?: TransactionStatus;
   settledAt?: string;
+  createdAt: string;
+};
+
+/** Someone the owner keeps individual balances with. Private to the owner; never a LenaDena account. */
+export type Person = {
+  id: string;
+  /** Trimmed, 1..80 characters, unique per owner case-insensitively. */
+  name: string;
+  /** Trimmed and lowercased. */
+  email?: string;
+  /** Short-lived signed URL for the photo in the private `avatars` bucket. */
+  avatarUrl?: string;
+  /** Storage path of the photo, so a client can keep it when editing. */
+  avatarPath?: string;
   createdAt: string;
 };
 
@@ -105,6 +121,8 @@ export type Plan = {
   claims: Settlement[];
   activity: Omit<ActivityItem, "groupId">[];
   transactions: TransactionItem[];
+  /** Sorted by name, case-insensitively. */
+  people: Person[];
 };
 
 export type CreateGroupInput = {
@@ -134,6 +152,8 @@ export type CreatePersonalTransactionInput = {
   kind: Extract<TransactionKind, "expense" | "loan">;
   direction: TransactionDirection;
   counterparty: string;
+  /** Links the entry to this person; their current name replaces `counterparty`. */
+  personId?: string;
   note?: string;
   receiptUri?: string;
 };
@@ -148,5 +168,19 @@ export type CreateSettlementInput = {
 
 export type UpdateProfileInput = {
   name: string;
+  avatarPath?: string | null;
+};
+
+/** A blank or null email or photo means none. */
+export type CreatePersonInput = {
+  name: string;
+  email?: string | null;
+  avatarPath?: string | null;
+};
+
+/** An omitted field stays as it is; `null` clears the email or photo. */
+export type UpdatePersonInput = {
+  name?: string;
+  email?: string | null;
   avatarPath?: string | null;
 };

@@ -18,7 +18,7 @@ export const repositoryPlugin = fp(async function repositoryPlugin(fastify, opti
   }
   if (options.config.authMode === "supabase" && options.config.supabaseUrl && options.config.supabaseSecretKey) {
     const client = createClient(options.config.supabaseUrl, options.config.supabaseSecretKey, { auth: { autoRefreshToken: false, persistSession: false } });
-    fastify.decorate("ledger", new SupabaseLedgerRepository(client));
+    fastify.decorate("ledger", new SupabaseLedgerRepository(client, fastify.log));
     return;
   }
   fastify.decorate("ledger", new MemoryLedgerRepository());

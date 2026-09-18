@@ -1,6 +1,7 @@
 import { View } from "react-native";
 import { Icon } from "@/components/ui/Icon";
-import { groupSkin } from "@/features/groups/groupSkin";
+import { groupSkin, groupSkinTone } from "@/features/groups/groupSkin";
+import { useTheme } from "@/theme/ThemeProvider";
 
 type GroupAvatarProps = {
   name: string;
@@ -15,12 +16,14 @@ const dimensions = {
 };
 
 export function GroupAvatar({ accent, size = "md" }: GroupAvatarProps) {
+  const { scheme } = useTheme();
   const config = dimensions[size];
   // The stored accent is decoration only: it always goes through a fixed LenaDena skin, never rendered raw (§1.7).
-  const skin = groupSkin(accent);
+  // Light uses the skin's pastel tile; dark swaps it for the deep themed tint so the tile never glows.
+  const tone = groupSkinTone(groupSkin(accent), scheme);
   return (
-    <View className={`${config.frame} items-center justify-center`} style={{ backgroundColor: skin.tint }}>
-      <Icon name="users" size={config.icon} color={skin.icon} />
+    <View className={`${config.frame} items-center justify-center`} style={{ backgroundColor: tone.tint }}>
+      <Icon name="users" size={config.icon} color={tone.icon} />
     </View>
   );
 }

@@ -4,9 +4,9 @@ import { StyleSheet, Text as NativeText, View } from "react-native";
 import { Icon } from "@/components/ui/Icon";
 import { Touch } from "@/components/ui/Touch";
 import type { AmountTone, StatusTone } from "@/features/ledger/rowCopy";
-import { usePreferences } from "@/features/preferences/PreferencesProvider";
+import type { Palette } from "@/theme/palettes";
 import { shadows } from "@/theme/shadows";
-import { colors } from "@/theme/tokens";
+import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 
 type Base = {
   leading: ReactNode;
@@ -26,21 +26,18 @@ export type LedgerRowProps =
   | (Base & { onPress: () => void; chevron?: boolean; footer?: never })
   | (Base & { onPress?: undefined; chevron?: never; footer?: ReactNode });
 
-const DOT_COLORS: Record<StatusTone, string> = {
-  neutral: colors.muted,
-  positive: colors.mint,
-  warning: colors.gold,
-  danger: colors.coral,
-};
+function dotColor(tone: StatusTone, c: Palette) {
+  return tone === "positive" ? c.mint : tone === "warning" ? c.gold : tone === "danger" ? c.coral : c.muted;
+}
 
-const AMOUNT_COLORS: Record<AmountTone, string> = {
-  positive: colors.mint,
-  negative: colors.coral,
-  neutral: colors.ink,
-};
+function amountColor(tone: AmountTone, c: Palette) {
+  return tone === "positive" ? c.mint : tone === "negative" ? c.coral : c.ink;
+}
 
 export function LedgerRow(props: LedgerRowProps) {
   const { leading, title, subtitle, note, amount, status, divider, accessibilityLabel, accessibilityHint } = props;
+  const { colors: c } = useTheme();
+  const styles = useStyles();
 
   const showChevron = Boolean(props.onPress && props.chevron);
 
@@ -49,7 +46,7 @@ export function LedgerRow(props: LedgerRowProps) {
       numberOfLines: 1,
       adjustsFontSizeToFit: true,
       minimumFontScale: 0.85,
-      style: [amount.tone === "neutral" ? styles.amountNeutral : styles.amountColoured, { color: AMOUNT_COLORS[amount.tone] }],
+      style: [amount.tone === "neutral" ? styles.amountNeutral : styles.amountColoured, { color: amountColor(amount.tone, c) }],
     }, amount.text)
     : null;
 
@@ -57,7 +54,7 @@ export function LedgerRow(props: LedgerRowProps) {
     ? createElement(
       View,
       { style: [styles.status, amount ? styles.statusBelowAmount : null] },
-      createElement(View, { style: [styles.dot, { backgroundColor: DOT_COLORS[status.tone] }] }),
+      createElement(View, { style: [styles.dot, { backgroundColor: dotColor(status.tone, c) }] }),
       createElement(NativeText, { numberOfLines: 1, style: styles.statusLabel }, status.label),
     )
     : null;
@@ -68,7 +65,7 @@ export function LedgerRow(props: LedgerRowProps) {
       View,
       { style: styles.trailing },
       amount || status ? createElement(View, { style: styles.right }, amountText, statusLine) : null,
-      showChevron ? createElement(View, { style: styles.chevron }, <Icon name="chevron-right" size={16} color={colors.muted} />) : null,
+      showChevron ? createElement(View, { style: styles.chevron }, <Icon name="chevron-right" size={16} color={c.muted} />) : null,
     )
     : null;
 
@@ -118,19 +115,20 @@ export function LedgerRow(props: LedgerRowProps) {
 export type LedgerListProps = { children: ReactNode; style?: StyleProp<ViewStyle> };
 
 /**
- * List shell: radius 22, 1pt line border, `palette.surface`, `shadows.card`.
+ * List shell: radius 22, 1pt line border (the hairline that separates it from the canvas in dark mode, where the
+ * shadow is invisible), `raised` fill, `shadows.card`.
  * The shadow sits on an outer view because `overflow: hidden` would clip it on iOS; the inner view clips the rows.
  */
 export function LedgerList({ children, style }: LedgerListProps) {
-  const { palette } = usePreferences();
+  const styles = useStyles();
   return createElement(
     View,
-    { style: [styles.listShadow, { backgroundColor: palette.surface }, shadows.card, style] },
+    { style: [styles.listShadow, styles.listFill, shadows.card, style] },
     createElement(View, { style: styles.listClip }, children),
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -142,7 +140,7 @@ const styles = StyleSheet.create({
   divider: {
     height: StyleSheet.hairlineWidth,
     marginLeft: 78,
-    backgroundColor: colors.line,
+    backgroundColor: c.line,
   },
   middle: {
     flex: 1,
@@ -152,21 +150,21 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_700Bold",
     fontSize: 15,
     lineHeight: 20,
-    color: colors.ink,
+    color: c.ink,
   },
   subtitle: {
     marginTop: 3,
     fontFamily: "Manrope_500Medium",
     fontSize: 12,
     lineHeight: 16,
-    color: colors.slate,
+    color: c.slate,
   },
   note: {
     marginTop: 4,
     fontFamily: "Manrope_500Medium",
     fontSize: 11,
     lineHeight: 15,
-    color: colors.slate,
+    color: c.slate,
   },
   trailing: {
     flexDirection: "row",
@@ -207,7 +205,7 @@ const styles = StyleSheet.create({
     fontFamily: "Manrope_600SemiBold",
     fontSize: 11,
     lineHeight: 14,
-    color: colors.slate,
+    color: c.slate,
   },
   chevron: {
     paddingLeft: 4,
@@ -220,10 +218,13 @@ const styles = StyleSheet.create({
   listShadow: {
     borderRadius: 22,
   },
+  listFill: {
+    backgroundColor: c.raised,
+  },
   listClip: {
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: c.line,
     overflow: "hidden",
   },
-});
+}));

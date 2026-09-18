@@ -18,6 +18,18 @@ export type Member = {
   createdAt?: string;
 };
 
+/** Someone the user tracks individual balances with (not necessarily a LenaDena user). */
+export type Person = {
+  id: string;
+  name: string;
+  email?: string;
+  /** Short-lived signed URL of their photo. */
+  avatarUrl?: string;
+  /** Storage path of their photo, kept so an edit can leave it unchanged. */
+  avatarPath?: string;
+  createdAt: string;
+};
+
 export type Group = {
   id: string;
   name: string;
@@ -89,6 +101,8 @@ export type TransactionItem = {
   direction: TransactionDirection;
   kind: TransactionKind;
   counterparty?: string;
+  /** Set on personal rows linked to a saved person. */
+  personId?: string;
   note?: string;
   receiptUri?: string;
   status?: TransactionStatus;
@@ -104,6 +118,7 @@ export type Plan = {
   claims: Settlement[];
   activity: ActivityItem[];
   transactions: TransactionItem[];
+  people: Person[];
 };
 
 export type CreateExpenseInput = {
@@ -126,8 +141,24 @@ export type CreatePersonalTransactionInput = {
   kind: Extract<TransactionKind, "expense" | "loan">;
   direction: TransactionDirection;
   counterparty: string;
+  /** Link to a saved person; without it the API finds or creates a person by `counterparty`. */
+  personId?: string;
   note?: string;
   receiptUri?: string;
+};
+
+/** A new saved person. `avatarUri` is a local image; the LedgerProvider uploads it and sends the storage path. */
+export type CreatePersonInput = {
+  name: string;
+  email?: string;
+  avatarUri?: string;
+};
+
+/** An omitted field stays as it is; `null` clears the email or the photo. */
+export type UpdatePersonInput = {
+  name?: string;
+  email?: string | null;
+  avatarUri?: string | null;
 };
 
 export type CreateGroupInput = {

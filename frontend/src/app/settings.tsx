@@ -19,16 +19,21 @@ import { useLedger } from "@/features/ledger/LedgerProvider";
 import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { useAppLock } from "@/features/security/AppLockProvider";
 import { authenticationFailureMessage, LOCK_DELAYS, lockDelayLabel, isLockDelay } from "@/features/security/lock-policy";
+import { AppearancePicker } from "@/features/settings/AppearancePicker";
 import { errorMessage } from "@/lib/api";
 import { formatLongDate } from "@/lib/format";
-import { colors } from "@/theme/tokens";
+import { useTheme } from "@/theme/ThemeProvider";
+
+/** Where the dark account card meets the dark canvas (dark mode only). */
+const SHELL_EDGE = "rgba(181,165,255,0.16)";
 
 export default function SettingsScreen() {
   const { plan, updateProfile } = useLedger();
   const { configured, session, signOut } = useAuth();
   const { runWithoutLocking } = useAppLock();
   const toast = useToast();
-  const { theme, setTheme, emailTone, setEmailTone, voiceLocale, setVoiceLocale, palette } = usePreferences();
+  const { emailTone, setEmailTone, voiceLocale, setVoiceLocale } = usePreferences();
+  const { colors: c, isDark } = useTheme();
   const [name, setName] = useState(plan.user.name);
   const [avatarUri, setAvatarUri] = useState<string | null>();
   const [avatarChanged, setAvatarChanged] = useState(false);
@@ -77,7 +82,8 @@ export default function SettingsScreen() {
     <Screen>
       <PageHeader title="Account" subtitle="Your identity, security and preferences" />
       <View className="gap-7">
-        <View className="overflow-hidden rounded-[26px] p-5" style={{ backgroundColor: palette.header }}>
+        {/* The brand's dark shell in both themes; dark mode adds the hairline so it lifts off the canvas. */}
+        <View className="overflow-hidden rounded-[26px] p-5" style={{ backgroundColor: c.shell, borderWidth: isDark ? 1 : 0, borderColor: SHELL_EDGE }}>
           <View className="absolute -right-10 -top-14 h-40 w-40 rounded-full bg-white/10" />
           <View className="flex-row items-center gap-4">
             <Avatar name={name || plan.user.name} uri={visibleAvatar} size="lg" inverted />
@@ -110,13 +116,7 @@ export default function SettingsScreen() {
 
         <SecuritySection />
 
-        <Field label="Theme" hint="Dusk blends a rich header into a calm working surface.">
-          <TopTabs
-            tabs={[{ key: "dusk", label: "Dusk" }, { key: "cloud", label: "Cloud" }, { key: "midnight", label: "Midnight" }, { key: "system", label: "System" }]}
-            value={theme}
-            onChange={setTheme}
-          />
-        </Field>
+        <AppearancePicker />
 
         <Field label="Email tone" hint="Humor never appears in disputes, errors or privacy messages.">
           <TopTabs
@@ -162,6 +162,7 @@ export default function SettingsScreen() {
 function SecuritySection() {
   const toast = useToast();
   const { supported, capability, preference, setEnabled, setLockDelay, refreshCapability } = useAppLock();
+  const { colors: c } = useTheme();
   const [busy, setBusy] = useState(false);
   const label = capability?.label ?? "Face ID";
   const glyph = capability?.kind === "face" ? "face-id" : "finger-print";
@@ -209,7 +210,7 @@ function SecuritySection() {
       <View className="overflow-hidden rounded-card border border-line bg-raised">
         <View className="flex-row items-center gap-3.5 px-4 py-3.5">
           <View className="h-11 w-11 items-center justify-center rounded-2xl bg-violet-soft">
-            <Icon name={glyph} size={22} color={colors.violet} />
+            <Icon name={glyph} size={22} color={c.violet} />
           </View>
           <View className="min-w-0 flex-1">
             <Text className="text-[15px] font-bold text-ink">Unlock with {label}</Text>
