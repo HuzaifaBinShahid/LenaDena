@@ -78,7 +78,7 @@ export async function buildApp(options: BuildOptions = {}) {
   const instantAuthGateway = createInstantAuthGateway(config, options.instantAuthGateway);
   await app.register(authRoutes, instantAuthGateway ? { prefix: "/v1", config, gateway: instantAuthGateway } : { prefix: "/v1", config });
   await app.register(ledgerRoutes, { prefix: "/v1" });
-  await app.register(peopleRoutes, { prefix: "/v1" });
+  await app.register(peopleRoutes, { prefix: "/v1", config });
   if (config.allowInstantAuth && config.authMode === "supabase") {
     app.log.warn("Instant email sign-in is ON: anyone who can reach this API and knows an email address can open that account. Development only.");
   }

@@ -35,6 +35,43 @@ export function personEmailError(email: string): string | undefined {
   return undefined;
 }
 
+const HISTORY_PREFIX = "history:";
+
+/** True for a person derived from past entries (see peopleWithHistory) rather than saved in the database. */
+export function isHistoryPersonId(id: string): boolean {
+  return id.startsWith(HISTORY_PREFIX);
+}
+
+/**
+ * Saved people plus one history-only person for every name used on an individual balance that isn't saved
+ * (entries from before People existed, or a database still waiting for the People migration). Names you've
+ * used are always remembered: they show in the picker, the People list and the home strip, and adding a
+ * balance with them never claims they'll be "added" again. Their ids start with "history:"; never send one
+ * to the API as `personId`. Uses the most recent spelling and dates the person from their first entry.
+ */
+export function peopleWithHistory(people: readonly Person[], transactions: readonly TransactionItem[]): Person[] {
+  const saved = new Set(people.map((person) => personNameKey(person.name)));
+  const savedIds = new Set(people.map((person) => person.id));
+  const history = new Map<string, { person: Person; latest: string }>();
+  for (const item of transactions) {
+    if (item.source !== "personal" || !item.counterparty) continue;
+    if (item.personId && savedIds.has(item.personId)) continue;
+    const key = personNameKey(item.counterparty);
+    if (!key || saved.has(key)) continue;
+    const seen = history.get(key);
+    if (!seen) {
+      history.set(key, { person: { id: `${HISTORY_PREFIX}${key}`, name: item.counterparty.trim(), createdAt: item.createdAt }, latest: item.createdAt });
+      continue;
+    }
+    if (item.createdAt > seen.latest) {
+      seen.latest = item.createdAt;
+      seen.person = { ...seen.person, name: item.counterparty.trim() };
+    }
+    if (item.createdAt < seen.person.createdAt) seen.person = { ...seen.person, createdAt: item.createdAt };
+  }
+  return [...people, ...Array.from(history.values(), (entry) => entry.person)];
+}
+
 /** The saved person whose name matches exactly (trimmed, case-insensitive). Names are unique per owner. */
 export function findPersonByName(people: readonly Person[], name: string): Person | undefined {
   const key = personNameKey(name);
@@ -482,6 +519,10 @@ export function peopleErrorMessage(error: { status: number; code?: string | unde
       return "People needs the latest database update. Try again once it's applied.";
     case "person_not_found":
       return "This person is no longer in your people. Refresh and try again.";
+    case "person_has_no_email":
+      return name ? `Add an email for ${personFirstName(name)} first, or share the invite instead.` : "Add their email first, or share the invite instead.";
+    case "invite_recently_sent":
+      return name ? `${personFirstName(name)} already got an invite in the last 12 hours.` : "They already got an invite in the last 12 hours.";
     default:
       if (options.peopleRoute && error.status === 404 && !error.code) return "People needs the latest server update.";
       return null;

@@ -16,9 +16,9 @@ import { speechUnavailableMessage, startOnDeviceSpeech, type SpeechSession } fro
 import { groupSkin } from "@/features/groups/groupSkin";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import type { TransactionDirection, TransactionKind } from "@/features/ledger/types";
-import { findPersonByName, personNameError } from "@/features/people/people";
+import { findPersonByName, isHistoryPersonId, personNameError } from "@/features/people/people";
 import { PersonPicker } from "@/features/people/PersonPicker";
-import { usePeopleSummaries } from "@/features/people/usePeople";
+import { usePeopleList, usePeopleSummaries } from "@/features/people/usePeople";
 import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { useAppLock } from "@/features/security/AppLockProvider";
 import { errorMessage } from "@/lib/api";
@@ -51,12 +51,13 @@ export default function NewPersonalTransactionScreen() {
   const toast = useToast();
   const styles = useStyles();
   const summaries = usePeopleSummaries();
+  const people = usePeopleList();
   const { width: windowWidth } = useWindowDimensions();
   const [kind, setKind] = useState<PersonalKind>("expense");
   const [direction, setDirection] = useState<TransactionDirection>("outgoing");
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
-  const [counterparty, setCounterparty] = useState(() => plan.people.find((person) => person.id === openedFor)?.name ?? "");
+  const [counterparty, setCounterparty] = useState(() => people.find((person) => person.id === openedFor)?.name ?? "");
   const [eventDate, setEventDate] = useState(todayDate());
   const [note, setNote] = useState("");
   const [receiptUri, setReceiptUri] = useState<string>();
@@ -70,7 +71,8 @@ export default function NewPersonalTransactionScreen() {
   const currency = plan.totals[0]?.currency ?? plan.groups[0]?.currency ?? "PKR";
   const pickerDate = dateFromIso(eventDate);
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(eventDate) && !Number.isNaN(pickerDate.getTime());
-  const linked = findPersonByName(plan.people, counterparty);
+  // A saved person, or a name remembered from earlier entries (not yet saved; linked by name on save).
+  const linked = findPersonByName(people, counterparty);
   const personName = linked?.name ?? counterparty.trim();
   const personError = personNameError(counterparty);
   const valid = Boolean(title.trim() && amountMinor > 0 && validDate && !personError);
@@ -162,7 +164,7 @@ export default function NewPersonalTransactionScreen() {
         direction,
         counterparty: personName,
         // A saved person links by id; a new name is found or created by the API from `counterparty`.
-        ...(linked ? { personId: linked.id } : {}),
+        ...(linked && !isHistoryPersonId(linked.id) ? { personId: linked.id } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(receiptUri ? { receiptUri } : {}),
       });

@@ -186,6 +186,16 @@ export const UpdatePersonSchema = Type.Object({
   avatarPath: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 2048 }), Type.Null()])),
 }, { additionalProperties: false });
 
+// The link is only a suggestion: the API keeps it only when it is https on an allowlisted host (see
+// resolveInviteDownloadUrl), and APP_DOWNLOAD_URL on the server always wins.
+export const InvitePersonSchema = Type.Object({
+  downloadUrl: Type.Optional(Type.String({ maxLength: 2000 })),
+}, { additionalProperties: false });
+
+export const PersonInviteSchema = Type.Object({
+  queuedAt: Type.String(),
+});
+
 export const IdParamsSchema = Type.Object({ id: Type.String({ minLength: 1 }) });
 
 export const IdempotencyHeaderSchema = Type.Object({

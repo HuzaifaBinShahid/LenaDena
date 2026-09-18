@@ -1,9 +1,7 @@
-import { createElement } from "react";
-import { Modal, Pressable, StyleSheet, View } from "react-native";
-import Animated, { FadeInDown } from "react-native-reanimated";
+import { StyleSheet, View } from "react-native";
+import { BottomSheet } from "@/components/ui/BottomSheet";
 import { Button } from "@/components/ui/Button";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { useScreenObscured } from "@/components/ui/ScreenObscured";
 import { Text } from "@/components/ui/Text";
 import { Touch } from "@/components/ui/Touch";
 import { makeStyles, useTheme } from "@/theme/ThemeProvider";
@@ -16,43 +14,36 @@ type ExpenseScopeModalProps = {
   onGroup: () => void;
 };
 
-/** The light scrim keeps its original depth; dark mode uses the theme's deeper backdrop. */
-const LIGHT_SCRIM = "rgba(16,8,35,0.52)";
-/** Lavender hairline where the sheet meets the dark scrim. */
-const DARK_HAIRLINE = "rgba(181,165,255,0.16)";
-
+/** "Add amount due": individual or group. A BottomSheet with one snap point; drag the handle or title down to dismiss. */
 export function ExpenseScopeModal({ visible, onClose, onIndividual, onGroup }: ExpenseScopeModalProps) {
-  const obscured = useScreenObscured();
-  const themed = useStyles();
   const { isDark } = useTheme();
   return (
-    <Modal visible={visible && !obscured} transparent animationType="fade" presentationStyle="overFullScreen" onRequestClose={onClose}>
-      <View style={themed.root} accessibilityViewIsModal>
-        {createElement(Pressable, { style: StyleSheet.absoluteFill, onPress: onClose, accessibilityLabel: "Close expense options" })}
-        {createElement(
-          Animated.View,
-          { entering: FadeInDown.duration(220), style: [styles.sheet, themed.sheet] },
-          <View style={[styles.handle, themed.handle]} />,
-          <View className="flex-row items-start gap-3">
-            <View className="h-11 w-11 items-center justify-center rounded-2xl bg-violet-soft">
-              {/* Lavender in dark: violet on the deep violet tile reads dim. */}
-              <Text className={`text-lg font-bold ${isDark ? "text-lavender" : "text-violet"}`}>+</Text>
-            </View>
-            <View className="flex-1">
-              <Text className="text-[22px] font-bold tracking-tight text-ink">Add amount due</Text>
-              <Text className="mt-1 text-[13px] leading-5 text-slate">Who should this balance belong to?</Text>
-            </View>
-          </View>,
-          <View className="mt-6 gap-3">
-            <ScopeChoice primary label="Individual" description="Track what you owe or what someone owes you" icon="user" onPress={onIndividual} />
-            <ScopeChoice label="Group" description="Split a cost and track what each person owes" icon="users" onPress={onGroup} />
-          </View>,
-          <View className="mt-3 items-center">
-            <Button label="Not now" variant="ghost" onPress={onClose} />
-          </View>,
-        )}
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      title="Add amount due"
+      bodyContentStyle={styles.body}
+      header={
+        <View className="flex-row items-start gap-3">
+          <View className="h-11 w-11 items-center justify-center rounded-2xl bg-violet-soft">
+            {/* Lavender in dark: violet on the deep violet tile reads dim. */}
+            <Text className={`text-lg font-bold ${isDark ? "text-lavender" : "text-violet"}`}>+</Text>
+          </View>
+          <View className="flex-1">
+            <Text accessibilityRole="header" className="text-[22px] font-bold tracking-tight text-ink">Add amount due</Text>
+            <Text className="mt-1 text-[13px] leading-5 text-slate">Who should this balance belong to?</Text>
+          </View>
+        </View>
+      }
+    >
+      <View className="gap-3">
+        <ScopeChoice primary label="Individual" description="Track what you owe or what someone owes you" icon="user" onPress={onIndividual} />
+        <ScopeChoice label="Group" description="Split a cost and track what each person owes" icon="users" onPress={onGroup} />
       </View>
-    </Modal>
+      <View className="mt-3 items-center">
+        <Button label="Not now" variant="ghost" onPress={onClose} />
+      </View>
+    </BottomSheet>
   );
 }
 
@@ -94,23 +85,9 @@ function ScopeChoice({ label, description, icon, primary = false, onPress }: Sco
 }
 
 const styles = StyleSheet.create({
-  sheet: {
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    borderWidth: 1,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 28,
-    shadowOffset: { width: 0, height: -12 },
-    shadowOpacity: 0.18,
-    shadowRadius: 28,
-  },
-  handle: {
-    width: 42,
-    height: 5,
-    alignSelf: "center",
-    borderRadius: 3,
-    marginBottom: 22,
+  body: {
+    paddingTop: 24,
+    paddingBottom: 4,
   },
   choiceBox: {
     alignSelf: "stretch",
@@ -155,19 +132,6 @@ const styles = StyleSheet.create({
 });
 
 const useStyles = makeStyles((c, { isDark }) => ({
-  root: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: isDark ? c.backdrop : LIGHT_SCRIM,
-  },
-  sheet: {
-    backgroundColor: c.raised,
-    borderColor: isDark ? DARK_HAIRLINE : c.line,
-    shadowColor: c.shadow,
-  },
-  handle: {
-    backgroundColor: isDark ? "rgba(181,165,255,0.24)" : c.line,
-  },
   choiceSecondary: {
     backgroundColor: isDark ? c.surface : c.raised,
     borderColor: c.line,

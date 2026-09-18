@@ -17,7 +17,8 @@ import type {
   UpdatePersonInput,
 } from "@/features/ledger/types";
 import { useAuth } from "@/features/auth/AuthProvider";
-import { peopleErrorMessage } from "@/features/people/people";
+import { APP_DOWNLOAD_URL } from "@/features/people/invite";
+import { isHistoryPersonId, peopleErrorMessage } from "@/features/people/people";
 
 type ConnectionState = "loading" | "live" | "demo" | "error";
 
@@ -46,6 +47,11 @@ type LedgerContextValue = {
   updatePerson: (id: string, input: UpdatePersonInput) => Promise<Person>;
   /** Their entries stay in Activity, unlinked. */
   deletePerson: (id: string) => Promise<void>;
+  /**
+   * Emails a saved person (with an email) an invite to install LenaDena, with the app link when one is configured.
+   * Rejects with friendly copy: no email, already invited in the last 12 hours, or a server without People.
+   */
+  invitePerson: (id: string) => Promise<{ queuedAt: string }>;
   updateProfile: (input: { name: string; avatarUri?: string | null }) => Promise<void>;
   claimSettlement: (input: { groupId: string; recipientMemberId: string; amountMinor: number; note?: string; proofUri?: string }) => Promise<void>;
   reviewSettlement: (id: string, status: Extract<SettlementStatus, "confirmed" | "needs_attention">, note?: string) => Promise<void>;
@@ -194,6 +200,20 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     await refresh();
   }, [refresh]);
 
+  const invitePerson = useCallback(async (id: string) => {
+    const person = plan.people.find((item) => item.id === id);
+    // A name remembered only from past entries isn't saved yet, so the API can't know their email.
+    if (isHistoryPersonId(id)) throw new Error("Save this person with their email first.");
+    try {
+      return await apiRequest<{ queuedAt: string }>(`/v1/people/${encodeURIComponent(id)}/invite`, {
+        method: "POST",
+        body: APP_DOWNLOAD_URL ? { downloadUrl: APP_DOWNLOAD_URL } : {},
+      });
+    } catch (error) {
+      throw friendlyPeopleError(error, { name: person?.name, peopleRoute: true });
+    }
+  }, [plan.people]);
+
   const updateProfile = useCallback(async (input: { name: string; avatarUri?: string | null }) => {
     const body: { name: string; avatarPath?: string | null } = { name: input.name };
     if (Object.hasOwn(input, "avatarUri")) {
@@ -258,6 +278,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       createPerson,
       updatePerson,
       deletePerson,
+      invitePerson,
       updateProfile,
       claimSettlement,
       reviewSettlement,
@@ -265,7 +286,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       createInvite,
       acceptInvite,
     }),
-    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, settlePersonalTransaction, createPerson, updatePerson, deletePerson, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite],
+    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, settlePersonalTransaction, createPerson, updatePerson, deletePerson, invitePerson, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite],
   );
 
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;

@@ -44,6 +44,7 @@ describe("notification templates", () => {
       "payment_confirmed",
       "payment_needs_attention",
       "payment_self_confirmed",
+      "person_invite",
     ]);
   });
 
@@ -55,6 +56,7 @@ describe("notification templates", () => {
     ["payment_confirmed", "Payment confirmed"],
     ["payment_self_confirmed", "Payment marked settled by payer"],
     ["payment_needs_attention", "Payment needs attention"],
+    ["person_invite", "A friend invited you to LenaDena"],
     ["something_new", "Update from Weekend crew"],
   ])("uses a specific subject for %s", (eventType, subject) => {
     expect(renderNotification(input({ eventType })).subject).toBe(subject);
@@ -187,5 +189,69 @@ describe("notification templates", () => {
     const invite = renderNotification(input({ eventType: "group_invite", recipientEmail: "ali@example.com" }));
     expect(invite.text).toContain("someone invited ali@example.com to a group on LenaDena");
     expect(invite.text).not.toContain("tone of these emails");
+  });
+
+  describe("person invite", () => {
+    const invite = (payload: Record<string, unknown>, overrides: Partial<NotificationInput> = {}) =>
+      renderNotification(input({ eventType: "person_invite", recipientName: "Friend", recipientEmail: "mani@example.com", groupName: "your group", payload, ...overrides }));
+    const full = { personId: "p1", personName: "Mani Ahmed", inviterName: "Huzaifa Bin Shahid", downloadUrl: "https://i.loadly.io/lenadena" };
+
+    it("names the inviter, greets the person by the saved name and links the download", () => {
+      const message = invite(full);
+      expect(message.subject).toBe("Huzaifa Bin Shahid invited you to LenaDena");
+      expect(message.text).toContain("Hi Mani,");
+      expect(message.text).toContain("Huzaifa Bin Shahid would like you to join them on LenaDena.");
+      expect(message.text).toContain("it never moves money");
+      expect(message.text).toContain("Invited by: Huzaifa Bin Shahid");
+      expect(message.text).toContain("You're tracked as: Mani Ahmed");
+      expect(message.html).toContain('href="https://i.loadly.io/lenadena"');
+      expect(message.html).toContain(">Get LenaDena</a>");
+      expect(message.text).toContain("Get LenaDena:\nhttps://i.loadly.io/lenadena");
+      expect(message.html).toContain("Paste this link into your browser");
+      expect(message.text).toContain("early access: the button opens Loadly");
+      expect(message.text).toContain("never moves money and never asks for bank details");
+      expect(message.text).toContain("saved mani@example.com in their LenaDena people");
+      expect(message.text).not.toContain("tone of these emails");
+    });
+
+    it("reads the same in every tone (the invited person has no tone preference yet)", () => {
+      const friendly = invite(full).text;
+      for (const tone of emailTones) expect(invite(full, { tone }).text).toBe(friendly);
+    });
+
+    it("mentions Loadly only for a Loadly link", () => {
+      const store = invite({ ...full, downloadUrl: "https://play.google.com/store/apps/details?id=com.lenadena" });
+      expect(store.html).toContain('href="https://play.google.com/store/apps/details?id=com.lenadena"');
+      expect(store.text).not.toContain("Loadly");
+    });
+
+    it("has no button without a link and asks them to get it from the inviter", () => {
+      for (const downloadUrl of [null, undefined, "", "http://i.loadly.io/x", "javascript:alert(1)", "lenadena://", `https://i.loadly.io/${"x".repeat(2000)}`]) {
+        const message = invite({ ...full, downloadUrl });
+        expect(message.html, String(downloadUrl)).not.toContain("Get LenaDena");
+        expect(message.html).not.toContain("Button not working");
+        expect(message.html).not.toContain("javascript:");
+        expect(message.html).not.toContain('href="lenadena://');
+        expect(message.text).toContain("Ask Huzaifa for the app link");
+        expect(message.text).not.toContain("Loadly");
+      }
+    });
+
+    it("falls back to neutral wording without names", () => {
+      const message = invite({});
+      expect(message.subject).toBe("A friend invited you to LenaDena");
+      expect(message.text).toContain("Hi there,");
+      expect(message.text).toContain("Ask whoever invited you for the app link");
+      expect(message.text).not.toContain("tracked as");
+    });
+
+    it("escapes names and keeps the subject on one line", () => {
+      const message = invite({ ...full, personName: "<b>Mani</b>", inviterName: "Huz\r\nBcc: x@example.com <script>" });
+      expect(message.subject).toBe("Huz Bcc: x@example.com <script> invited you to LenaDena");
+      expect(message.html).not.toContain("<script>");
+      expect(message.html).not.toContain("<b>Mani</b>");
+      expect(message.html).toContain("Hi &lt;b&gt;Mani&lt;/b&gt;,");
+      expect(message.html).toContain("&lt;script&gt;");
+    });
   });
 });

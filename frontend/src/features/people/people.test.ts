@@ -8,7 +8,9 @@ import {
   findPersonByName,
   groupEntriesByMonth,
   indexPersonEntries,
+  isHistoryPersonId,
   normalizeSearchText,
+  peopleWithHistory,
   peopleErrorMessage,
   peopleTotals,
   PERSON_TINTS,
@@ -363,5 +365,39 @@ describe("peopleErrorMessage", () => {
     expect(peopleErrorMessage({ status: 404 }, { peopleRoute: true })).toBe("People needs the latest server update.");
     expect(peopleErrorMessage({ status: 404 })).toBeNull();
     expect(peopleErrorMessage({ status: 400, code: "invalid_email" })).toBeNull();
+  });
+
+  it("explains why an emailed invite couldn't be sent", () => {
+    expect(peopleErrorMessage({ status: 400, code: "person_has_no_email" }, { name: "Mani Ahmed" })).toBe("Add an email for Mani first, or share the invite instead.");
+    expect(peopleErrorMessage({ status: 400, code: "person_has_no_email" })).toBe("Add their email first, or share the invite instead.");
+    expect(peopleErrorMessage({ status: 429, code: "invite_recently_sent" }, { name: "Mani Ahmed" })).toBe("Mani already got an invite in the last 12 hours.");
+    expect(peopleErrorMessage({ status: 429, code: "invite_recently_sent" })).toBe("They already got an invite in the last 12 hours.");
+  });
+});
+
+describe("remembered names (peopleWithHistory)", () => {
+  it("remembers a name used on an individual balance even when nobody is saved (no People migration yet)", () => {
+    const rows = [
+      entry({ id: "t1", counterparty: "mani", createdAt: "2026-09-10T10:00:00.000Z" }),
+      entry({ id: "t2", counterparty: " Mani ", createdAt: "2026-09-14T10:00:00.000Z", status: "settled" }),
+    ];
+    const people = peopleWithHistory([], rows);
+    expect(people).toHaveLength(1);
+    expect(people[0]).toMatchObject({ name: "Mani", createdAt: "2026-09-10T10:00:00.000Z" });
+    expect(isHistoryPersonId(people[0]?.id ?? "")).toBe(true);
+    // So the picker finds them on the second entry instead of offering to add them again.
+    expect(findPersonByName(people, "MANI")?.id).toBe(people[0]?.id);
+    expect(summarizePeople({ people, transactions: rows })[0]?.entryCount).toBe(2);
+  });
+
+  it("never duplicates a saved person and ignores group rows", () => {
+    const rows = [
+      entry({ id: "t1", counterparty: "Mani", personId: "p-mani" }),
+      entry({ id: "t2", counterparty: "MANI" }),
+      entry({ id: "t3", counterparty: "Hamza", source: "group", groupId: "g1" }),
+    ];
+    const people = peopleWithHistory([mani], rows);
+    expect(people.map((item) => item.id)).toEqual(["p-mani"]);
+    expect(isHistoryPersonId("p-mani")).toBe(false);
   });
 });

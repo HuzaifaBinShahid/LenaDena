@@ -1,3 +1,5 @@
+import { cleanConfiguredDownloadUrl } from "./domain/people.js";
+
 export type AppConfig = {
   nodeEnv: "development" | "test" | "production";
   host: string;
@@ -8,6 +10,8 @@ export type AppConfig = {
   supabaseUrl?: string;
   supabasePublishableKey?: string;
   supabaseSecretKey?: string;
+  /** https link to install the app (APP_DOWNLOAD_URL), put in person invite emails; overrides any link a client suggests. */
+  appDownloadUrl?: string;
 };
 
 export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -16,6 +20,9 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const supabaseUrl = overrides.supabaseUrl ?? process.env.SUPABASE_URL;
   const supabasePublishableKey = overrides.supabasePublishableKey ?? process.env.SUPABASE_PUBLISHABLE_KEY;
   const supabaseSecretKey = overrides.supabaseSecretKey ?? process.env.SUPABASE_SECRET_KEY;
+  const rawDownloadUrl = (overrides.appDownloadUrl ?? process.env.APP_DOWNLOAD_URL)?.trim();
+  const appDownloadUrl = rawDownloadUrl ? cleanConfiguredDownloadUrl(rawDownloadUrl) : undefined;
+  if (rawDownloadUrl && !appDownloadUrl) throw new Error("APP_DOWNLOAD_URL must be an https URL");
   const config: AppConfig = {
     nodeEnv,
     host: overrides.host ?? process.env.HOST ?? "0.0.0.0",
@@ -27,6 +34,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     ...(supabaseUrl ? { supabaseUrl } : {}),
     ...(supabasePublishableKey ? { supabasePublishableKey } : {}),
     ...(supabaseSecretKey ? { supabaseSecretKey } : {}),
+    ...(appDownloadUrl ? { appDownloadUrl } : {}),
   };
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
     throw new Error("PORT must be an integer between 1 and 65535");

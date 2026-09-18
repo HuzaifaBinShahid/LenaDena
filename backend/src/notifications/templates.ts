@@ -16,7 +16,9 @@ export type NotificationInput = {
    * url (group_invite), amountMinor + currency, eventName (expense_added), settlementId (payment_*).
    * Also shown when a producer adds them: actorName (who invited / added / paid / reviewed),
    * eventDate (YYYY-MM-DD), note (expense or payer note; never shown for payment_needs_attention)
-   * and expiresAt (invite expiry). Anything else, including proof or receipt paths, is ignored.
+   * and expiresAt (invite expiry). person_invite reads personName (greeting, "You're tracked as"), inviterName
+   * and downloadUrl (https only; without it the email has no button). Anything else, including proof or receipt
+   * paths, is ignored.
    */
   payload: Record<string, unknown>;
 };
@@ -91,6 +93,10 @@ type Context = {
   expiresAt?: string;
   settlementId?: string;
   inviteUrl?: string;
+  /** person_invite: the name the inviter saved them under, who invited them, and the https app download link. */
+  personName?: string;
+  inviter?: string;
+  downloadUrl?: string;
 };
 
 /** An app route ("settlement/<id>", "?tab=activity", "" for home) or a URL from the payload. */
@@ -104,7 +110,12 @@ type EventDefinition = {
   extra?(context: Context): string[];
   amountLabel?: string;
   details(context: Context): Array<DetailRow | undefined>;
-  cta(context: Context): { label: string; link: Link };
+  /** Replaces the tone phrase (events whose recipient has no account, so no tone preference). */
+  intro?(context: Context): string;
+  /** Undefined means no button (and no fallback link). */
+  cta(context: Context): { label: string; link: Link } | undefined;
+  /** Extra calm notes above the safety note. */
+  notes?(context: Context): string[];
   /** Why-you-got-this lines; defaults to membership plus the tone hint. */
   footer?(context: Context): string[];
 };
@@ -121,7 +132,39 @@ function memberReason(context: Context) {
     : `You're getting this${at} because you have a LenaDena account.`;
 }
 
+const LOADLY_HOSTS = new Set(["i.loadly.io", "loadly.io"]);
+
+function hostOf(url: string) {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 const events = {
+  person_invite: {
+    subject: (c) => `${c.inviter ?? "A friend"} invited you to LenaDena`,
+    preheader: (c) => `${c.inviter ?? "A friend"} uses LenaDena to keep track of what you owe each other. It never moves money.`,
+    badge: { glyph: "+", tone: "violet" },
+    heading: () => "You're invited to LenaDena",
+    intro: (c) => `${c.inviter ?? "A friend"} would like you to join them on LenaDena.`,
+    extra: (c) => [
+      "LenaDena keeps track of what you owe each other — it never moves money. Shared costs, loans and paybacks sit in one clear list you can both see, so nobody has to keep score.",
+      c.downloadUrl
+        ? "Install the app, sign up with this email address, and you're in."
+        : `Ask ${c.inviter ? firstName(c.inviter) : "whoever invited you"} for the app link: LenaDena is in early access and isn't in the app stores yet.`,
+    ],
+    details: (c) => [row("Invited by", c.inviter), row("You're tracked as", c.personName)],
+    cta: (c) => (c.downloadUrl ? { label: "Get LenaDena", link: { url: c.downloadUrl } } : undefined),
+    notes: (c) =>
+      c.downloadUrl && LOADLY_HOSTS.has(hostOf(c.downloadUrl))
+        ? ["LenaDena is in early access: the button opens Loadly, where the Android app is shared until it arrives on Google Play. Your phone may ask you to allow installs from your browser."]
+        : [],
+    footer: (c) => [
+      `You're getting this because ${c.inviter ?? "someone"} saved ${c.recipientEmail ?? "your email address"} in their LenaDena people and asked us to invite you. If you don't know them, you can ignore this email.`,
+    ],
+  },
   group_invite: {
     subject: (c) => `Join ${c.groupLabel} on LenaDena`,
     preheader: (c) => `${c.actor ?? "A friend"} invited you to ${c.group ?? "a group"} on LenaDena.`,
@@ -236,7 +279,9 @@ function buildContext(input: NotificationInput): Context {
   const groupName = cleanText(input.groupName, 80);
   const group = groupName && groupName.toLowerCase() !== PLACEHOLDER_GROUP ? groupName : undefined;
   const recipientName = cleanText(input.recipientName, 80);
-  const greetingName = recipientName && recipientName !== PLACEHOLDER_NAME ? firstName(recipientName) : undefined;
+  // An invited person has no account yet (the worker says "Friend"), so greet them by the name they were saved under.
+  const invitedName = input.eventType === "person_invite" ? cleanText(payload.personName, 80) : undefined;
+  const greetingName = recipientName && recipientName !== PLACEHOLDER_NAME ? firstName(recipientName) : invitedName ? firstName(invitedName) : undefined;
   const values: Array<[keyof Context, string | undefined]> = [
     ["group", group],
     ["greetingName", greetingName],
@@ -250,6 +295,10 @@ function buildContext(input: NotificationInput): Context {
     ["settlementId", cleanText(payload.settlementId, 64)],
     // Links are never shortened: an over-long or non-string url is dropped and the button opens the app.
     ["inviteUrl", typeof payload.url === "string" && payload.url.length <= 2000 ? payload.url.trim() : undefined],
+    ["personName", cleanText(payload.personName, 80)],
+    ["inviter", cleanText(payload.inviterName, 80)],
+    // Only a plain https link goes behind the "Get LenaDena" button; anything else means no button at all.
+    ["downloadUrl", typeof payload.downloadUrl === "string" && payload.downloadUrl.length <= 2000 && /^https:\/\/[^\s"'<>]+$/i.test(payload.downloadUrl.trim()) ? payload.downloadUrl.trim() : undefined],
   ];
   const context: Context = { groupLabel: group ?? PLACEHOLDER_GROUP };
   for (const [key, value] of values) if (value) context[key] = value;
@@ -266,23 +315,27 @@ export function buildNotificationModel(input: NotificationInput, options: Render
   const context = buildContext(input);
   const subject = cleanText(definition.subject(context), 150) ?? "Update from LenaDena";
   const cta = definition.cta(context);
-  const url = resolveLink(cta.link, normalizeBase(options.linkBaseUrl));
-  const webLink = /^https?:/i.test(url);
+  const url = cta ? resolveLink(cta.link, normalizeBase(options.linkBaseUrl)) : undefined;
+  const webLink = url ? /^https?:/i.test(url) : false;
   const details = definition.details(context).filter((item): item is DetailRow => item !== undefined);
   const model: EmailModel = {
     title: subject,
     preheader: definition.preheader(context),
     badge: definition.badge,
     heading: definition.heading(context),
-    paragraphs: [`Hi ${context.greetingName ?? "there"},`, tonePhrase(input.tone, input.eventType), ...(definition.extra?.(context) ?? [])],
+    paragraphs: [`Hi ${context.greetingName ?? "there"},`, definition.intro?.(context) ?? tonePhrase(input.tone, input.eventType), ...(definition.extra?.(context) ?? [])],
     ...(context.amount && definition.amountLabel ? { highlight: { label: definition.amountLabel, value: context.amount } } : {}),
     details,
-    cta: { label: cta.label, url },
-    fallback: {
-      lead: webLink ? "Button not working? Paste this link into your browser:" : "Button not working? Open this link on the phone where LenaDena is installed:",
-      url,
-    },
-    notes: [SAFETY_NOTE],
+    ...(cta && url
+      ? {
+          cta: { label: cta.label, url },
+          fallback: {
+            lead: webLink ? "Button not working? Paste this link into your browser:" : "Button not working? Open this link on the phone where LenaDena is installed:",
+            url,
+          },
+        }
+      : {}),
+    notes: [...(definition.notes?.(context) ?? []), SAFETY_NOTE],
     footer: definition.footer?.(context) ?? [memberReason(context), TONE_NOTE],
     ...(options.logoSrc ? { logoSrc: options.logoSrc } : {}),
   };

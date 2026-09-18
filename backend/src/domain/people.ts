@@ -29,6 +29,58 @@ export class PeopleUnavailableError extends DomainError {
   }
 }
 
+export class PersonHasNoEmailError extends DomainError {
+  constructor() {
+    super("Add an email for this person before emailing them an invite.", 400, "person_has_no_email");
+  }
+}
+
+export class InviteRecentlySentError extends DomainError {
+  constructor() {
+    super("An invite already went to this person in the last 12 hours.", 429, "invite_recently_sent");
+  }
+}
+
+/** One emailed invite per person (and per inviter and address) in this window; the SQL function uses the same. */
+export const PERSON_INVITE_COOLDOWN_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Hosts a client may suggest as the app download link. Emails carry the link to strangers, so anything else a
+ * client sends is dropped rather than mailed (APP_DOWNLOAD_URL on the server always wins).
+ */
+export const DOWNLOAD_LINK_HOSTS: ReadonlySet<string> = new Set(["i.loadly.io", "loadly.io", "play.google.com", "apps.apple.com", "testflight.apple.com"]);
+
+const MAX_DOWNLOAD_URL_LENGTH = 2000;
+
+/** The URL as a clean https string, or undefined when it isn't a plain https URL without credentials. */
+function cleanHttpsUrl(value: string | undefined): URL | undefined {
+  const raw = value?.trim();
+  if (!raw || raw.length > MAX_DOWNLOAD_URL_LENGTH || /[\s"'<>]/.test(raw)) return undefined;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || url.username || url.password || url.port) return undefined;
+    return url;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A valid APP_DOWNLOAD_URL setting (any https host: the operator chose it), or undefined. */
+export function cleanConfiguredDownloadUrl(value: string | undefined): string | undefined {
+  return cleanHttpsUrl(value)?.href;
+}
+
+/**
+ * The download link an invite email carries: the server's configured link, else the client's suggestion when it
+ * is https on an allowlisted host, else none (the email then asks them to get the link from the inviter).
+ */
+export function resolveInviteDownloadUrl(configured: string | undefined, suggested: string | undefined): string | null {
+  const fromConfig = cleanConfiguredDownloadUrl(configured);
+  if (fromConfig) return fromConfig;
+  const url = cleanHttpsUrl(suggested);
+  return url && DOWNLOAD_LINK_HOSTS.has(url.hostname.toLowerCase()) ? url.href : null;
+}
+
 export const invalidPersonName = () => new DomainError(`Enter a name of 1 to ${PERSON_NAME_MAX_LENGTH} characters.`, 400, "invalid_person_name");
 export const invalidPersonEmail = () => new DomainError("Enter a valid email address, or leave it empty.", 400, "invalid_email");
 export const invalidAvatarPath = () => new DomainError("This photo can't be used. Upload it again.", 400, "invalid_avatar_path");

@@ -6,6 +6,7 @@ import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PersonAvatar } from "@/components/people/PersonAvatar";
+import { InviteCard, InviteRow } from "@/components/people/InviteCard";
 import { PersonHeroCard } from "@/components/people/PersonHeroCard";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
@@ -15,6 +16,7 @@ import { Input } from "@/components/ui/Input";
 import { LedgerList } from "@/components/ui/LedgerRow";
 import { Screen } from "@/components/ui/Screen";
 import { Spinner } from "@/components/ui/Spinner";
+import { Switch } from "@/components/ui/Switch";
 import { useToast } from "@/components/ui/Toast";
 import { Touch } from "@/components/ui/Touch";
 import { useLedger } from "@/features/ledger/LedgerProvider";
@@ -23,6 +25,7 @@ import type { UpdatePersonInput } from "@/features/ledger/types";
 import { findPersonByName, personEmailError, personFirstName, personNameError } from "@/features/people/people";
 import { addBalanceHref, peopleHref, personHref } from "@/features/people/routes";
 import { usePeopleSummaries } from "@/features/people/usePeople";
+import { usePersonInvite } from "@/features/people/usePersonInvite";
 import { useAppLock } from "@/features/security/AppLockProvider";
 import { errorMessage } from "@/lib/api";
 import { makeStyles, useTheme } from "@/theme/ThemeProvider";
@@ -42,7 +45,8 @@ function plural(count: number, one: string, many: string) {
 export default function PersonFormScreen() {
   const params = useLocalSearchParams<{ id?: string; name?: string }>();
   const editingId = typeof params.id === "string" && params.id ? params.id : undefined;
-  const { plan, connection, refresh, createPerson, updatePerson, deletePerson } = useLedger();
+  const { plan, connection, refresh, createPerson, updatePerson, deletePerson, invitePerson } = useLedger();
+  const { share: shareInvite, sharing } = usePersonInvite();
   const { runWithoutLocking } = useAppLock();
   const toast = useToast();
   const navigation = useNavigation();
@@ -57,6 +61,8 @@ export default function PersonFormScreen() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
+  // New people with an email get an invite by default; the switch is shown only once an email is typed.
+  const [emailInvite, setEmailInvite] = useState(true);
   const [removing, setRemoving] = useState(false);
   // Set once the save or removal went through, so the refreshed plan can't flash "already in your people" or
   // "not in your people" while the screen animates away.
@@ -117,6 +123,8 @@ export default function PersonFormScreen() {
   const nameMessage = clash ? `${clash.name} is already in your people.` : submitted ? nameError : undefined;
   const entryCount = existing ? summaries.find((summary) => summary.person.id === existing.id)?.entryCount ?? 0 : 0;
   const first = personFirstName(trimmedName || existing?.name || "");
+  const typedEmail = email.trim();
+  const canEmailInvite = !existing && Boolean(typedEmail) && !emailError;
 
   const choosePhoto = () => runWithoutLocking(async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -160,15 +168,27 @@ export default function PersonFormScreen() {
         ...(email.trim() ? { email: email.trim() } : {}),
         ...(photoChanged && photoUri ? { avatarUri: photoUri } : {}),
       });
+      // The person is saved either way; a failed invite is its own toast and can be retried from their page.
+      let invited: string | undefined;
+      let inviteError: unknown;
+      if (canEmailInvite && emailInvite && person.email) {
+        try {
+          await invitePerson(person.id);
+          invited = person.email;
+        } catch (error) {
+          inviteError = error;
+        }
+      }
       setFinished(true);
       if (router.canGoBack()) router.back();
       else router.replace(personHref(person.id));
       toast.show({
         tone: "success",
         title: `${personFirstName(person.name)} is in your people`,
-        message: "Add a balance now, or pick them whenever you add one.",
+        message: invited ? `Invite sent to ${invited}.` : "Add a balance now, or pick them whenever you add one.",
         action: { label: "Add balance", onPress: () => router.push(addBalanceHref(person.id)) },
       });
+      if (inviteError) toast.error(`Couldn't email ${personFirstName(person.name)} an invite`, errorMessage(inviteError));
     } catch (error) {
       toast.error(existing ? "Couldn't save the changes" : "Couldn't add this person", errorMessage(error));
     } finally {
@@ -262,7 +282,7 @@ export default function PersonFormScreen() {
             <Button label={`Open ${personFirstName(clash.name)}`} icon="arrow-right" iconSide="right" variant="ghost" size="sm" onPress={() => router.replace(personHref(clash.id))} />
           </View>
         ) : null}
-        <Field label="Email" hint="Optional, for your reference only." error={submitted ? emailError : undefined}>
+        <Field label="Email" hint={existing ? "Optional. Only you can see it." : "Optional. Only you can see it; add it to email them an invite."} error={submitted ? emailError : undefined}>
           <Input
             ref={emailRef}
             value={email}
@@ -279,8 +299,36 @@ export default function PersonFormScreen() {
             accessibilityLabel="Email, optional"
           />
         </Field>
+        <InviteCard title={`Invite ${trimmedName ? first : "them"} to LenaDena`}>
+          {canEmailInvite ? (
+            <InviteRow
+              key="email"
+              icon="send"
+              title="Email them an invite"
+              detail={emailInvite ? `Sent to ${typedEmail} when you add ${trimmedName ? first : "them"}.` : "Off: no email will be sent."}
+              trailing={<Switch value={emailInvite} onValueChange={setEmailInvite} accessibilityLabel="Email them an invite" />}
+            />
+          ) : null}
+          <InviteRow
+            key="share"
+            icon="share"
+            title="Share an invite"
+            detail="A ready-to-send message for WhatsApp, SMS or any app."
+            trailing={(
+              <Button
+                label="Share"
+                size="sm"
+                variant="secondary"
+                loading={sharing}
+                disabled={!trimmedName}
+                accessibilityHint={trimmedName ? `Opens the share sheet with an invite for ${first}` : "Type their name first"}
+                onPress={() => shareInvite(trimmedName)}
+              />
+            )}
+          />
+        </InviteCard>
         <Button
-          label={existing ? "Save changes" : "Add person"}
+          label={existing ? "Save changes" : canEmailInvite && emailInvite ? "Add and send invite" : "Add person"}
           icon={existing ? "check" : "user-plus"}
           size="lg"
           fullWidth

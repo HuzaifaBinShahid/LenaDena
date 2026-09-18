@@ -198,4 +198,25 @@ describe("SupabaseLedgerRepository people", () => {
     await repository.deletePerson(USER, ALI);
     expect(fake.removed).toEqual([[`${USER}/old.jpg`], [`${USER}/new.jpg`]]);
   });
+
+  it("queues person invites through app_invite_person and maps its errors", async () => {
+    const { fake, repository } = await setup({ app_invite_person: () => ({ status: 200, body: "2026-09-18T08:00:00.123456+00:00" }) });
+    await expect(repository.invitePerson(USER, ALI, "https://i.loadly.io/lenadena")).resolves.toEqual({ queuedAt: "2026-09-18T08:00:00.123Z" });
+    expect(fake.rpcCalls.at(-1)).toEqual({ name: "app_invite_person", args: { p_actor: USER, p_person: ALI, p_download_url: "https://i.loadly.io/lenadena" } });
+    await repository.invitePerson(USER, ALI, null);
+    expect(fake.rpcCalls.at(-1)?.args.p_download_url).toBeNull();
+    await expect(repository.invitePerson(USER, "not-a-uuid", null)).rejects.toMatchObject({ statusCode: 404, code: "person_not_found" });
+    expect(fake.rpcCalls).toHaveLength(2);
+
+    for (const [message, statusCode, code] of [
+      ["person_not_found", 404, "person_not_found"],
+      ["person_has_no_email", 400, "person_has_no_email"],
+      ["invite_recently_sent", 429, "invite_recently_sent"],
+    ] as const) {
+      const failing = await setup({ app_invite_person: () => raised(message) });
+      await expect(failing.repository.invitePerson(USER, ALI, null)).rejects.toMatchObject({ statusCode, code });
+    }
+    const missing = await setup({});
+    await expect(missing.repository.invitePerson(USER, ALI, null)).rejects.toMatchObject({ statusCode: 503, code: "people_unavailable" });
+  });
 });

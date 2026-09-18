@@ -19,6 +19,7 @@ type Sample = Omit<NotificationInput, "tone">;
 
 /** Payloads shaped exactly like today's outbox rows, so the previews show what people will receive. */
 const samples: Record<(typeof notificationEventTypes)[number], Sample> = {
+  person_invite: { eventType: "person_invite", recipientName: "Friend", recipientEmail: "mani@example.com", groupName: "your group", payload: { personId: "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", personName: "Mani Ahmed", inviterName: "Huzaifa Bin Shahid", downloadUrl: "https://i.loadly.io/lenadena" } },
   group_invite: { eventType: "group_invite", recipientName: "Friend", recipientEmail: "ali@example.com", groupName: "Weekend crew", payload: { url: "lenadena://invite/9c1f4e2ab7d04c6f8e3a1b5d7c9e0f2a4b6c8d0e1f3a5b7c" } },
   expense_added: { eventType: "expense_added", recipientName: "Sara Khan", recipientEmail: "sara@example.com", groupName: "Weekend crew", payload: { expenseId: "0b7c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d", eventName: "Dinner at Kolachi", amountMinor: 240000, currency: "PKR" } },
   debt_reminder: { eventType: "debt_reminder", recipientName: "Sara Khan", recipientEmail: "sara@example.com", groupName: "Weekend crew", payload: { amountMinor: 185000, currency: "PKR", recipientId: "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d" } },
@@ -30,6 +31,10 @@ const samples: Record<(typeof notificationEventTypes)[number], Sample> = {
 
 /** Optional payload fields, long text and hostile input, to check the layout holds up. */
 const extras: Array<{ name: string; input: NotificationInput }> = [
+  {
+    name: "person_invite-no-download-link",
+    input: { eventType: "person_invite", tone: "friendly", recipientName: "Friend", recipientEmail: "mani@example.com", groupName: "your group", payload: { personId: "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", personName: "Mani", inviterName: "Huzaifa", downloadUrl: null } },
+  },
   {
     name: "expense_added-all-fields",
     input: { eventType: "expense_added", tone: "friendly", recipientName: "Sara Khan", recipientEmail: "sara@example.com", groupName: "Hunza road trip 2026", payload: { eventName: "Fuel, tolls and a very long chai stop near Karimabad", amountMinor: 1234500, currency: "PKR", actorName: "Ali Raza", eventDate: "2026-09-14", note: "Split evenly between the four of us. Receipt is in the app." } },

@@ -31,9 +31,20 @@ const mailer = config.smtpHost
     })
   : nodemailer.createTransport({ jsonTransport: true });
 
-async function finish(id: string, values: Record<string, unknown>) {
-  const { error } = await supabase.from("notification_outbox").update(values).eq("id", id).eq("locked_by", workerId);
-  if (error) throw error;
+/**
+ * Marks a claimed row sent (`error` omitted) or failed (retried in five minutes). Goes through
+ * `app_finish_notification` because the service role has no table privileges on the hosted project;
+ * falls back to a direct update only on a database without that function (before migration 202609180007).
+ */
+async function finish(id: string, error?: string) {
+  const { error: rpcError } = await supabase.rpc("app_finish_notification", { p_id: id, p_worker: workerId, ...(error === undefined ? {} : { p_error: error.slice(0, 1000) }) });
+  if (!rpcError) return;
+  if (rpcError.code !== "PGRST202" && rpcError.code !== "42883") throw rpcError;
+  const values = error === undefined
+    ? { sent_at: new Date().toISOString(), locked_at: null, locked_by: null, last_error: null }
+    : { locked_at: null, locked_by: null, last_error: error.slice(0, 1000), available_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+  const { error: updateError } = await supabase.from("notification_outbox").update(values).eq("id", id).eq("locked_by", workerId);
+  if (updateError) throw updateError;
 }
 
 async function runBatch() {
@@ -48,10 +59,10 @@ async function runBatch() {
         // Without SMTP the JSON transport only logs; skip the message body and base64 logo.
         if (!config.smtpHost) process.stdout.write(`${JSON.stringify({ messageId: result.messageId, envelope: result.envelope, subject: message.subject })}\n`);
       }
-      await finish(item.id, { sent_at: new Date().toISOString(), locked_at: null, locked_by: null, last_error: null });
+      await finish(item.id);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      await finish(item.id, { locked_at: null, locked_by: null, last_error: message.slice(0, 1000), available_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() });
+      await finish(item.id, message);
     }
   }
 }

@@ -146,6 +146,7 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 | POST | `/v1/people` | Save a person (name required; email and photo optional); 409 `person_exists` on a case-insensitive duplicate |
 | PATCH | `/v1/people/:id` | Rename (also renames their history rows) or change/clear email and photo |
 | DELETE | `/v1/people/:id` | Remove a person; their entries stay in Activity, unlinked |
+| POST | `/v1/people/:id/invite` | Email the person an invite to LenaDena (202 queued; 400 `person_has_no_email`, 429 `invite_recently_sent` within 12 hours). The download link is `APP_DOWNLOAD_URL`, else the app's link if it is https on Loadly / Google Play / the App Store |
 | POST | `/v1/settlements` | Claim an external payment |
 | POST | `/v1/settlements/:id/confirm` | Confirm receipt |
 | POST | `/v1/settlements/:id/attention` | Flag a payment for private follow-up |
@@ -159,7 +160,7 @@ The worker claims rows with `FOR UPDATE SKIP LOCKED`, a worker UUID, and a five-
 
 Every email shares one branded layout (`backend/src/notifications/layout.ts`): logo lockup, heading, short body, a details card with properly formatted money, one button, a fallback link, a safety note and a footer, with a dark palette for clients that support it. The logo is attached inline (CID) unless `EMAIL_LOGO_URL` points at a hosted copy; `EMAIL_LINK_BASE_URL` turns `lenadena://` links into https links for Gmail. `pnpm --filter @lenadena/backend preview:emails` writes every event × tone plus the Supabase auth templates to `backend/.email-preview/`. Supabase Auth emails (sign-in link, confirm signup, invite, recovery, email change, reauthentication) use the templates in `supabase/templates/`, applied with `supabase/templates/apply.mjs` (see DEPLOYMENT.md).
 
-**People.** `public.people` (owner-scoped, unique per owner by `lower(name)`) holds the user's saved people; `personal_transactions.person_id` links individual entries. Creating a person links earlier unlinked entries with the same name; renaming rewrites their `counterparty`; deleting unlinks. `GET /v1/me/plan` returns `people` (signed photo URLs) and `personId` on linked personal rows. Until migration 202609180007 is applied, the plan returns `people: []` and people writes answer 503 `people_unavailable`.
+**People.** `public.people` (owner-scoped, unique per owner by `lower(name)`) holds the user's saved people; `personal_transactions.person_id` links individual entries. Creating a person links earlier unlinked entries with the same name; renaming rewrites their `counterparty`; deleting unlinks. `GET /v1/me/plan` returns `people` (signed photo URLs) and `personId` on linked personal rows. Until migration 202609180007 is applied, the plan returns `people: []` and people writes answer 503 `people_unavailable`. Invites queue a `person_invite` outbox row to the person's email (at most once per person, and per inviter and address, every 12 hours); the app can also share a ready-made invite message with the download link (`EXPO_PUBLIC_APP_DOWNLOAD_URL`). The worker marks rows sent or failed through `app_finish_notification`, because the service role cannot update the outbox table directly on the hosted project.
 
 ## Production checklist
 

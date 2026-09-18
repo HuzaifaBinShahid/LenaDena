@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../domain/errors.js";
-import { cleanNewPerson, cleanPersonChanges, invalidAvatarPath, invalidPersonEmail, invalidPersonName, isUuid, PeopleUnavailableError, PersonExistsError, PersonNotFoundError } from "../domain/people.js";
+import { cleanNewPerson, cleanPersonChanges, invalidAvatarPath, invalidPersonEmail, invalidPersonName, InviteRecentlySentError, isUuid, PeopleUnavailableError, PersonExistsError, PersonHasNoEmailError, PersonNotFoundError } from "../domain/people.js";
 import type { CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, Group, InviteLink, Member, Person, Plan, SettlementStatus, TransactionItem, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
 import type { LedgerRepository } from "./LedgerRepository.js";
 
@@ -23,6 +23,10 @@ function toPeopleError(error: RpcError): DomainError {
   if (error.message.includes("invalid_person_name")) return invalidPersonName();
   if (error.message.includes("invalid_person_email")) return invalidPersonEmail();
   if (error.message.includes("invalid_avatar_path")) return invalidAvatarPath();
+  if (error.message.includes("person_has_no_email")) return new PersonHasNoEmailError();
+  if (error.message.includes("invite_recently_sent")) return new InviteRecentlySentError();
+  // The route only passes vetted https links, so this means a bad APP_DOWNLOAD_URL slipped past config.
+  if (error.message.includes("invalid_download_url")) return new DomainError("The app download link is not a valid https URL.", 400, "invalid_download_url");
   return new DomainError(error.message, 400, "database_error");
 }
 
@@ -190,6 +194,14 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     if (error) throw toPeopleError(error);
     const photo = person.avatarPath;
     if (photo && !people.some((item) => item.id !== personId && item.avatarPath === photo)) await this.removeAvatar(photo);
+  }
+
+  async invitePerson(userId: string, personId: string, downloadUrl: string | null): Promise<{ queuedAt: string }> {
+    if (!isUuid(personId)) throw new PersonNotFoundError();
+    const { data, error } = await this.client.rpc("app_invite_person", { p_actor: userId, p_person: personId, p_download_url: downloadUrl });
+    if (error) throw toPeopleError(error);
+    const queued = new Date(String(data));
+    return { queuedAt: Number.isNaN(queued.getTime()) ? new Date().toISOString() : queued.toISOString() };
   }
 
   async createSettlement(userId: string, input: CreateSettlementInput, idempotencyKey: string): Promise<{ id: string }> {

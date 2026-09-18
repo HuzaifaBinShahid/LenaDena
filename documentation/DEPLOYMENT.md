@@ -12,7 +12,11 @@ The LenaDena Free project is provisioned in Supabase's Singapore region. The mig
 
 Apply `202609140005_pgcrypto_search_path.sql` next (SQL editor or Supabase CLI). Supabase keeps pgcrypto in the `extensions` schema, and until this runs every financial write function fails with `function digest(text, unknown) does not exist`.
 
-Then apply, in order, `202609180006_personal_transaction_receipts.sql` and `202609180007_people.sql` (People: saved people, `person_id` on individual entries, backfilled from existing counterparties). 0007 needs 0006. If the new functions still answer "not found" afterwards, run `notify pgrst, 'reload schema';`. Until 0007 is applied the app keeps working: the plan returns no people and saving a person reports that the database needs the update.
+Then apply `202609180007_people.sql` (it includes 0006's column, so 0006 is optional before it; running 0006 first is also fine) (People: saved people, `person_id` on individual entries, backfilled from existing counterparties). 0007 needs 0006. If the new functions still answer "not found" afterwards, run `notify pgrst, 'reload schema';`. Until 0007 is applied the app keeps working: the plan returns no people and saving a person reports that the database needs the update.
+
+### App download link and invites
+
+While the Android app is shared through Loadly, set the install link (printed as `Install:` after `pnpm build:apk`) as `EXPO_PUBLIC_APP_DOWNLOAD_URL` in `frontend/.env.local` (share-invite messages; restart Metro with `--clear`, rebuild the APK) and optionally `APP_DOWNLOAD_URL` in `backend/.env` (invite emails; wins over the app's link). Invite and notification emails are only delivered while the worker runs with SMTP configured (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`).
 
 ### Branded Auth emails
 

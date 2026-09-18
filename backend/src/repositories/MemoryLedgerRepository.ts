@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../domain/errors.js";
 import { pairKey, validateShares } from "../domain/money.js";
-import { cleanNewPerson, cleanPersonChanges, cleanPersonName, PersonExistsError, PersonNotFoundError, personNameKey } from "../domain/people.js";
+import { cleanNewPerson, cleanPersonChanges, cleanPersonName, InviteRecentlySentError, PERSON_INVITE_COOLDOWN_MS, PersonExistsError, PersonHasNoEmailError, PersonNotFoundError, personNameKey } from "../domain/people.js";
 import type {
   ActivityItem,
   CreateExpenseInput,
@@ -27,6 +27,21 @@ import type { LedgerRepository } from "./LedgerRepository.js";
 type StoredGroup = Omit<Group, "balanceMinor">;
 type StoredPersonalTransaction = TransactionItem & { userId: string };
 type StoredPerson = Omit<Person, "avatarUrl"> & { ownerId: string };
+/** An invite email the demo "outbox" would send (mirrors the person_invite rows of app_invite_person). */
+export type QueuedPersonInvite = {
+  ownerId: string;
+  personId: string;
+  personName: string;
+  inviterName: string;
+  email: string;
+  downloadUrl: string | null;
+  queuedAt: string;
+};
+
+export type MemoryLedgerOptions = {
+  /** Clock for time-based rules (the invite cooldown); tests move it forward. */
+  now?: () => Date;
+};
 
 const demoUser: Member = { id: "demo-user", name: "Huzaifa", email: "huzaifa@example.com", createdAt: "2026-09-01T09:00:00.000Z" };
 const sara: Member = { id: "sara", name: "Sara", email: "sara@example.com", createdAt: "2026-09-04T09:00:00.000Z" };
@@ -35,6 +50,13 @@ const hamza: Member = { id: "hamza", name: "Hamza", email: "hamza@example.com", 
 const demoPersonAliId = "5d1c9a7e-3b2f-4e8a-9c6d-2f7b8e4a1c03";
 
 export class MemoryLedgerRepository implements LedgerRepository {
+  private readonly now: () => Date;
+  private readonly personInvites: QueuedPersonInvite[] = [];
+
+  constructor(options: MemoryLedgerOptions = {}) {
+    this.now = options.now ?? (() => new Date());
+  }
+
   private readonly users = new Map<string, Member>([
     [demoUser.id, demoUser],
     [sara.id, sara],
@@ -344,6 +366,35 @@ export class MemoryLedgerRepository implements LedgerRepository {
     for (const transaction of this.personalTransactions) {
       if (transaction.personId === personId) delete transaction.personId;
     }
+  }
+
+  async invitePerson(userId: string, personId: string, downloadUrl: string | null): Promise<{ queuedAt: string }> {
+    const inviter = this.users.get(userId);
+    if (!inviter) throw new NotFoundError("Profile not found");
+    const person = this.people.find((item) => item.id === personId && item.ownerId === userId);
+    if (!person) throw new PersonNotFoundError();
+    if (!person.email) throw new PersonHasNoEmailError();
+    const now = this.now();
+    const since = now.getTime() - PERSON_INVITE_COOLDOWN_MS;
+    const recent = this.personInvites.some((invite) =>
+      Date.parse(invite.queuedAt) > since && (invite.personId === person.id || (invite.ownerId === userId && invite.email === person.email)));
+    if (recent) throw new InviteRecentlySentError();
+    const invite: QueuedPersonInvite = {
+      ownerId: userId,
+      personId: person.id,
+      personName: person.name,
+      inviterName: inviter.name,
+      email: person.email,
+      downloadUrl,
+      queuedAt: now.toISOString(),
+    };
+    this.personInvites.push(invite);
+    return { queuedAt: invite.queuedAt };
+  }
+
+  /** Invites queued so far (demo mode sends no email). For tests. */
+  queuedInvites(): readonly QueuedPersonInvite[] {
+    return this.personInvites;
   }
 
   async createSettlement(userId: string, input: CreateSettlementInput, idempotencyKey: string): Promise<{ id: string }> {

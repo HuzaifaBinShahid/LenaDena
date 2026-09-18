@@ -1,7 +1,10 @@
 -- People: every individual balance names a person from the owner's private list (name required, email and photo
 -- optional). A name used again, ignoring case, links to the same person, so their history and balance collect in
 -- one place. Owner-private like personal_transactions: all reads and writes go through app_* RPCs run by the API.
--- Apply after 202609180006. Every statement is guarded or idempotent, so re-running the file is harmless.
+-- Self-contained after 202609180006: it repeats 0006's column (guarded) and replaces both functions 0006 touched,
+-- so it also works on a database that never ran 0006. Every statement is guarded or idempotent: re-running is harmless.
+
+alter table public.personal_transactions add column if not exists receipt_path text;
 
 create table if not exists public.people (
   id uuid primary key default gen_random_uuid(),
@@ -338,3 +341,97 @@ grant execute on function public.app_update_person(uuid, uuid, jsonb) to service
 grant execute on function public.app_delete_person(uuid, uuid) to service_role;
 grant execute on function public.app_create_personal_transaction(uuid, jsonb, text) to service_role;
 grant execute on function public.app_get_transactions(uuid) to service_role;
+
+-- Person invites: an email to a saved person asking them to install LenaDena. The worker sends it like every other
+-- outbox row (email-only recipient, so no profile, tone or group). Nothing about balances goes in the payload.
+-- One invite per person per 12 hours, and per inviter and address (a deleted and re-added person, or two people
+-- sharing an address, can't be used to repeat it). Locking the person row serializes concurrent requests for them.
+create index if not exists notification_outbox_person_invite_idx
+on public.notification_outbox ((payload ->> 'personId'), created_at desc)
+where event_type = 'person_invite';
+
+create index if not exists notification_outbox_person_invite_email_idx
+on public.notification_outbox (recipient_email, created_at desc)
+where event_type = 'person_invite';
+
+create or replace function public.app_invite_person(p_actor uuid, p_person uuid, p_download_url text)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  target public.people;
+  inviter_name text;
+  clean_url text := nullif(trim(p_download_url), '');
+  queued_at timestamptz := now();
+begin
+  select display_name into inviter_name from public.profiles where id = p_actor;
+  if not found then raise exception 'profile not found'; end if;
+  select * into target from public.people where id = p_person and owner_id = p_actor for update;
+  if not found then raise exception 'person_not_found'; end if;
+  if nullif(trim(target.email), '') is null then raise exception 'person_has_no_email'; end if;
+  -- The API only passes an allowlisted https link (or its own configured one); this is a last line of defence.
+  if clean_url is not null and (char_length(clean_url) > 2000 or clean_url !~ '^https://[^[:space:]"''<>]+$') then
+    raise exception 'invalid_download_url';
+  end if;
+  if exists (
+    select 1 from public.notification_outbox o
+    where o.event_type = 'person_invite'
+      and o.created_at > now() - interval '12 hours'
+      and (
+        o.payload ->> 'personId' = p_person::text
+        or (o.recipient_email = target.email and o.payload ->> 'inviterId' = p_actor::text)
+      )
+  ) then
+    raise exception 'invite_recently_sent';
+  end if;
+  insert into public.notification_outbox (recipient_email, event_type, payload, created_at, available_at)
+  values (
+    target.email,
+    'person_invite',
+    jsonb_build_object(
+      'personId', target.id,
+      'personName', target.name,
+      'inviterId', p_actor,
+      'inviterName', coalesce(nullif(trim(inviter_name), ''), 'A friend'),
+      'downloadUrl', clean_url
+    ),
+    queued_at,
+    queued_at
+  );
+  return queued_at;
+end;
+$$;
+
+revoke all on function public.app_invite_person(uuid, uuid, text) from public, anon, authenticated;
+grant execute on function public.app_invite_person(uuid, uuid, text) to service_role;
+
+-- The notification worker marks rows sent or failed. The service role has no table privileges on the hosted
+-- project, so a direct UPDATE fails there and every email would be claimed and sent again every few minutes.
+-- Only the worker holding the lock can finish a row. Returns whether a row was updated.
+create or replace function public.app_finish_notification(p_id uuid, p_worker uuid, p_error text default null)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated integer;
+begin
+  if p_error is null then
+    update public.notification_outbox
+    set sent_at = now(), locked_at = null, locked_by = null, last_error = null
+    where id = p_id and locked_by = p_worker;
+  else
+    update public.notification_outbox
+    set locked_at = null, locked_by = null, last_error = left(p_error, 1000), available_at = now() + interval '5 minutes'
+    where id = p_id and locked_by = p_worker;
+  end if;
+  get diagnostics updated = row_count;
+  return updated > 0;
+end;
+$$;
+
+revoke all on function public.app_finish_notification(uuid, uuid, text) from public, anon, authenticated;
+grant execute on function public.app_finish_notification(uuid, uuid, text) to service_role;

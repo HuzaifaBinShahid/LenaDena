@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/layout/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SectionHeader } from "@/components/layout/SectionHeader";
 import { BalanceChip } from "@/components/people/BalanceChip";
+import { InviteCard, InviteRow } from "@/components/people/InviteCard";
 import { PersonAvatar } from "@/components/people/PersonAvatar";
 import { PersonHeroCard } from "@/components/people/PersonHeroCard";
 import { Button } from "@/components/ui/Button";
@@ -17,17 +18,20 @@ import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import { getPlanState } from "@/features/ledger/planState";
-import type { TransactionItem } from "@/features/ledger/types";
+import type { Person, TransactionItem } from "@/features/ledger/types";
 import {
   balanceStatement,
   describePersonEntry,
   groupEntriesByMonth,
   indexPersonEntries,
+  isHistoryPersonId,
   personFirstName,
   summarizePerson,
   type PersonSummary,
 } from "@/features/people/people";
 import { addBalanceHref, peopleHref, personFormHref } from "@/features/people/routes";
+import { usePeopleList } from "@/features/people/usePeople";
+import { usePersonInvite } from "@/features/people/usePersonInvite";
 import { errorMessage } from "@/lib/api";
 import { dateToIso, formatDayMonth, formatLongDate, formatMoney, formatMonth, todayDate } from "@/lib/format";
 import { makeStyles } from "@/theme/ThemeProvider";
@@ -48,8 +52,10 @@ export default function PersonScreen() {
   const [settleTarget, setSettleTarget] = useState<TransactionItem | null>(null);
   const [settlingId, setSettlingId] = useState<string | null>(null);
   const planState = getPlanState(plan, connection);
-  const person = plan.people.find((item) => item.id === id);
-  const { people, transactions } = plan;
+  // Includes names remembered from past entries, so every name in the People list opens a page.
+  const people = usePeopleList();
+  const person = people.find((item) => item.id === id);
+  const { transactions } = plan;
   const entries = useMemo(
     () => (person ? indexPersonEntries(people, transactions).get(person.id) ?? NO_ENTRIES : NO_ENTRIES),
     [people, person, transactions],
@@ -114,6 +120,7 @@ export default function PersonScreen() {
     <Screen>
       <PageHeader title="Person" subtitle={added ? `Added ${formatLongDate(added)} · private to you` : "Private to you"} />
       <Hero summary={summary} />
+      <InviteSection person={person} />
 
       <View style={shape.history}>
         <SectionHeader
@@ -156,6 +163,73 @@ export default function PersonScreen() {
         onClose={() => setSettleTarget(null)}
       />
     </Screen>
+  );
+}
+
+/**
+ * Invite them to LenaDena: share a message from any app (anyone, saved or not), or have LenaDena email them (saved
+ * people with an email; one invite every 12 hours). Names remembered only from past entries can share but not email.
+ */
+function InviteSection({ person }: { person: Person }) {
+  const { share, email, sharing, emailing } = usePersonInvite();
+  const [sentKey, setSentKey] = useState<string | null>(null);
+  const first = personFirstName(person.name);
+  const remembered = isHistoryPersonId(person.id);
+  const address = person.email?.trim();
+  const key = `${person.id}:${address ?? ""}`;
+  const sent = sentKey === key;
+
+  return (
+    <View style={shape.invite}>
+      <InviteCard
+        title={`Invite ${first} to LenaDena`}
+        footnote={remembered ? `To email ${first} an invite, save them with their email first.` : undefined}
+      >
+        {remembered ? null : (
+          <InviteRow
+            key="email"
+            icon="send"
+            muted={!address}
+            title="Email an invite"
+            detail={!address
+              ? "Add their email in Edit to send one."
+              : sent
+                ? `Sent to ${address}. You can send another in 12 hours.`
+                : `LenaDena emails ${address} how to get the app.`}
+            trailing={(
+              <Button
+                label={sent ? "Sent" : "Send"}
+                {...(sent ? { icon: "check" as const } : {})}
+                size="sm"
+                variant={sent ? "secondary" : "primary"}
+                loading={emailing}
+                disabled={!address || sent}
+                accessibilityHint={address ? `Emails ${first} an invite to LenaDena` : "Add their email first"}
+                onPress={async () => {
+                  if (await email(person)) setSentKey(key);
+                }}
+              />
+            )}
+          />
+        )}
+        <InviteRow
+          key="share"
+          icon="share"
+          title="Share an invite"
+          detail="A ready-to-send message for WhatsApp, SMS or any app."
+          trailing={(
+            <Button
+              label="Share"
+              size="sm"
+              variant="secondary"
+              loading={sharing}
+              accessibilityHint={`Opens the share sheet with an invite for ${first}`}
+              onPress={() => share(person.name)}
+            />
+          )}
+        />
+      </InviteCard>
+    </View>
   );
 }
 
@@ -254,7 +328,12 @@ function Hero({ summary }: { summary: PersonSummary }) {
           <Button label="Add balance" icon="plus" variant="bright" fullWidth onPress={() => router.push(addBalanceHref(person.id))} />
         </View>
         <View style={shape.action}>
-          <Button label="Edit" icon="edit" variant="glass" fullWidth onPress={() => router.push(personFormHref({ id: person.id }))} />
+          {isHistoryPersonId(summary.person.id) ? (
+            // Remembered from past entries but not saved yet: saving adds their email or photo.
+            <Button label="Save person" icon="user-plus" variant="glass" fullWidth onPress={() => router.push(personFormHref({ name: summary.person.name }))} />
+          ) : (
+            <Button label="Edit" icon="edit" variant="glass" fullWidth onPress={() => router.push(personFormHref({ id: summary.person.id }))} />
+          )}
         </View>
       </View>
     </PersonHeroCard>
@@ -372,6 +451,9 @@ const shape = StyleSheet.create({
   },
   action: {
     flex: 1,
+  },
+  invite: {
+    marginTop: 26,
   },
   history: {
     marginTop: 30,

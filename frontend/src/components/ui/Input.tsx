@@ -1,12 +1,10 @@
 import { createElement, forwardRef, Fragment, useState } from "react";
 import type { TextInputProps } from "react-native";
-import { Modal, Platform, Pressable, StyleSheet, Text as NativeText, TextInput, View } from "react-native";
-import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
+import { Keyboard, Platform, Pressable, TextInput, View } from "react-native";
 import Animated, { interpolateColor, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
-import { Button } from "@/components/ui/Button";
+import { DatePickerSheet } from "@/components/ui/DatePickerSheet";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { ListeningDots } from "@/components/ui/ListeningDots";
-import { useScreenObscured } from "@/components/ui/ScreenObscured";
 import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
 import { Touch } from "@/components/ui/Touch";
@@ -36,9 +34,7 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
   const focusProgress = useSharedValue(0);
   const reduceMotion = useReducedMotion();
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [draftDate, setDraftDate] = useState(() => datePicker?.value ?? new Date());
-  const obscured = useScreenObscured();
-  const { colors: theme, isDark } = useTheme();
+  const { colors: theme } = useTheme();
   const styles = useStyles();
   const dark = appearance === "dark";
   // The dark appearance belongs to the always-dark sign-in and lock screens, so it ignores the theme.
@@ -51,19 +47,10 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
     elevation: focusProgress.value * 2,
   }));
 
+  // iOS and Android both use the app's own themed picker sheet (web keeps plain text entry below).
   const openDatePicker = () => {
     if (!datePicker) return;
-    if (Platform.OS === "android") {
-      DateTimePickerAndroid.open({
-        value: datePicker.value,
-        mode: "date",
-        minimumDate: datePicker.minimumDate,
-        maximumDate: datePicker.maximumDate,
-        onValueChange: (_event, value) => datePicker.onChange(value),
-      });
-      return;
-    }
-    setDraftDate(datePicker.value);
+    Keyboard.dismiss();
     setPickerVisible(true);
   };
 
@@ -124,54 +111,18 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
       },
       frame,
     ),
-    Platform.OS === "ios" ? createElement(
-      Modal,
-      {
-        visible: pickerVisible && !obscured,
-        transparent: true,
-        animationType: "fade",
-        presentationStyle: "overFullScreen",
-        onRequestClose: () => setPickerVisible(false),
+    createElement(DatePickerSheet, {
+      visible: pickerVisible,
+      value: datePicker.value,
+      minimumDate: datePicker.minimumDate,
+      maximumDate: datePicker.maximumDate,
+      title: datePicker.title ?? "Choose date",
+      onClose: () => setPickerVisible(false),
+      onConfirm: (value: Date) => {
+        datePicker.onChange(value);
+        setPickerVisible(false);
       },
-      createElement(
-        View,
-        { style: styles.modalRoot, accessibilityViewIsModal: true },
-        createElement(Pressable, {
-          style: StyleSheet.absoluteFill,
-          onPress: () => setPickerVisible(false),
-          accessibilityLabel: "Close date picker",
-        }),
-        createElement(
-          View,
-          { style: styles.dateSheet },
-          createElement(NativeText, { style: styles.dateTitle }, datePicker.title ?? "Choose date"),
-          createElement(DateTimePicker, {
-            value: draftDate,
-            mode: "date",
-            display: "spinner",
-            themeVariant: isDark ? "dark" : "light",
-            textColor: theme.ink,
-            minimumDate: datePicker.minimumDate,
-            maximumDate: datePicker.maximumDate,
-            onValueChange: (_event, value) => setDraftDate(value),
-            style: styles.datePicker,
-          }),
-          createElement(
-            View,
-            { style: styles.dateActions },
-            <Button label="Cancel" variant="ghost" onPress={() => setPickerVisible(false)} />,
-            <Button
-              label="Use this date"
-              icon="check"
-              onPress={() => {
-                datePicker.onChange(draftDate);
-                setPickerVisible(false);
-              }}
-            />,
-          ),
-        ),
-      ),
-    ) : null,
+    }),
   );
 });
 
@@ -232,40 +183,5 @@ const useStyles = makeStyles((c) => ({
     borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
-  },
-  modalRoot: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: c.backdrop,
-  },
-  dateSheet: {
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    borderWidth: 1,
-    borderColor: c.line,
-    backgroundColor: c.raised,
-    paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 34,
-    shadowColor: c.shadow,
-    shadowOffset: { width: 0, height: -10 },
-    shadowOpacity: 0.16,
-    shadowRadius: 24,
-  },
-  dateTitle: {
-    color: c.ink,
-    fontFamily: "Manrope_700Bold",
-    fontSize: 19,
-  },
-  datePicker: {
-    alignSelf: "stretch",
-    height: 190,
-    marginVertical: 10,
-  },
-  dateActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 10,
   },
 }));
