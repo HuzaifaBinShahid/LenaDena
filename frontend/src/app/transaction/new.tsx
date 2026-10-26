@@ -21,6 +21,8 @@ import { PersonPicker } from "@/features/people/PersonPicker";
 import { usePeopleList, usePeopleSummaries } from "@/features/people/usePeople";
 import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { useAppLock } from "@/features/security/AppLockProvider";
+import { VoiceEntrySheet } from "@/features/voice/VoiceEntrySheet";
+import type { VoiceDraft } from "@/features/voice/grammar";
 import { errorMessage } from "@/lib/api";
 import { dateFromIso, dateToIso, formatLongDate, formatMoney, toMinorUnits, todayDate } from "@/lib/format";
 import { layout } from "@/theme/layout";
@@ -39,11 +41,11 @@ const DIRECTION_TABS = [
 ];
 
 /**
- * Add an individual balance. `?personId=` opens it for a saved person (from their page), and saving returns there;
- * otherwise saving lands on Activity. A new name is saved to People by the API.
+ * Add an individual balance. `?personId=` only preselects someone from their page; every successful save returns
+ * to the home Plan tab. A new name is saved to People by the API.
  */
 export default function NewPersonalTransactionScreen() {
-  const params = useLocalSearchParams<{ personId?: string }>();
+  const params = useLocalSearchParams<{ personId?: string; voice?: string }>();
   const openedFor = typeof params.personId === "string" && params.personId ? params.personId : undefined;
   const { plan, createPersonalTransaction } = useLedger();
   const { speechLocale } = usePreferences();
@@ -65,8 +67,10 @@ export default function NewPersonalTransactionScreen() {
   const [scanning, setScanning] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [voiceVisible, setVoiceVisible] = useState(false);
   const speech = useRef<SpeechSession | null>(null);
   const prefilled = useRef(Boolean(counterparty));
+  const openedVoice = useRef(false);
   const amountMinor = toMinorUnits(amount);
   const currency = plan.totals[0]?.currency ?? plan.groups[0]?.currency ?? "PKR";
   const pickerDate = dateFromIso(eventDate);
@@ -84,6 +88,12 @@ export default function NewPersonalTransactionScreen() {
     : { icon: "arrow-down" as const, label: "Owed to you", color: colors.mintBright };
 
   useEffect(() => () => speech.current?.cancel(), []);
+
+  useEffect(() => {
+    if (openedVoice.current || params.voice !== "1") return;
+    openedVoice.current = true;
+    setVoiceVisible(true);
+  }, [params.voice]);
 
   // Opened for a person before the plan arrived: choose them as soon as they show up.
   useEffect(() => {
@@ -168,12 +178,48 @@ export default function NewPersonalTransactionScreen() {
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(receiptUri ? { receiptUri } : {}),
       });
-      // From a person's page, go back there to see the new entry in their history.
-      if (openedFor && router.canGoBack()) router.back();
-      else router.replace({ pathname: "/", params: { tab: "activity" } });
+      router.replace("/");
       toast.success(
         direction === "outgoing" ? `You owe ${personName}` : `${personName} owes you`,
-        `${formatMoney(amountMinor, currency)} for ${title.trim()} is now open in Activity.${isNewPerson ? ` ${personName} is now in your people.` : ""}`,
+        `${formatMoney(amountMinor, currency)} for ${title.trim()} is now open on your home balance.${isNewPerson ? ` ${personName} is now in your people.` : ""}`,
+      );
+    } catch (error) {
+      toast.error("Couldn't save the entry", errorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const applyVoiceDraft = (draft: VoiceDraft) => {
+    setKind(draft.kind);
+    if (draft.direction) setDirection(draft.direction);
+    if (draft.counterparty) setCounterparty(draft.counterparty);
+    if (draft.amountMinor) setAmount(String(draft.amountMinor / 100));
+    if (draft.title) setTitle(draft.title);
+    setEventDate(draft.eventDate);
+    toast.info("Voice details filled", "Review or change anything, then save the balance.");
+  };
+
+  const saveVoiceDraft = async (draft: VoiceDraft & Required<Pick<VoiceDraft, "amountMinor" | "direction" | "counterparty" | "title">>) => {
+    const voiceLinked = findPersonByName(people, draft.counterparty);
+    const voicePerson = voiceLinked?.name ?? draft.counterparty.trim();
+    const isNewPerson = !voiceLinked;
+    setSaving(true);
+    try {
+      await createPersonalTransaction({
+        title: draft.title.trim(),
+        eventDate: draft.eventDate,
+        amountMinor: draft.amountMinor,
+        currency: draft.currency,
+        kind: draft.kind,
+        direction: draft.direction,
+        counterparty: voicePerson,
+        ...(voiceLinked && !isHistoryPersonId(voiceLinked.id) ? { personId: voiceLinked.id } : {}),
+      });
+      router.replace("/");
+      toast.success(
+        draft.direction === "outgoing" ? `You owe ${voicePerson}` : `${voicePerson} owes you`,
+        `${formatMoney(draft.amountMinor, draft.currency)} for ${draft.title.trim()} is now open on your home balance.${isNewPerson ? ` ${voicePerson} is now in your people.` : ""}`,
       );
     } catch (error) {
       toast.error("Couldn't save the entry", errorMessage(error));
@@ -185,6 +231,9 @@ export default function NewPersonalTransactionScreen() {
   return (
     <Screen>
       <PageHeader title="Add individual balance" subtitle="No group or invite needed" />
+      <View className="mb-4">
+        <Button label="Fill by voice" icon="mic" variant="secondary" fullWidth onPress={() => setVoiceVisible(true)} />
+      </View>
       <View style={shape.card}>
         <LayeredGroupCard
           variant="compact"
@@ -288,6 +337,17 @@ export default function NewPersonalTransactionScreen() {
         </View>
         <Button label={direction === "outgoing" ? "Track what I owe" : "Track what is owed to me"} icon="check" size="lg" fullWidth loading={saving} onPress={save} />
       </View>
+      <VoiceEntrySheet
+        visible={voiceVisible}
+        onClose={() => setVoiceVisible(false)}
+        people={people}
+        currency={currency}
+        defaultLanguage={speechLocale.toLowerCase().startsWith("ur") ? "ur" : "en"}
+        runWithoutLocking={runWithoutLocking}
+        saving={saving}
+        onEdit={applyVoiceDraft}
+        onSave={saveVoiceDraft}
+      />
     </Screen>
   );
 }

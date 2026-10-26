@@ -8,7 +8,8 @@ Expo React Native client
   ├─ NativeWind design system
   ├─ Supabase session (instant email sign-in in development, email links otherwise)
   ├─ biometric app lock and app-wide toasts
-  ├─ on-device OCR and speech
+  ├─ on-device OCR and field dictation
+  ├─ reviewed voice-entry recording client
   └─ WhatsApp/native share intake
             │ HTTPS + bearer token
             ▼
@@ -17,6 +18,7 @@ Fastify API
   ├─ authentication and authorization hooks
   ├─ integer-money validation
   ├─ idempotent ledger commands
+  ├─ server-only Deepgram transcription boundary
   └─ private multipart upload boundary
             │ service-role RPC and Storage
             ▼
@@ -88,6 +90,13 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 7. Fastify validates membership and the split contract.
 8. PostgreSQL inserts the expense, shares, activity event, idempotency result, and email outbox rows in one transaction.
 
+### Voice balance draft
+
+1. The user selects English or Urdu, records a short private-balance command, and stops recording.
+2. The authenticated API accepts one bounded multipart audio clip, forwards it in memory to Deepgram with only name hints, and returns text; it cannot write the ledger.
+3. The app parses a conservative draft and shows transcript, direction, person, amount, purpose, and date for review.
+4. An incomplete or uncertain draft can only open the ordinary form. A complete draft still requires the user to tap Save, which calls the standard idempotent personal-transaction command.
+
 ### Settlement
 
 1. A debtor taps `I paid`, chooses the recipient, and may attach proof.
@@ -140,6 +149,7 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 | POST | `/v1/groups/:id/invites` | Generate an optional email-bound invite |
 | POST | `/v1/invites/:token/accept` | Accept a single-use invite |
 | POST | `/v1/uploads/:kind` | Store a private receipt, proof, or profile image |
+| POST | `/v1/voice/transcribe` | Transcribe one authenticated short command via the server-only Deepgram key; returns text only and never writes a ledger record |
 | POST | `/v1/expenses` | Create an expense and shares |
 | POST | `/v1/personal-transactions` | Create a private individual expense or loan; links it to a saved person (`personId`, or find-or-create by `counterparty`, case-insensitive) |
 | POST | `/v1/personal-transactions/:id/settle` | Mark the owner's private individual obligation as settled |

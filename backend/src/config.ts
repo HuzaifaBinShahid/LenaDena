@@ -10,6 +10,8 @@ export type AppConfig = {
   supabaseUrl?: string;
   supabasePublishableKey?: string;
   supabaseSecretKey?: string;
+  /** Server-only Deepgram token used by the optional voice-entry endpoint. Never expose this to Expo. */
+  deepgramApiKey?: string;
   /** https link to install the app (APP_DOWNLOAD_URL), put in person invite emails; overrides any link a client suggests. */
   appDownloadUrl?: string;
 };
@@ -20,6 +22,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const supabaseUrl = overrides.supabaseUrl ?? process.env.SUPABASE_URL;
   const supabasePublishableKey = overrides.supabasePublishableKey ?? process.env.SUPABASE_PUBLISHABLE_KEY;
   const supabaseSecretKey = overrides.supabaseSecretKey ?? process.env.SUPABASE_SECRET_KEY;
+  const deepgramApiKey = overrides.deepgramApiKey ?? process.env.DEEPGRAM_API_KEY?.trim();
   const rawDownloadUrl = (overrides.appDownloadUrl ?? process.env.APP_DOWNLOAD_URL)?.trim();
   const appDownloadUrl = rawDownloadUrl ? cleanConfiguredDownloadUrl(rawDownloadUrl) : undefined;
   if (rawDownloadUrl && !appDownloadUrl) throw new Error("APP_DOWNLOAD_URL must be an https URL");
@@ -34,6 +37,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     ...(supabaseUrl ? { supabaseUrl } : {}),
     ...(supabasePublishableKey ? { supabasePublishableKey } : {}),
     ...(supabaseSecretKey ? { supabaseSecretKey } : {}),
+    ...(deepgramApiKey ? { deepgramApiKey } : {}),
     ...(appDownloadUrl ? { appDownloadUrl } : {}),
   };
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {

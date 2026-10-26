@@ -12,10 +12,11 @@ type ExpenseScopeModalProps = {
   onClose: () => void;
   onIndividual: () => void;
   onGroup: () => void;
+  onVoice: () => void;
 };
 
 /** "Add amount due": individual or group. A BottomSheet with one snap point; drag the handle or title down to dismiss. */
-export function ExpenseScopeModal({ visible, onClose, onIndividual, onGroup }: ExpenseScopeModalProps) {
+export function ExpenseScopeModal({ visible, onClose, onIndividual, onGroup, onVoice }: ExpenseScopeModalProps) {
   const { isDark } = useTheme();
   return (
     <BottomSheet
@@ -39,6 +40,7 @@ export function ExpenseScopeModal({ visible, onClose, onIndividual, onGroup }: E
       <View className="gap-3">
         <ScopeChoice primary label="Individual" description="Track what you owe or what someone owes you" icon="user" onPress={onIndividual} />
         <ScopeChoice label="Group" description="Split a cost and track what each person owes" icon="users" onPress={onGroup} />
+        <ScopeChoice label="Speak it" description="Say a private balance, then review every detail" icon="mic" onPress={onVoice} />
       </View>
       <View className="mt-3 items-center">
         <Button label="Not now" variant="ghost" onPress={onClose} />

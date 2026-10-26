@@ -21,11 +21,14 @@ import { healthRoutes } from "./routes/health.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { peopleRoutes } from "./routes/people.js";
 import { authRoutes } from "./routes/auth.js";
+import { voiceRoutes } from "./routes/voice.js";
+import type { VoiceTranscriber } from "./voice/DeepgramTranscriber.js";
 
 type BuildOptions = {
   config?: Partial<AppConfig>;
   repository?: LedgerRepository;
   instantAuthGateway?: InstantAuthGateway;
+  voiceTranscriber?: VoiceTranscriber;
 };
 
 function createInstantAuthGateway(config: AppConfig, override?: InstantAuthGateway) {
@@ -79,6 +82,7 @@ export async function buildApp(options: BuildOptions = {}) {
   await app.register(authRoutes, instantAuthGateway ? { prefix: "/v1", config, gateway: instantAuthGateway } : { prefix: "/v1", config });
   await app.register(ledgerRoutes, { prefix: "/v1" });
   await app.register(peopleRoutes, { prefix: "/v1", config });
+  await app.register(voiceRoutes, { prefix: "/v1", config, ...(options.voiceTranscriber ? { transcriber: options.voiceTranscriber } : {}) });
   if (config.allowInstantAuth && config.authMode === "supabase") {
     app.log.warn("Instant email sign-in is ON: anyone who can reach this API and knows an email address can open that account. Development only.");
   }

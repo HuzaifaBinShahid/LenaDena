@@ -35,6 +35,9 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const scrollRef = useRef<ScrollView>(null);
+  // A deep link can choose the first visible tab, but it must not keep re-selecting Activity
+  // after someone has tapped Home. This was especially noticeable after saving a balance.
+  const appliedRouteTab = useRef<string | undefined>(undefined);
   const [tab, setTab] = useState<TabKey>("plan");
   const [scopeVisible, setScopeVisible] = useState(false);
 
@@ -55,7 +58,15 @@ export default function HomeScreen() {
   const openReviews = useCallback(() => changeTab("reviews"), [changeTab]);
 
   useEffect(() => {
-    if (params.tab === "plan" || params.tab === "groups" || params.tab === "reviews" || params.tab === "activity") changeTab(params.tab);
+    const requested = params.tab;
+    if (requested === "plan" || requested === "groups" || requested === "reviews" || requested === "activity") {
+      if (appliedRouteTab.current !== requested) {
+        appliedRouteTab.current = requested;
+        changeTab(requested);
+      }
+      return;
+    }
+    appliedRouteTab.current = undefined;
   }, [changeTab, params.tab]);
 
   if (configured && !ready) {
@@ -138,6 +149,10 @@ export default function HomeScreen() {
         onGroup={() => {
           closeAddEntry();
           router.push("/expense/new");
+        }}
+        onVoice={() => {
+          closeAddEntry();
+          router.push({ pathname: "/transaction/new", params: { voice: "1" } });
         }}
       />
     </View>

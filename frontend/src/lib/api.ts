@@ -66,6 +66,32 @@ export function newIdempotencyKey() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+export type VoiceTranscriptionLanguage = "en" | "ur";
+
+/** Uploads a short temporary recording to our authenticated backend. The backend holds the Deepgram key. */
+export async function transcribeVoiceAudio(uri: string, language: VoiceTranscriptionLanguage) {
+  const url = `${apiUrl}/v1/voice/transcribe?language=${language}`;
+  const headers = await authHeaders();
+  const form = new FormData();
+  let status: number;
+  let text: string;
+  if (Platform.OS === "web") {
+    const file = await fetch(uri).then((response) => response.blob());
+    form.append("audio", file, "voice-command.webm");
+    const response = await fetch(url, { method: "POST", headers, body: form });
+    status = response.status;
+    text = await response.text();
+  } else {
+    form.append("audio", { uri, name: "voice-command.m4a", type: "audio/m4a" } as unknown as Blob);
+    ({ status, text } = await postNativeForm(url, headers, form));
+  }
+  const payload = parseJson(text) as { transcript?: string; message?: string; code?: string; details?: unknown } | null;
+  if (status < 200 || status >= 300 || !payload?.transcript) {
+    throw new ApiError(payload?.message ?? "Voice transcription failed", status, payload?.code, payload?.details);
+  }
+  return payload.transcript;
+}
+
 export async function uploadPrivateImage(kind: "receipt" | "payment-proof" | "avatar", uri: string) {
   if (!supabase) return uri;
   const match = uri.toLowerCase().match(/\.(png|webp|jpe?g)(?:\?|$)/);

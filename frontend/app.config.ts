@@ -81,6 +81,7 @@ const config: ExpoConfig = {
         speechRecognitionPermission: "Transcribe expense details on this device.",
       },
     ],
+    ["expo-audio", { microphonePermission: "Use the microphone to turn a short spoken balance into a draft for your review." }],
     ["expo-mlkit-ocr", { iosEngine: "auto" }],
     ["expo-local-authentication", { faceIDPermission: "Use Face ID to unlock LenaDena." }],
     "expo-secure-store",

@@ -26,7 +26,7 @@ Last updated: 2026-09-14
 - `frontend/` is the Expo React Native client.
 - `backend/` is the Fastify API.
 - `supabase/` contains database migrations.
-- The frontend owns presentation, device integrations, temporary receipt intake, and authentication session storage.
+- The frontend owns presentation, device integrations, temporary receipt intake, and authentication session storage. Voice balance entry records a short clip locally, requests an authenticated transcript, and presents a confirmation-first draft; it never writes a ledger record directly.
 - The backend owns authorization, calculations, ledger transitions, idempotency, and notification outbox writes.
 - Supabase owns Auth, account-linked profiles, Postgres, row-level security, and private object storage.
 - The service role has no direct table privileges on the hosted project; backend database access goes through `app_*` SECURITY DEFINER functions, and auth helpers use only the Auth admin API.
@@ -68,6 +68,7 @@ Last updated: 2026-09-14
 - Confirmed records are corrected with reversal or adjustment events, not silent deletion.
 - Database work never runs inside schema validation.
 - Receipt, payment-proof, and avatar images pass through authenticated Fastify multipart handling, are limited to 5 MB, and are stored in separate private buckets.
+- Voice recordings use the same authenticated multipart boundary but are transient: the server forwards a bounded clip to Deepgram in memory and returns text only. `DEEPGRAM_API_KEY` is a backend-only deployment secret; voice drafts require a user confirmation before the ordinary idempotent personal-transaction write.
 - Account display names and photos may change, but all ledger ownership stays tied to the immutable authenticated profile ID.
 - An authenticated plan read updates `last_seen_at`; fallback eligibility is recalculated and enforced by the backend/database, never trusted from the client.
 - Invite tokens are random, hashed at rest, expire after seven days, and are single-use.

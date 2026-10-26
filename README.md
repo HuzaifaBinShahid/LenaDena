@@ -23,7 +23,7 @@ The canonical technical identifiers are `lenadena` for the Expo slug and deep-li
 - Required event name and system-picked event date displayed in day–full month–year order.
 - Payment claims with optional proof, recipient review, confirmation, needs-attention handling, and an audited payer fallback when the recipient has never opened the app or leaves a claim unreviewed for 72 hours.
 - WhatsApp/native share intake route for receipt photos.
-- Receipt selection, OCR adapter, multilingual on-device voice adapter, and manual fallbacks.
+- Receipt selection, OCR adapter, on-device field dictation, and a Deepgram-powered reviewed voice balance draft with manual fallbacks.
 - Private receipt, proof, and profile-photo uploads through Fastify into Supabase Storage.
 - Persisted Dusk, Cloud, Midnight, and system-following themes.
 - Friendly, cheeky, chaos, and quiet notification tones.
@@ -126,7 +126,8 @@ Supabase Auth creates one profile per account. Financial rows continue to refere
 
 ## Device features
 
-- Voice transcription uses an on-device speech model. Set `system` or any installed BCP-47 locale such as `ur-PK`, `ar-SA`, `hi-IN`, or `fr-FR` under Settings.
+- The small microphone controls inside text fields use an on-device speech model. Set `system` or any installed BCP-47 locale such as `ur-PK`, `ar-SA`, `hi-IN`, or `fr-FR` under Settings.
+- **Add entry → Speak it** records a short individual-balance command and uses a server-side Deepgram key to create a reviewable English or Urdu draft. It never saves a balance without confirmation. Setup, privacy boundaries, test phrases, and troubleshooting are in [Deepgram voice entry](documentation/DEEPGRAM_VOICE.md).
 - Expo Go does not include the speech-recognition native module. The microphone control displays a development-build prompt there without loading the unavailable package or interrupting the form.
 - The system date picker is included in Expo Go; the database and API continue to receive timezone-safe `YYYY-MM-DD` calendar values.
 - OCR runs on the device and only suggests receipt fields; the user reviews event name, event date, and amount before saving.
