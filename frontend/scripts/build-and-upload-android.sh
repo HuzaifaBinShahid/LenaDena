@@ -14,7 +14,7 @@ cd "$ROOT"
 pnpm exec expo prebuild --platform android --no-install
 printf 'sdk.dir=%s\n' "$SDK_DIR" > android/local.properties
 
-cd android
+cd "$ROOT/android"
 ./gradlew app:assembleRelease -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
 
 cd "$ROOT"
