@@ -14,6 +14,7 @@ import {
   InviteLinkSchema,
   PlanSchema,
   ReviewSettlementSchema,
+  SettlePersonalTransactionsSchema,
   MemberSchema,
   UpdateProfileSchema,
   UploadParamsSchema,
@@ -147,6 +148,19 @@ export const ledgerRoutes: FastifyPluginAsyncTypebox = async (fastify) => {
     },
   }, async (request, reply) => {
     await fastify.ledger.settlePersonalTransaction(request.authUser.id, request.params.id, request.headers["idempotency-key"]);
+    return reply.code(204).send(null);
+  });
+
+  fastify.post("/personal-transactions/settle-all", {
+    schema: {
+      tags: ["transactions"],
+      security: [{ bearerAuth: [] }],
+      headers: IdempotencyHeaderSchema,
+      body: SettlePersonalTransactionsSchema,
+      response: { 204: Type.Null(), ...mutationResponses },
+    },
+  }, async (request, reply) => {
+    await fastify.ledger.settlePersonalTransactions(request.authUser.id, request.body.transactionIds, request.headers["idempotency-key"]);
     return reply.code(204).send(null);
   });
 

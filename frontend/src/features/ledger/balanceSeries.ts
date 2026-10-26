@@ -9,7 +9,8 @@ export type BalanceEvent = { date: string; currency: string; deltaMinor: number;
 export type BalanceMover = {
   key: string;
   kind: "group" | "person";
-  id?: string;
+  /** Group id, saved person id, or a stable history-only person id. */
+  id: string;
   name: string;
   accent?: string;
   currency: string;
@@ -169,6 +170,8 @@ export function getBalanceMovers(plan: Pick<Plan, "groups" | "transactions">, o:
       person = {
         key: `person:${personKey}`,
         kind: "person",
+        // Older rows without a saved contact use the same stable history id as the People list.
+        id: item.personId ?? `history:${(item.counterparty ?? "").trim().toLowerCase()}`,
         name: item.counterparty?.trim() || "Someone",
         currency: item.currency,
         balanceMinor: 0,
@@ -176,6 +179,8 @@ export function getBalanceMovers(plan: Pick<Plan, "groups" | "transactions">, o:
       };
       people.set(personKey, person);
     }
+    // Once an older history-only name is saved, its mover should open that saved person's page.
+    if (item.personId) person.id = item.personId;
     if (item.status !== "settled") person.balanceMinor += signOf(item) * finiteMinor(item.amountMinor);
   }
 

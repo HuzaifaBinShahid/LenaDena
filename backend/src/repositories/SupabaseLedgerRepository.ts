@@ -154,6 +154,15 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     if (error) throw new DomainError(error.message, 400, "database_error");
   }
 
+  async settlePersonalTransactions(userId: string, transactionIds: string[], idempotencyKey: string): Promise<void> {
+    const { error } = await this.client.rpc("app_settle_personal_transactions", {
+      p_actor: userId,
+      p_transactions: transactionIds,
+      p_idempotency_key: idempotencyKey,
+    });
+    if (error) throw new DomainError(error.message, 400, "database_error");
+  }
+
   async createPerson(userId: string, input: CreatePersonInput): Promise<Person> {
     const details = cleanNewPerson(userId, input);
     const { data, error } = await this.client.rpc("app_create_person", { p_actor: userId, p_payload: details });

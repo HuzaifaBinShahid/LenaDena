@@ -46,11 +46,13 @@ function plural(count: number, one: string, many: string) {
 /** A person's page: who they are, where you stand (in plain words), and every entry with them by month. */
 export default function PersonScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { plan, connection, refresh, settlePersonalTransaction } = useLedger();
+  const { plan, connection, refresh, settlePersonalTransaction, settlePersonalTransactions } = useLedger();
   const toast = useToast();
   const styles = useStyles();
   const [settleTarget, setSettleTarget] = useState<TransactionItem | null>(null);
   const [settlingId, setSettlingId] = useState<string | null>(null);
+  const [settleAllVisible, setSettleAllVisible] = useState(false);
+  const [settlingAll, setSettlingAll] = useState(false);
   const planState = getPlanState(plan, connection);
   // Includes names remembered from past entries, so every name in the People list opens a page.
   const people = usePeopleList();
@@ -62,6 +64,7 @@ export default function PersonScreen() {
   );
   const summary = useMemo(() => (person ? summarizePerson(person, entries) : null), [entries, person]);
   const months = useMemo(() => groupEntriesByMonth(entries), [entries]);
+  const openEntries = useMemo(() => entries.filter((item) => item.status !== "settled"), [entries]);
   const today = todayDate();
 
   if (!person || !summary) {
@@ -116,6 +119,18 @@ export default function PersonScreen() {
       .finally(() => setSettlingId(null));
   };
 
+  const settleAll = () => {
+    if (!openEntries.length) return;
+    setSettlingAll(true);
+    void settlePersonalTransactions(openEntries.map((item) => item.id))
+      .then(() => {
+        setSettleAllVisible(false);
+        toast.success("All entries marked as settled", `${plural(openEntries.length, "entry", "entries")} left your open balance with ${first} and stay in their history.`);
+      })
+      .catch((error: unknown) => toast.error("Couldn't settle all entries", errorMessage(error)))
+      .finally(() => setSettlingAll(false));
+  };
+
   return (
     <Screen>
       <PageHeader title="Person" subtitle={added ? `Added ${formatLongDate(added)} · private to you` : "Private to you"} />
@@ -126,6 +141,7 @@ export default function PersonScreen() {
         <SectionHeader
           title="History"
           detail={summary.entryCount ? `${plural(summary.entryCount, "entry", "entries")} · ${summary.openCount} open` : `Everything with ${first} collects here`}
+          {...(openEntries.length ? { action: { label: "Mark all settled", icon: "check" as const, onPress: () => setSettleAllVisible(true) } } : {})}
         />
         {summary.entryCount === 0 ? (
           <LedgerList>
@@ -161,6 +177,16 @@ export default function PersonScreen() {
         loading={Boolean(settlingId)}
         onConfirm={settle}
         onClose={() => setSettleTarget(null)}
+      />
+      <ConfirmModal
+        visible={settleAllVisible}
+        title="Mark all as settled?"
+        detail={`${plural(openEntries.length, "open entry", "open entries")} will leave your open balance with ${first}. Their history will remain visible.`}
+        confirmLabel="Mark all settled"
+        cancelLabel="Keep open"
+        loading={settlingAll}
+        onConfirm={settleAll}
+        onClose={() => setSettleAllVisible(false)}
       />
     </Screen>
   );

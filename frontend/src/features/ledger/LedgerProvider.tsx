@@ -41,6 +41,7 @@ type LedgerContextValue = {
   createExpense: (input: CreateExpenseInput) => Promise<void>;
   createPersonalTransaction: (input: CreatePersonalTransactionInput) => Promise<void>;
   settlePersonalTransaction: (id: string) => Promise<void>;
+  settlePersonalTransactions: (ids: string[]) => Promise<void>;
   /** Saves someone to People. Rejects with a friendly message for a duplicate name or a server without People. */
   createPerson: (input: CreatePersonInput) => Promise<Person>;
   /** Renaming also renames their history rows (server side). */
@@ -152,6 +153,16 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   const settlePersonalTransaction = useCallback(async (id: string) => {
     await apiRequest(`/v1/personal-transactions/${id}/settle`, {
       method: "POST",
+      idempotencyKey: newIdempotencyKey(),
+    });
+    await refresh();
+  }, [refresh]);
+
+  const settlePersonalTransactions = useCallback(async (ids: string[]) => {
+    if (!ids.length) return;
+    await apiRequest("/v1/personal-transactions/settle-all", {
+      method: "POST",
+      body: { transactionIds: ids },
       idempotencyKey: newIdempotencyKey(),
     });
     await refresh();
@@ -275,6 +286,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       createExpense,
       createPersonalTransaction,
       settlePersonalTransaction,
+      settlePersonalTransactions,
       createPerson,
       updatePerson,
       deletePerson,
@@ -286,7 +298,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       createInvite,
       acceptInvite,
     }),
-    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, settlePersonalTransaction, createPerson, updatePerson, deletePerson, invitePerson, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite],
+    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, settlePersonalTransaction, settlePersonalTransactions, createPerson, updatePerson, deletePerson, invitePerson, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite],
   );
 
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;

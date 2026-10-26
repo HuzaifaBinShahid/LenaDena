@@ -324,6 +324,25 @@ export class MemoryLedgerRepository implements LedgerRepository {
     this.idempotency.set(key, true);
   }
 
+  async settlePersonalTransactions(userId: string, transactionIds: string[], idempotencyKey: string): Promise<void> {
+    const key = `${userId}:${idempotencyKey}`;
+    if (this.idempotency.has(key)) return;
+    const selected = new Set(transactionIds);
+    const transactions = this.personalTransactions.filter((item) => selected.has(item.id));
+    // Check ownership before changing anything, so the operation is all-or-nothing.
+    if (transactions.length !== selected.size || transactions.some((item) => item.userId !== userId)) {
+      throw new NotFoundError("Individual entry not found");
+    }
+    const settledAt = new Date().toISOString();
+    for (const transaction of transactions) {
+      if (transaction.status !== "settled") {
+        transaction.status = "settled";
+        transaction.settledAt = settledAt;
+      }
+    }
+    this.idempotency.set(key, true);
+  }
+
   async createPerson(userId: string, input: CreatePersonInput): Promise<Person> {
     if (!this.users.has(userId)) throw new NotFoundError("Profile not found");
     const details = cleanNewPerson(userId, input, { allowLocalUri: true });

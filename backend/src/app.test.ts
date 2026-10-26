@@ -137,6 +137,36 @@ describe("LenaDena API", () => {
     expect(settledPlan.json().transactions[0].settledAt).toBeTypeOf("string");
   });
 
+  it("settles every selected personal entry together without touching someone else's entry", async () => {
+    const app = await createApp();
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/personal-transactions",
+      headers: { "x-user-id": "demo-user", "idempotency-key": "bulk-personal-create-0001" },
+      payload: { title: "Lunch", eventDate: "2026-09-14", amountMinor: 1000, currency: "PKR", kind: "expense", direction: "outgoing", counterparty: "Ali" },
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/personal-transactions",
+      headers: { "x-user-id": "demo-user", "idempotency-key": "bulk-personal-create-0002" },
+      payload: { title: "Taxi", eventDate: "2026-09-14", amountMinor: 2000, currency: "PKR", kind: "expense", direction: "incoming", counterparty: "Ali" },
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/personal-transactions/settle-all",
+      headers: { "x-user-id": "demo-user", "idempotency-key": "bulk-personal-settle-0001" },
+      payload: { transactionIds: [first.json().id, second.json().id] },
+    });
+    expect(response.statusCode).toBe(204);
+
+    const plan = await app.inject({ method: "GET", url: "/v1/me/plan", headers: { "x-user-id": "demo-user" } });
+    expect(plan.json().transactions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: first.json().id, status: "settled" }),
+      expect.objectContaining({ id: second.json().id, status: "settled" }),
+      expect.objectContaining({ id: "personal-1", status: "open" }),
+    ]));
+  });
+
   it("requires a person for every individual obligation", async () => {
     const app = await createApp();
     const response = await app.inject({

@@ -72,7 +72,7 @@ export function PlanView({ onAddEntry, onChangeTab }: HomeTabProps) {
       {plan.reviews.length ? <Attention plan={plan} onChangeTab={onChangeTab} /> : null}
       <QuickActions needsGroup={!waiting && plan.groups.length === 0} />
       <PeopleStrip />
-      <BalanceMovers movers={movers} planState={planState} hasGroups={plan.groups.length > 0} column={column} onChangeTab={onChangeTab} />
+      <BalanceMovers movers={movers} planState={planState} hasGroups={plan.groups.length > 0} column={column} />
     </View>
   );
 }

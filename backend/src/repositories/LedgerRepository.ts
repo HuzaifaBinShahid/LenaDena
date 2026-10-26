@@ -8,6 +8,7 @@ export interface LedgerRepository {
   createExpense(userId: string, input: CreateExpenseInput, idempotencyKey: string): Promise<{ id: string }>;
   createPersonalTransaction(userId: string, input: CreatePersonalTransactionInput, idempotencyKey: string): Promise<{ id: string }>;
   settlePersonalTransaction(userId: string, transactionId: string, idempotencyKey: string): Promise<void>;
+  settlePersonalTransactions(userId: string, transactionIds: string[], idempotencyKey: string): Promise<void>;
   createPerson(userId: string, input: CreatePersonInput): Promise<Person>;
   updatePerson(userId: string, personId: string, input: UpdatePersonInput): Promise<Person>;
   deletePerson(userId: string, personId: string): Promise<void>;

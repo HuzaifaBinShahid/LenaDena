@@ -197,7 +197,21 @@ export const PersonInviteSchema = Type.Object({
 });
 
 export const IdParamsSchema = Type.Object({ id: Type.String({ minLength: 1 }) });
+export const SettlePersonalTransactionsSchema = Type.Object({
+  transactionIds: Type.Array(Type.String({ format: "uuid" }), { minItems: 1, maxItems: 1000, uniqueItems: true }),
+}, { additionalProperties: false });
 
 export const IdempotencyHeaderSchema = Type.Object({
   "idempotency-key": Type.String({ minLength: 8, maxLength: 200 }),
 }, { additionalProperties: true });
+
+/** The file itself is multipart; only the selected recognition language lives in the query string. */
+export const VoiceTranscribeQuerySchema = Type.Object({
+  language: Type.Union([Type.Literal("en"), Type.Literal("ur")]),
+}, { additionalProperties: false });
+
+export const VoiceTranscribeResponseSchema = Type.Object({
+  transcript: Type.String(),
+  provider: Type.Literal("deepgram"),
+  language: Type.Union([Type.Literal("en"), Type.Literal("ur")]),
+});

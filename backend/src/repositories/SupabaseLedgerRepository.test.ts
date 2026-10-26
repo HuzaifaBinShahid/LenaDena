@@ -97,6 +97,15 @@ afterEach(async () => {
 });
 
 describe("SupabaseLedgerRepository people", () => {
+  it("sends selected personal entries to the bulk settlement RPC", async () => {
+    const { fake, repository } = await setup({ app_settle_personal_transactions: () => ({ status: 204 }) });
+    await repository.settlePersonalTransactions(USER, [ALI, BILAL], "bulk-settle-key-0001");
+    expect(fake.rpcCalls.at(-1)).toEqual({
+      name: "app_settle_personal_transactions",
+      args: { p_actor: USER, p_transactions: [ALI, BILAL], p_idempotency_key: "bulk-settle-key-0001" },
+    });
+  });
+
   it("serves people with the plan and signs every photo in one storage request", async () => {
     const people: Person[] = [
       { id: ALI, name: "Ali", avatarPath: `${USER}/ali.jpg`, createdAt: "2026-09-08T17:45:00+00:00" },

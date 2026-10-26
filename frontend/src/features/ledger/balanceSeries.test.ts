@@ -143,8 +143,7 @@ describe("getBalanceMovers", () => {
       ["Flat bills", "group", 1],
     ]);
     const [ali, weekend, flat] = movers;
-    expect(ali).toMatchObject({ key: "person:ali|PKR", balanceMinor: -185000, changeMinor: -185000, lastEventDate: "2026-09-13" });
-    expect(ali?.id).toBeUndefined();
+    expect(ali).toMatchObject({ key: "person:ali|PKR", id: "5d1c9a7e-3b2f-4e8a-9c6d-2f7b8e4a1c03", balanceMinor: -185000, changeMinor: -185000, lastEventDate: "2026-09-13" });
     expect(weekend).toMatchObject({ id: "weekend-crew", accent: "#6657E8", balanceMinor: -240000, changeMinor: -240000 });
     expect(flat).toMatchObject({ id: "flat-bills", balanceMinor: 110000, changeMinor: 110000, lastEventDate: "2026-09-05" });
   });

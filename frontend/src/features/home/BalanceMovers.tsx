@@ -9,8 +9,8 @@ import { Touch } from "@/components/ui/Touch";
 import { groupSkin, groupSkinTone } from "@/features/groups/groupSkin";
 import type { BalanceMover } from "@/features/ledger/balanceSeries";
 import type { PlanState } from "@/features/ledger/planState";
-import type { TabKey } from "@/features/ledger/types";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
+import { personHref } from "@/features/people/routes";
 import { shadows } from "@/theme/shadows";
 import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 
@@ -20,7 +20,6 @@ export type BalanceMoversProps = {
   hasGroups: boolean;
   /** Width of the centred content column (min(window, 560)). */
   column: number;
-  onChangeTab: (tab: TabKey) => void;
 };
 
 const CARD_HEIGHT = 112;
@@ -68,7 +67,7 @@ function statusPlaceholders(planState: PlanState): Placeholder[] {
 }
 
 /** "Top movers": the most active group and personal balances, each with a 30-day sparkline. */
-export function BalanceMovers({ movers, planState, hasGroups, column, onChangeTab }: BalanceMoversProps) {
+export function BalanceMovers({ movers, planState, hasGroups, column }: BalanceMoversProps) {
   const cardWidth = Math.max(0, Math.floor((column - 40 - 12) / 2));
   const waiting = planState === "loading" || planState === "offline";
   const shown = waiting ? [] : movers;
@@ -85,7 +84,7 @@ export function BalanceMovers({ movers, planState, hasGroups, column, onChangeTa
       <SectionHeader title="Top movers" detail={detail} style={styles.header} />
       <View style={styles.grid}>
         {shown.map((mover) => (
-          <MoverCard key={mover.key} mover={mover} width={cardWidth} onChangeTab={onChangeTab} />
+          <MoverCard key={mover.key} mover={mover} width={cardWidth} />
         ))}
         {placeholders.map((placeholder) => (
           <PlaceholderCard key={placeholder.key} placeholder={placeholder} width={cardWidth} />
@@ -95,7 +94,7 @@ export function BalanceMovers({ movers, planState, hasGroups, column, onChangeTa
   );
 }
 
-function MoverCard({ mover, width, onChangeTab }: { mover: BalanceMover; width: number; onChangeTab: (tab: TabKey) => void }) {
+function MoverCard({ mover, width }: { mover: BalanceMover; width: number }) {
   const themed = useStyles();
   const { colors: c, isDark, scheme } = useTheme();
   const change = mover.changeMinor;
@@ -121,7 +120,7 @@ function MoverCard({ mover, width, onChangeTab }: { mover: BalanceMover; width: 
 
   const onPress = () => {
     if (groupId) router.push({ pathname: "/group/[id]", params: { id: groupId } });
-    else onChangeTab("activity");
+    else router.push(personHref(mover.id));
   };
 
   return (
@@ -130,7 +129,7 @@ function MoverCard({ mover, width, onChangeTab }: { mover: BalanceMover; width: 
       pressedScale={0.96}
       accessibilityRole="button"
       accessibilityLabel={`${mover.name}, ${stateLabel}, ${trend}`}
-      accessibilityHint={groupId ? "Opens the group" : "Opens Activity"}
+      accessibilityHint={groupId ? "Opens the group" : "Opens this person's balance and history"}
       containerStyle={{ width }}
       pressableStyle={styles.pressable}
     >
