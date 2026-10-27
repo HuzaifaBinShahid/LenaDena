@@ -24,6 +24,20 @@ type DeepgramResponse = {
   };
 };
 
+/** The small part of a Fetch response the Deepgram adapter needs. Kept structural so server build environments that
+ * provide a Node HTTP `Response` global do not shadow the web Fetch response type. */
+type DeepgramFetchResponse = {
+  ok: boolean;
+  status: number;
+  json(): Promise<unknown>;
+};
+
+type DeepgramFetcher = (url: URL, init: {
+  method: "POST";
+  headers: Record<string, string>;
+  body: Uint8Array;
+}) => Promise<DeepgramFetchResponse>;
+
 const DEEPGRAM_URL = "https://api.deepgram.com/v1/listen";
 
 /**
@@ -33,7 +47,7 @@ const DEEPGRAM_URL = "https://api.deepgram.com/v1/listen";
 export class DeepgramTranscriber implements VoiceTranscriber {
   constructor(
     private readonly apiKey: string,
-    private readonly fetcher: typeof fetch = fetch,
+    private readonly fetcher: DeepgramFetcher = fetch as unknown as DeepgramFetcher,
   ) {}
 
   async transcribe({ audio, contentType, language, vocabulary }: VoiceTranscribeInput): Promise<VoiceTranscribeResult> {
@@ -45,7 +59,7 @@ export class DeepgramTranscriber implements VoiceTranscriber {
     url.searchParams.set("numerals", "true");
     for (const term of vocabulary.slice(0, 100)) url.searchParams.append("keyterm", term);
 
-    let response: Response;
+    let response: DeepgramFetchResponse;
     try {
       response = await this.fetcher(url, {
         method: "POST",
