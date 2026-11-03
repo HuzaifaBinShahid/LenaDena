@@ -40,7 +40,7 @@ type LedgerContextValue = {
   createGroup: (input: CreateGroupInput) => Promise<void>;
   createExpense: (input: CreateExpenseInput) => Promise<void>;
   createPersonalTransaction: (input: CreatePersonalTransactionInput) => Promise<void>;
-  settlePersonalTransaction: (id: string) => Promise<void>;
+  settlePersonalTransaction: (id: string, amountMinor?: number) => Promise<void>;
   settlePersonalTransactions: (ids: string[]) => Promise<void>;
   /** Saves someone to People. Rejects with a friendly message for a duplicate name or a server without People. */
   createPerson: (input: CreatePersonInput) => Promise<Person>;
@@ -150,9 +150,10 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     await refresh();
   }, [refresh]);
 
-  const settlePersonalTransaction = useCallback(async (id: string) => {
+  const settlePersonalTransaction = useCallback(async (id: string, amountMinor?: number) => {
     await apiRequest(`/v1/personal-transactions/${id}/settle`, {
       method: "POST",
+      body: amountMinor === undefined ? {} : { amountMinor },
       idempotencyKey: newIdempotencyKey(),
     });
     await refresh();

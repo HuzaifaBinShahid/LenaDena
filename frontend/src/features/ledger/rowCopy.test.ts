@@ -52,6 +52,15 @@ describe("describeTransaction: personal rows", () => {
     expect(row.accessibilityLabel).not.toContain("−");
   });
 
+  it("personal outgoing expense, partially settled", () => {
+    const row = describeTransaction(item({ counterparty: "Ali", status: "open", settledAmountMinor: 100000 }), activity);
+    expect(row.subtitle).toBe(`You owe Ali · Personal · ${rs(100000)} paid`);
+    expect(row.amount).toEqual({ text: `−${rs(85000)}`, tone: "negative" });
+    expect(row.status).toEqual({ label: "Part paid", tone: "warning" });
+    expect(row.canSettle).toBe(true);
+    expect(row.accessibilityLabel).toBe(`Coffee money. You owe Ali. ${rs(85000)}, you owe. ${rs(100000)} already paid. Part paid. ${formatLongDate("2026-09-13")}.`);
+  });
+
   it("falls back to neutral phrases when a personal row has no counterparty", () => {
     expect(describeTransaction(item({ direction: "incoming", status: "open" }), activity).subtitle).toBe("Owed to you · Personal");
     expect(describeTransaction(item({ status: "open" }), activity).subtitle).toBe("You owe · Personal");

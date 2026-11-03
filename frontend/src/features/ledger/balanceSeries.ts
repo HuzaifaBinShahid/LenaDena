@@ -1,6 +1,7 @@
 // Pure balance history for the Plan tab: 7-day change on the balance card and the Top movers grid (§3.3).
 // No react-native imports: Vitest runs this file, so runtime imports stay relative (D21).
 import type { Plan, TransactionItem } from "@/features/ledger/types";
+import { remainingAmountOf, settledAmountOf } from "./amounts";
 import { addDaysIso, dateToIso } from "../../lib/format";
 
 /** One change to a balance on one day. Positive means friends owe you more (or you owe less). */
@@ -73,8 +74,10 @@ export function getBalanceEvents(plan: Pick<Plan, "transactions">, today: string
       base.personName = item.counterparty?.trim() || "Someone";
     }
     events.push({ ...base, date: clamp(day), deltaMinor: delta });
-    if (item.source === "personal" && item.status === "settled") {
-      events.push({ ...base, date: clamp(settledDay(item) ?? day), deltaMinor: -delta });
+    // A full settlement reverses the whole entry; a partial payment reverses only the amount paid so far.
+    const paid = item.source === "personal" ? settledAmountOf(item) : 0;
+    if (paid > 0) {
+      events.push({ ...base, date: clamp(settledDay(item) ?? day), deltaMinor: -signOf(item) * paid });
     }
   }
   return events.sort((left, right) => (left.date < right.date ? -1 : left.date > right.date ? 1 : 0));
@@ -181,7 +184,7 @@ export function getBalanceMovers(plan: Pick<Plan, "groups" | "transactions">, o:
     }
     // Once an older history-only name is saved, its mover should open that saved person's page.
     if (item.personId) person.id = item.personId;
-    if (item.status !== "settled") person.balanceMinor += signOf(item) * finiteMinor(item.amountMinor);
+    person.balanceMinor += signOf(item) * remainingAmountOf(item);
   }
 
   const movers: BalanceMover[] = [];

@@ -95,6 +95,8 @@ export type TransactionItem = {
   note?: string;
   receiptUri?: string;
   status?: TransactionStatus;
+  /** How much of `amountMinor` has been paid so far. Only personal entries use it; group rows leave it unset. */
+  settledAmountMinor?: number;
   settledAt?: string;
   createdAt: string;
 };

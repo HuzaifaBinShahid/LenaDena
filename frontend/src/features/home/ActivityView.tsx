@@ -10,11 +10,11 @@ import { EmptyState } from "@/components/layout/EmptyState";
 import { SectionHeader } from "@/components/layout/SectionHeader";
 import { Button } from "@/components/ui/Button";
 import { CategoryCard } from "@/components/ui/CategoryCard";
-import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { EntryTile } from "@/components/ui/EntryTile";
 import { GroupAvatar } from "@/components/ui/GroupAvatar";
 import { Icon } from "@/components/ui/Icon";
 import { LedgerList, LedgerRow } from "@/components/ui/LedgerRow";
+import { SettleEntryModal, type SettleMode } from "@/components/ui/SettleEntryModal";
 import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
 import { TopTabs } from "@/components/ui/TopTabs";
@@ -42,6 +42,7 @@ import {
   type Category,
 } from "@/features/ledger/activity";
 import { useLedger } from "@/features/ledger/LedgerProvider";
+import { remainingAmountOf, settledAmountOf } from "@/features/ledger/amounts";
 import { getPlanState } from "@/features/ledger/planState";
 import { describeTransaction, personLink } from "@/features/ledger/rowCopy";
 import type { TransactionDirection, TransactionItem, TransactionKind, TransactionStatus } from "@/features/ledger/types";
@@ -114,6 +115,7 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
   const [currencyChoice, setCurrencyChoice] = useState<string | null>(null);
   const [selection, setSelection] = useState<{ key: string; index: number } | null>(null);
   const [settlingId, setSettlingId] = useState<string | null>(null);
+  const [settleMode, setSettleMode] = useState<SettleMode | null>(null);
   const [settlementTarget, setSettlementTarget] = useState<TransactionItem | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [today, setToday] = useState(todayDate);
@@ -203,17 +205,28 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
 
   const toggleScope = (key: string) => setScope((current) => (current === key ? "all" : key));
 
-  const settleTarget = () => {
+  const settleTarget = (amountMinor?: number) => {
     const item = settlementTarget;
     if (!item) return;
+    const counterparty = item.counterparty?.trim() || "them";
+    const remaining = remainingAmountOf(item);
+    const left = amountMinor === undefined ? 0 : Math.max(0, remaining - amountMinor);
     setSettlingId(item.id);
-    void settlePersonalTransaction(item.id)
+    setSettleMode(amountMinor === undefined ? "full" : "partial");
+    void settlePersonalTransaction(item.id, amountMinor)
       .then(() => {
         setSettlementTarget(null);
-        toast.success("Marked as settled", `${item.title} left your open balance and stays in Activity.`);
+        if (left > 0) {
+          toast.success("Partial payment saved", `${formatMoney(amountMinor ?? 0, item.currency)} recorded. ${formatMoney(left, item.currency)} is still open with ${counterparty}.`);
+        } else {
+          toast.success("Marked as settled", `${item.title} left your open balance and stays in Activity.`);
+        }
       })
       .catch((error: unknown) => toast.error("Couldn't settle the entry", errorMessage(error)))
-      .finally(() => setSettlingId(null));
+      .finally(() => {
+        setSettlingId(null);
+        setSettleMode(null);
+      });
   };
 
   // ---------------------------------------------------------------------------
@@ -684,15 +697,19 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
         resultCount={listItems.length}
         onClear={clearFilters}
       />
-      <ConfirmModal
+      <SettleEntryModal
         visible={Boolean(settlementTarget)}
-        title="Mark this as settled?"
-        detail={settlementTarget ? `${settlementTarget.title} will leave your open balance and stay visible in Activity.` : ""}
-        confirmLabel="Mark settled"
-        cancelLabel="Keep open"
-        loading={Boolean(settlingId)}
-        onConfirm={settleTarget}
-        onClose={() => setSettlementTarget(null)}
+        title={settlementTarget?.title ?? "Entry"}
+        remainingMinor={settlementTarget ? remainingAmountOf(settlementTarget) : 0}
+        totalMinor={settlementTarget?.amountMinor ?? 0}
+        currency={settlementTarget?.currency ?? "PKR"}
+        paidMinor={settlementTarget ? settledAmountOf(settlementTarget) : 0}
+        loading={settleMode}
+        onSettleFull={() => settleTarget()}
+        onSettlePartial={(amountMinor) => settleTarget(amountMinor)}
+        onClose={() => {
+          if (!settlingId) setSettlementTarget(null);
+        }}
       />
     </View>
   );

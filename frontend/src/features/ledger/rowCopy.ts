@@ -1,5 +1,6 @@
 // Pure copy mapper for ledger rows (D6). No react-native imports: Vitest runs this file, so runtime imports stay relative (D21).
 import type { TransactionItem } from "@/features/ledger/types";
+import { isPartiallySettled, remainingAmountOf, settledAmountOf } from "./amounts";
 import { formatLongDate, formatMoney, formatShortDate, formatSignedMoney } from "../../lib/format";
 
 export type AmountTone = "positive" | "negative" | "neutral";
@@ -43,7 +44,8 @@ function whoPhrase(item: TransactionItem): string {
 function statusOf(item: TransactionItem): TransactionRowCopy["status"] {
   if (item.kind === "payment") return { label: "Paid", tone: "positive" };
   if (item.source === "personal") {
-    return item.status === "settled" ? { label: "Settled", tone: "positive" } : { label: "Open", tone: "warning" };
+    if (item.status === "settled") return { label: "Settled", tone: "positive" };
+    return isPartiallySettled(item) ? { label: "Part paid", tone: "warning" } : { label: "Open", tone: "warning" };
   }
   // Group rows carry no status, so the label comes from kind and direction.
   return item.direction === "incoming" ? { label: "Owed to you", tone: "positive" } : { label: "You owe", tone: "danger" };
@@ -64,21 +66,26 @@ export function describeTransaction(
   const payment = item.kind === "payment";
   const title = item.title.trim() ? item.title : KIND_TITLES[item.kind];
   const who = whoPhrase(item);
+  const partial = isPartiallySettled(item);
+  // A partly paid row leads with what is still owed; the full amount and the payment live in the subtitle.
+  const shownAmount = item.source === "personal" && item.status !== "settled" ? remainingAmountOf(item) : item.amountMinor;
+  const partialDetail = partial ? ` · ${formatMoney(settledAmountOf(item), item.currency)} paid` : "";
 
   const subtitle =
     options.context === "group"
       ? `${formatShortDate(item.eventDate)} · ${who}`
-      : `${who} · ${item.source === "personal" ? "Personal" : item.groupName?.trim() || "Group"}`;
+      : `${who} · ${item.source === "personal" ? "Personal" : item.groupName?.trim() || "Group"}${partialDetail}`;
 
   const amount: TransactionRowCopy["amount"] = payment
-    ? { text: formatSignedMoney(item.amountMinor, item.currency, "none"), tone: "neutral" }
+    ? { text: formatSignedMoney(shownAmount, item.currency, "none"), tone: "neutral" }
     : incoming
-      ? { text: formatSignedMoney(item.amountMinor, item.currency, "+"), tone: "positive" }
-      : { text: formatSignedMoney(item.amountMinor, item.currency, "-"), tone: "negative" };
+      ? { text: formatSignedMoney(shownAmount, item.currency, "+"), tone: "positive" }
+      : { text: formatSignedMoney(shownAmount, item.currency, "-"), tone: "negative" };
 
   const status = statusOf(item);
   const direction = payment ? "paid" : incoming ? "owed to you" : "you owe";
-  const spokenAmount = formatMoney(Number.isFinite(item.amountMinor) ? Math.abs(item.amountMinor) : 0, item.currency);
+  const spokenAmount = formatMoney(Number.isFinite(shownAmount) ? Math.abs(shownAmount) : 0, item.currency);
+  const partialSpoken = partial ? ` ${formatMoney(settledAmountOf(item), item.currency)} already paid.` : "";
 
   return {
     title,
@@ -88,7 +95,7 @@ export function describeTransaction(
     tile: tileOf(item),
     canSettle: item.source === "personal" && item.status === "open",
     upcoming: item.eventDate > options.today,
-    accessibilityLabel: `${title}. ${who}. ${spokenAmount}, ${direction}. ${status.label}. ${formatLongDate(item.eventDate)}.`,
+    accessibilityLabel: `${title}. ${who}. ${spokenAmount}, ${direction}.${partialSpoken} ${status.label}. ${formatLongDate(item.eventDate)}.`,
   };
 }
 

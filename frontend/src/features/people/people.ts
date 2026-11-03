@@ -3,6 +3,7 @@
 // No react-native imports: Vitest runs this file, so runtime imports stay relative (D21).
 import type { Person, Plan, TransactionItem } from "@/features/ledger/types";
 import { describeTransaction, type TransactionRowCopy } from "../ledger/rowCopy";
+import { isPartiallySettled, remainingAmountOf, settledAmountOf } from "../ledger/amounts";
 import { dateToIso, firstName, formatDayMonth, formatMoney } from "../../lib/format";
 
 // ---------------------------------------------------------------------------------------------------------
@@ -184,16 +185,11 @@ export type PersonSummary = {
   lastActivityMs?: number;
 };
 
-function finiteMinor(value: number) {
-  return Number.isFinite(value) ? Math.abs(value) : 0;
-}
-
 function parseTime(value: string | undefined): number {
   if (!value) return Number.NaN;
   return Date.parse(value);
 }
 
-/** When the entry last changed: settled, else recorded, else its (noon UTC) event date. */
 function activityTime(item: TransactionItem): number {
   let best = Number.NaN;
   for (const value of [item.createdAt, item.settledAt]) {
@@ -257,7 +253,7 @@ export function summarizePerson(person: Person, entries: readonly TransactionIte
     if (item.status === "settled") continue;
     openCount += 1;
     const balance = byCurrency.get(item.currency) ?? { currency: item.currency, owedMinor: 0, oweMinor: 0, netMinor: 0 };
-    const amount = finiteMinor(item.amountMinor);
+    const amount = remainingAmountOf(item);
     if (item.direction === "incoming") balance.owedMinor += amount;
     else balance.oweMinor += amount;
     balance.netMinor = balance.owedMinor - balance.oweMinor;
@@ -491,7 +487,8 @@ export function describePersonEntry(item: TransactionItem, today: string): Perso
   // The settled day on this device's calendar, as Activity's balance history counts it.
   const settledTime = item.status === "settled" ? parseTime(item.settledAt) : Number.NaN;
   const settledDay = Number.isFinite(settledTime) ? dateToIso(new Date(settledTime)) : undefined;
-  const subtitle = [when, kind, settledDay ? `settled ${formatDayMonth(settledDay)}` : null].filter(Boolean).join(" · ");
+  const partPaid = isPartiallySettled(item) ? `paid ${formatMoney(settledAmountOf(item), item.currency)}` : null;
+  const subtitle = [when, kind, partPaid, settledDay ? `settled ${formatDayMonth(settledDay)}` : null].filter(Boolean).join(" · ");
   return {
     title: copy.title,
     subtitle,

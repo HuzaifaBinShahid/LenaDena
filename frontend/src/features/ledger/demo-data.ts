@@ -88,6 +88,7 @@ export const demoPlan: Plan = {
       counterparty: "Ali",
       personId: demoPersonAliId,
       status: "open",
+      settledAmountMinor: 0,
       createdAt: "2026-09-13T08:20:00.000Z",
     },
     {
@@ -116,6 +117,7 @@ export const demoPlan: Plan = {
       counterparty: "Ali",
       personId: demoPersonAliId,
       status: "settled",
+      settledAmountMinor: 1200000,
       settledAt: "2026-09-10T17:45:00.000Z",
       createdAt: "2026-09-08T17:45:00.000Z",
     },

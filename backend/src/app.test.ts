@@ -124,17 +124,67 @@ describe("LenaDena API", () => {
     });
     expect(privateAttempt.statusCode).toBe(404);
 
+    // No body is how older app versions settle an entry: it means "the whole remainder".
     const settled = await app.inject({
       method: "POST",
       url: `/v1/personal-transactions/${transactionId}/settle`,
       headers: { "x-user-id": "demo-user", "idempotency-key": "personal-settle-0001" },
-      payload: {},
     });
     expect(settled.statusCode).toBe(204);
 
     const settledPlan = await app.inject({ method: "GET", url: "/v1/me/plan", headers: { "x-user-id": "demo-user" } });
     expect(settledPlan.json().transactions[0]).toMatchObject({ id: transactionId, status: "settled" });
     expect(settledPlan.json().transactions[0].settledAt).toBeTypeOf("string");
+  });
+
+  it("settles part of an individual entry and keeps the remainder open", async () => {
+    const app = await createApp();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/personal-transactions",
+      headers: { "x-user-id": "demo-user", "idempotency-key": "personal-partial-create-0001" },
+      payload: { title: "Furniture", eventDate: "2026-09-16", amountMinor: 500000, currency: "PKR", kind: "loan", direction: "outgoing", counterparty: "Ali" },
+    });
+    const transactionId = created.json().id;
+
+    const partial = await app.inject({
+      method: "POST",
+      url: `/v1/personal-transactions/${transactionId}/settle`,
+      headers: { "x-user-id": "demo-user", "idempotency-key": "personal-partial-settle-0001" },
+      payload: { amountMinor: 200000 },
+    });
+    expect(partial.statusCode).toBe(204);
+
+    const partlyPaid = await app.inject({ method: "GET", url: "/v1/me/plan", headers: { "x-user-id": "demo-user" } });
+    expect(partlyPaid.json().transactions[0]).toMatchObject({
+      id: transactionId,
+      status: "open",
+      amountMinor: 500000,
+      settledAmountMinor: 200000,
+    });
+
+    const overpay = await app.inject({
+      method: "POST",
+      url: `/v1/personal-transactions/${transactionId}/settle`,
+      headers: { "x-user-id": "demo-user", "idempotency-key": "personal-partial-overpay-0001" },
+      payload: { amountMinor: 400000 },
+    });
+    expect(overpay.statusCode).toBe(400);
+
+    const rest = await app.inject({
+      method: "POST",
+      url: `/v1/personal-transactions/${transactionId}/settle`,
+      headers: { "x-user-id": "demo-user", "idempotency-key": "personal-partial-settle-0002" },
+      payload: {},
+    });
+    expect(rest.statusCode).toBe(204);
+
+    const settled = await app.inject({ method: "GET", url: "/v1/me/plan", headers: { "x-user-id": "demo-user" } });
+    expect(settled.json().transactions[0]).toMatchObject({
+      id: transactionId,
+      status: "settled",
+      settledAmountMinor: 500000,
+    });
   });
 
   it("settles every selected personal entry together without touching someone else's entry", async () => {

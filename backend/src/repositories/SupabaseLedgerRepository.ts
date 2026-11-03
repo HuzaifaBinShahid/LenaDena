@@ -145,10 +145,11 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     return { id: String(data) };
   }
 
-  async settlePersonalTransaction(userId: string, transactionId: string, idempotencyKey: string): Promise<void> {
+  async settlePersonalTransaction(userId: string, transactionId: string, amountMinor: number | undefined, idempotencyKey: string): Promise<void> {
     const { error } = await this.client.rpc("app_settle_personal_transaction", {
       p_actor: userId,
       p_transaction: transactionId,
+      p_amount_minor: amountMinor ?? null,
       p_idempotency_key: idempotencyKey,
     });
     if (error) throw new DomainError(error.message, 400, "database_error");

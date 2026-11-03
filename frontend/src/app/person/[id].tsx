@@ -14,9 +14,11 @@ import { EntryTile } from "@/components/ui/EntryTile";
 import { Icon } from "@/components/ui/Icon";
 import { LedgerList, LedgerRow } from "@/components/ui/LedgerRow";
 import { Screen } from "@/components/ui/Screen";
+import { SettleEntryModal, type SettleMode } from "@/components/ui/SettleEntryModal";
 import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
 import { useLedger } from "@/features/ledger/LedgerProvider";
+import { remainingAmountOf, settledAmountOf } from "@/features/ledger/amounts";
 import { getPlanState } from "@/features/ledger/planState";
 import type { Person, TransactionItem } from "@/features/ledger/types";
 import {
@@ -51,6 +53,7 @@ export default function PersonScreen() {
   const styles = useStyles();
   const [settleTarget, setSettleTarget] = useState<TransactionItem | null>(null);
   const [settlingId, setSettlingId] = useState<string | null>(null);
+  const [settleMode, setSettleMode] = useState<SettleMode | null>(null);
   const [settleAllVisible, setSettleAllVisible] = useState(false);
   const [settlingAll, setSettlingAll] = useState(false);
   const planState = getPlanState(plan, connection);
@@ -106,17 +109,27 @@ export default function PersonScreen() {
   const first = personFirstName(person.name);
   const added = person.createdAt ? /^\d{4}-\d{2}-\d{2}/.exec(person.createdAt)?.[0] : undefined;
 
-  const settle = () => {
+  const settle = (amountMinor?: number) => {
     const item = settleTarget;
     if (!item) return;
+    const remaining = remainingAmountOf(item);
+    const left = amountMinor === undefined ? 0 : Math.max(0, remaining - amountMinor);
     setSettlingId(item.id);
-    void settlePersonalTransaction(item.id)
+    setSettleMode(amountMinor === undefined ? "full" : "partial");
+    void settlePersonalTransaction(item.id, amountMinor)
       .then(() => {
         setSettleTarget(null);
-        toast.success("Marked as settled", `${item.title} left your open balance with ${first} and stays in their history.`);
+        if (left > 0) {
+          toast.success("Partial payment saved", `${formatMoney(amountMinor ?? 0, item.currency)} recorded. ${formatMoney(left, item.currency)} is still open with ${first}.`);
+        } else {
+          toast.success("Marked as settled", `${item.title} left your open balance with ${first} and stays in their history.`);
+        }
       })
       .catch((error: unknown) => toast.error("Couldn't settle the entry", errorMessage(error)))
-      .finally(() => setSettlingId(null));
+      .finally(() => {
+        setSettlingId(null);
+        setSettleMode(null);
+      });
   };
 
   const settleAll = () => {
@@ -168,15 +181,19 @@ export default function PersonScreen() {
         )}
       </View>
 
-      <ConfirmModal
+      <SettleEntryModal
         visible={Boolean(settleTarget)}
-        title="Mark this as settled?"
-        detail={settleTarget ? `${settleTarget.title} will leave your open balance with ${first} and stay visible in their history and Activity.` : ""}
-        confirmLabel="Mark settled"
-        cancelLabel="Keep open"
-        loading={Boolean(settlingId)}
-        onConfirm={settle}
-        onClose={() => setSettleTarget(null)}
+        title={settleTarget?.title ?? "Entry"}
+        remainingMinor={settleTarget ? remainingAmountOf(settleTarget) : 0}
+        totalMinor={settleTarget?.amountMinor ?? 0}
+        currency={settleTarget?.currency ?? "PKR"}
+        paidMinor={settleTarget ? settledAmountOf(settleTarget) : 0}
+        loading={settleMode}
+        onSettleFull={() => settle()}
+        onSettlePartial={(amountMinor) => settle(amountMinor)}
+        onClose={() => {
+          if (!settlingId) setSettleTarget(null);
+        }}
       />
       <ConfirmModal
         visible={settleAllVisible}

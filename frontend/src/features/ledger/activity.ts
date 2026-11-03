@@ -12,6 +12,7 @@ import {
   shiftMonth,
 } from "../../lib/format";
 import { getOpenBalanceTotals } from "./selectors";
+import { remainingAmountOf } from "./amounts";
 
 export type ActivityPeriod = "week" | "month" | "year" | "all";
 
@@ -140,7 +141,7 @@ export function getSideBalance(plan: Plan, side: TransactionDirection, currency:
   if (scope === "personal") {
     return plan.transactions
       .filter((item) => item.source === "personal" && item.status !== "settled" && item.direction === side && item.currency === currency)
-      .reduce((sum, item) => sum + safeAmount(item.amountMinor), 0);
+      .reduce((sum, item) => sum + safeAmount(remainingAmountOf(item)), 0);
   }
   const group = plan.groups.find((candidate) => candidate.id === scope);
   if (!group || !Number.isFinite(group.balanceMinor)) return 0;

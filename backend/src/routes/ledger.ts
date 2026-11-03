@@ -14,6 +14,7 @@ import {
   InviteLinkSchema,
   PlanSchema,
   ReviewSettlementSchema,
+  SettlePersonalTransactionSchema,
   SettlePersonalTransactionsSchema,
   MemberSchema,
   UpdateProfileSchema,
@@ -144,10 +145,12 @@ export const ledgerRoutes: FastifyPluginAsyncTypebox = async (fastify) => {
       security: [{ bearerAuth: [] }],
       headers: IdempotencyHeaderSchema,
       params: IdParamsSchema,
+      // Older app versions settle without a body, so accept an empty request as "settle the whole remainder".
+      body: Type.Union([SettlePersonalTransactionSchema, Type.Null()]),
       response: { 204: Type.Null(), ...mutationResponses },
     },
   }, async (request, reply) => {
-    await fastify.ledger.settlePersonalTransaction(request.authUser.id, request.params.id, request.headers["idempotency-key"]);
+    await fastify.ledger.settlePersonalTransaction(request.authUser.id, request.params.id, request.body?.amountMinor, request.headers["idempotency-key"]);
     return reply.code(204).send(null);
   });
 

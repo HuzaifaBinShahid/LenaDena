@@ -85,6 +85,7 @@ export const TransactionSchema = Type.Object({
   note: Type.Optional(Type.String()),
   receiptUri: Type.Optional(Type.String()),
   status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("settled")])),
+  settledAmountMinor: Type.Optional(Type.Integer({ minimum: 0 })),
   settledAt: Type.Optional(Type.String()),
   createdAt: Type.String(),
 });
@@ -199,6 +200,11 @@ export const PersonInviteSchema = Type.Object({
 export const IdParamsSchema = Type.Object({ id: Type.String({ minLength: 1 }) });
 export const SettlePersonalTransactionsSchema = Type.Object({
   transactionIds: Type.Array(Type.String({ format: "uuid" }), { minItems: 1, maxItems: 1000, uniqueItems: true }),
+}, { additionalProperties: false });
+
+/** Omit `amountMinor` to settle everything that is still open on the entry. */
+export const SettlePersonalTransactionSchema = Type.Object({
+  amountMinor: Type.Optional(Type.Integer({ minimum: 1, maximum: 100000000000 })),
 }, { additionalProperties: false });
 
 export const IdempotencyHeaderSchema = Type.Object({

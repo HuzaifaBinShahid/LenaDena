@@ -118,8 +118,8 @@ export class MemoryLedgerRepository implements LedgerRepository {
     { id: "activity-2", groupId: "weekend-crew", icon: "file-text", title: "Dinner at Monal", detail: "Rs 4,800 split with 2 friends", createdAt: "2026-09-11T19:10:00.000Z", tone: "neutral" },
   ];
   private readonly personalTransactions: StoredPersonalTransaction[] = [
-    { id: "personal-1", userId: demoUser.id, source: "personal", title: "Coffee money", eventDate: "2026-09-13", amountMinor: 185000, currency: "PKR", direction: "outgoing", kind: "expense", counterparty: "Ali", personId: demoPersonAliId, status: "open", createdAt: "2026-09-13T08:20:00.000Z" },
-    { id: "personal-2", userId: demoUser.id, source: "personal", title: "Camera loan", eventDate: "2026-09-08", amountMinor: 1200000, currency: "PKR", direction: "incoming", kind: "loan", counterparty: "Ali", personId: demoPersonAliId, status: "settled", settledAt: "2026-09-10T17:45:00.000Z", createdAt: "2026-09-08T17:45:00.000Z" },
+    { id: "personal-1", userId: demoUser.id, source: "personal", title: "Coffee money", eventDate: "2026-09-13", amountMinor: 185000, currency: "PKR", direction: "outgoing", kind: "expense", counterparty: "Ali", personId: demoPersonAliId, status: "open", settledAmountMinor: 0, createdAt: "2026-09-13T08:20:00.000Z" },
+    { id: "personal-2", userId: demoUser.id, source: "personal", title: "Camera loan", eventDate: "2026-09-08", amountMinor: 1200000, currency: "PKR", direction: "incoming", kind: "loan", counterparty: "Ali", personId: demoPersonAliId, status: "settled", settledAmountMinor: 1200000, settledAt: "2026-09-10T17:45:00.000Z", createdAt: "2026-09-08T17:45:00.000Z" },
   ];
   // Matches the seeded individual balances, like the migration's backfill does for existing entries.
   private readonly people: StoredPerson[] = [
@@ -304,6 +304,7 @@ export class MemoryLedgerRepository implements LedgerRepository {
       ...(input.note?.trim() ? { note: input.note.trim() } : {}),
       ...(input.receiptUri ? { receiptUri: input.receiptUri } : {}),
       status: "open",
+      settledAmountMinor: 0,
       createdAt: new Date().toISOString(),
     };
     this.personalTransactions.unshift(transaction);
@@ -312,13 +313,22 @@ export class MemoryLedgerRepository implements LedgerRepository {
     return result;
   }
 
-  async settlePersonalTransaction(userId: string, transactionId: string, idempotencyKey: string): Promise<void> {
+  async settlePersonalTransaction(userId: string, transactionId: string, amountMinor: number | undefined, idempotencyKey: string): Promise<void> {
     const key = `${userId}:${idempotencyKey}`;
     if (this.idempotency.has(key)) return;
     const transaction = this.personalTransactions.find((item) => item.id === transactionId && item.userId === userId);
     if (!transaction) throw new NotFoundError("Individual entry not found");
     if (transaction.status !== "settled") {
-      transaction.status = "settled";
+      const paid = transaction.settledAmountMinor ?? 0;
+      const remaining = Math.max(0, transaction.amountMinor - paid);
+      const amount = amountMinor ?? remaining;
+      if (amount <= 0) throw new DomainError("Enter an amount greater than zero");
+      if (amount > remaining) throw new DomainError("The amount is more than what is left on this entry");
+      transaction.settledAmountMinor = paid + amount;
+      if (transaction.settledAmountMinor >= transaction.amountMinor) {
+        transaction.settledAmountMinor = transaction.amountMinor;
+        transaction.status = "settled";
+      }
       transaction.settledAt = new Date().toISOString();
     }
     this.idempotency.set(key, true);
@@ -337,6 +347,7 @@ export class MemoryLedgerRepository implements LedgerRepository {
     for (const transaction of transactions) {
       if (transaction.status !== "settled") {
         transaction.status = "settled";
+        transaction.settledAmountMinor = transaction.amountMinor;
         transaction.settledAt = settledAt;
       }
     }
