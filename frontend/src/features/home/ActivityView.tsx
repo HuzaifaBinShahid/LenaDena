@@ -14,6 +14,7 @@ import { EntryTile } from "@/components/ui/EntryTile";
 import { GroupAvatar } from "@/components/ui/GroupAvatar";
 import { Icon } from "@/components/ui/Icon";
 import { LedgerList, LedgerRow } from "@/components/ui/LedgerRow";
+import { SettleActions } from "@/components/ui/SettleActions";
 import { SettleEntryModal, type SettleMode } from "@/components/ui/SettleEntryModal";
 import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
@@ -205,9 +206,9 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
 
   const toggleScope = (key: string) => setScope((current) => (current === key ? "all" : key));
 
-  const settleTarget = (amountMinor?: number) => {
-    const item = settlementTarget;
-    if (!item) return;
+  // One path for both buttons: no amount settles everything still open, an amount records a part payment.
+  const settleEntry = (item: TransactionItem, amountMinor?: number) => {
+    if (settlingId) return;
     const counterparty = item.counterparty?.trim() || "them";
     const remaining = remainingAmountOf(item);
     const left = amountMinor === undefined ? 0 : Math.max(0, remaining - amountMinor);
@@ -614,16 +615,14 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
                   <LedgerRow
                     key={key}
                     {...row}
+                    footerFlush
                     footer={(
                       <View style={styles.rowActions}>
-                        <Button
-                          label="Mark settled"
-                          icon="check"
-                          size="md"
-                          variant="secondary"
+                        <SettleActions
+                          title={copy.title}
                           loading={settlingId === item.id}
-                          onPress={() => setSettlementTarget(item)}
-                          accessibilityHint={`Marks ${copy.title} as settled after you confirm`}
+                          onSettle={() => settleEntry(item)}
+                          onCustom={() => setSettlementTarget(item)}
                         />
                         {person ? (
                           <Button
@@ -705,8 +704,8 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
         currency={settlementTarget?.currency ?? "PKR"}
         paidMinor={settlementTarget ? settledAmountOf(settlementTarget) : 0}
         loading={settleMode}
-        onSettleFull={() => settleTarget()}
-        onSettlePartial={(amountMinor) => settleTarget(amountMinor)}
+        onSettleFull={() => settlementTarget && settleEntry(settlementTarget)}
+        onSettlePartial={(amountMinor) => settlementTarget && settleEntry(settlementTarget, amountMinor)}
         onClose={() => {
           if (!settlingId) setSettlementTarget(null);
         }}

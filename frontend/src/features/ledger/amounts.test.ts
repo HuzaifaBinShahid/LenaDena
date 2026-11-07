@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TransactionItem } from "./types";
-import { isPartiallySettled, remainingAmountOf, settledAmountOf } from "./amounts";
+import { describeCustomPayment, isPartiallySettled, remainingAmountOf, settledAmountOf } from "./amounts";
 
 function item(overrides: Partial<TransactionItem> = {}): TransactionItem {
   return {
@@ -44,5 +44,28 @@ describe("partial settlement amounts", () => {
     expect(remainingAmountOf(item({ settledAmountMinor: 400000 }))).toBe(0);
     expect(remainingAmountOf(item({ settledAmountMinor: -500 }))).toBe(200000);
     expect(remainingAmountOf(item({ settledAmountMinor: Number.NaN }))).toBe(200000);
+  });
+});
+
+describe("custom payment amounts", () => {
+  it("waits quietly while the field is empty", () => {
+    expect(describeCustomPayment("", 50000)).toEqual({ amountMinor: 0, valid: false, settlesInFull: false, leftMinor: 50000 });
+    expect(describeCustomPayment("   ", 50000).error).toBeUndefined();
+  });
+
+  it("accepts a smaller amount and says what stays open", () => {
+    expect(describeCustomPayment("200", 50000)).toEqual({ amountMinor: 20000, valid: true, settlesInFull: false, leftMinor: 30000 });
+    expect(describeCustomPayment("1,000.50", 200000)).toMatchObject({ amountMinor: 100050, valid: true, leftMinor: 99950 });
+  });
+
+  it("treats the exact remainder as settling the entry", () => {
+    expect(describeCustomPayment("500", 50000)).toEqual({ amountMinor: 50000, valid: true, settlesInFull: true, leftMinor: 0 });
+  });
+
+  it("rejects zero, negative, unreadable and too-large amounts with a reason", () => {
+    expect(describeCustomPayment("0", 50000)).toMatchObject({ valid: false, error: "Enter an amount greater than zero.", leftMinor: 50000 });
+    expect(describeCustomPayment("-5", 50000)).toMatchObject({ valid: false, error: "Enter an amount greater than zero." });
+    expect(describeCustomPayment("abc", 50000)).toMatchObject({ valid: false, error: "Enter an amount greater than zero." });
+    expect(describeCustomPayment("500.01", 50000)).toMatchObject({ valid: false, error: "That is more than what is still open.", leftMinor: 50000 });
   });
 });

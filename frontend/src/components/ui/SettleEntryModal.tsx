@@ -6,7 +6,8 @@ import { Icon } from "@/components/ui/Icon";
 import { Input } from "@/components/ui/Input";
 import { useScreenObscured } from "@/components/ui/ScreenObscured";
 import { Text } from "@/components/ui/Text";
-import { formatMoney, toMinorUnits } from "@/lib/format";
+import { describeCustomPayment } from "@/features/ledger/amounts";
+import { formatMoney } from "@/lib/format";
 import { shadows } from "@/theme/shadows";
 import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 
@@ -21,7 +22,7 @@ type SettleEntryModalProps = {
   /** The entry's original amount. */
   totalMinor: number;
   currency: string;
-  /** How much was already paid; 0 hides the line. */
+  /** How much was already paid; 0 hides the line and the progress bar. */
   paidMinor?: number;
   loading?: SettleMode | null;
   onSettleFull: () => void;
@@ -29,14 +30,21 @@ type SettleEntryModalProps = {
   onClose: () => void;
 };
 
-function plainAmount(minor: number) {
-  const value = minor / 100;
-  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+/** Exact money for the live hint under the field: `formatMoney` rounds to whole units, which would hide 250.50. */
+function exactMoney(minor: number, currency: string) {
+  const whole = minor % 100 === 0;
+  return new Intl.NumberFormat("en-PK", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(minor / 100);
 }
 
 /**
- * Settling an individual entry: full by default with one tap, or a smaller amount that keeps the rest open.
- * The quick "Full amount" button fills the field so a partial flow never needs mental arithmetic.
+ * The "Custom payment" dialog for an individual entry. The rows already settle everything in one tap, so this is
+ * for the other case: pay a different amount and keep the rest open. The top button is the full-amount shortcut:
+ * it settles right away and never fills the field.
  */
 export function SettleEntryModal({
   visible,
@@ -61,17 +69,21 @@ export function SettleEntryModal({
     if (visible) setAmount("");
   }, [visible, title]);
 
-  const parsed = useMemo(() => toMinorUnits(amount), [amount]);
-  const paymentValid = parsed > 0 && parsed <= remainingMinor;
-  const settlesInFull = parsed > 0 && parsed >= remainingMinor;
-  const amountError = amount.trim() && parsed <= 0
-    ? "Enter an amount greater than zero."
-    : parsed > remainingMinor
-      ? "That is more than what is still open."
-      : undefined;
+  const payment = useMemo(() => describeCustomPayment(amount, remainingMinor), [amount, remainingMinor]);
+  const progress = totalMinor > 0 ? Math.min(100, Math.max(0, (paidMinor / totalMinor) * 100)) : 0;
+  const hint = payment.error
+    ? undefined
+    : payment.settlesInFull
+      ? "This settles the entry in full."
+      : payment.valid
+        ? `${exactMoney(payment.leftMinor, currency)} will stay open.`
+        : `Up to ${exactMoney(remainingMinor, currency)}.`;
 
   const close = () => {
     if (!busy) onClose();
+  };
+  const save = () => {
+    if (payment.valid && !busy) onSettlePartial(payment.amountMinor);
   };
 
   return (
@@ -82,18 +94,16 @@ export function SettleEntryModal({
           <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <Animated.View entering={reduceMotion ? FadeIn.duration(140) : FadeInDown.duration(220)} style={styles.card}>
               <View style={styles.iconWrap}>
-                <Icon name="check-circle" size={29} color={c.violet} />
+                <Icon name="cash" size={27} color={c.violet} />
               </View>
-              <Text accessibilityRole="header" className="mt-5 text-center text-[22px] font-bold tracking-tight text-ink">{title}</Text>
-              <Text className="mt-2 text-center text-[13px] leading-5 text-slate">
-                How much did you pay? Settle it all at once, or record part now and keep the rest open.
-              </Text>
+              <Text accessibilityRole="header" className="mt-4 text-center text-[22px] font-bold tracking-tight text-ink">Custom payment</Text>
+              <Text numberOfLines={2} className="mt-1 text-center text-[13px] leading-5 text-slate">{title}</Text>
 
               <View className="mt-5 rounded-2xl border border-line bg-surface p-4">
                 <View className="flex-row items-end justify-between gap-3">
                   <View className="min-w-0 flex-1">
                     <Text className="text-xs font-semibold uppercase tracking-wider text-slate">Still open</Text>
-                    <Text className="mt-1 text-2xl font-bold tracking-tight text-ink">{formatMoney(remainingMinor, currency)}</Text>
+                    <Text className="mt-1 text-[28px] font-bold tracking-tight text-ink">{formatMoney(remainingMinor, currency)}</Text>
                   </View>
                   {paidMinor > 0 ? (
                     <Text className="text-right text-[11px] leading-4 text-slate">
@@ -101,47 +111,63 @@ export function SettleEntryModal({
                     </Text>
                   ) : null}
                 </View>
+                {paidMinor > 0 ? (
+                  <View style={styles.track} accessible={false}>
+                    <View style={[styles.fill, { width: `${progress}%` }]} />
+                  </View>
+                ) : null}
               </View>
 
-              <View className="mt-5 gap-2">
-                <Text className="text-sm font-bold text-ink">Amount paid now</Text>
-                <Input
-                  value={amount}
-                  onChangeText={setAmount}
-                  placeholder={plainAmount(remainingMinor)}
-                  keyboardType="decimal-pad"
-                  leadingIcon="credit-card"
-                  invalid={Boolean(amountError)}
-                />
+              <View className="mt-5">
                 <Button
-                  label={`Full amount · ${formatMoney(remainingMinor, currency)}`}
-                  icon="arrow-up-right"
-                  size="sm"
-                  variant="secondary"
-                  onPress={() => setAmount(plainAmount(remainingMinor))}
-                />
-                {amountError ? <Text className="text-xs font-semibold text-coral">{amountError}</Text> : null}
-              </View>
-
-              <View className="mt-6 gap-2">
-                <Button
-                  label="Mark fully settled"
+                  label={`Full amount (${formatMoney(remainingMinor, currency)})`}
                   icon="check-circle"
+                  size="lg"
                   fullWidth
                   loading={loading === "full"}
                   disabled={busy}
                   onPress={onSettleFull}
                   accessibilityHint="Settles everything that is still open on this entry"
                 />
+              </View>
+
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text className="text-xs font-semibold text-slate">or record a custom amount</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <View className="gap-2">
+                <Input
+                  value={amount}
+                  onChangeText={setAmount}
+                  placeholder={`Amount in ${currency}`}
+                  accessibilityLabel="Amount paid now"
+                  keyboardType="decimal-pad"
+                  returnKeyType="done"
+                  onSubmitEditing={save}
+                  leadingIcon="credit-card"
+                  invalid={Boolean(payment.error)}
+                />
+                <Text
+                  accessibilityLiveRegion="polite"
+                  className={`min-h-4 px-1 text-xs ${payment.error ? "font-semibold text-coral" : "text-slate"}`}
+                >
+                  {payment.error ?? hint}
+                </Text>
+              </View>
+
+              <View className="mt-4 gap-1">
                 <Button
-                  label={settlesInFull ? "Save full payment" : "Save partial payment"}
+                  label="Record payment"
                   icon="check"
+                  size="lg"
                   variant="secondary"
                   fullWidth
                   loading={loading === "partial"}
-                  disabled={busy || !paymentValid}
-                  onPress={() => onSettlePartial(parsed)}
-                  accessibilityHint={settlesInFull ? "Records the full remaining amount and settles this entry" : "Records the amount entered and keeps the remainder open"}
+                  disabled={busy || !payment.valid}
+                  onPress={save}
+                  accessibilityHint={payment.settlesInFull ? "Records the full remaining amount and settles this entry" : "Records the amount entered and keeps the remainder open"}
                 />
                 <Button label="Cancel" variant="ghost" fullWidth disabled={busy} onPress={close} />
               </View>
@@ -179,12 +205,35 @@ const useStyles = makeStyles((c, { isDark }) => ({
     ...shadows.sheet,
   },
   iconWrap: {
-    width: 62,
-    height: 62,
+    width: 56,
+    height: 56,
     alignSelf: "center",
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 22,
+    borderRadius: 20,
     backgroundColor: c.violetSoft,
+  },
+  track: {
+    height: 6,
+    marginTop: 14,
+    overflow: "hidden",
+    borderRadius: 3,
+    backgroundColor: c.line,
+  },
+  fill: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: c.violet,
+  },
+  divider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginVertical: 18,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: c.line,
   },
 }));

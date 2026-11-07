@@ -14,6 +14,7 @@ import { EntryTile } from "@/components/ui/EntryTile";
 import { Icon } from "@/components/ui/Icon";
 import { LedgerList, LedgerRow } from "@/components/ui/LedgerRow";
 import { Screen } from "@/components/ui/Screen";
+import { SettleActions } from "@/components/ui/SettleActions";
 import { SettleEntryModal, type SettleMode } from "@/components/ui/SettleEntryModal";
 import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
@@ -109,9 +110,9 @@ export default function PersonScreen() {
   const first = personFirstName(person.name);
   const added = person.createdAt ? /^\d{4}-\d{2}-\d{2}/.exec(person.createdAt)?.[0] : undefined;
 
-  const settle = (amountMinor?: number) => {
-    const item = settleTarget;
-    if (!item) return;
+  // One path for both buttons: no amount settles everything still open, an amount records a part payment.
+  const settle = (item: TransactionItem, amountMinor?: number) => {
+    if (settlingId) return;
     const remaining = remainingAmountOf(item);
     const left = amountMinor === undefined ? 0 : Math.max(0, remaining - amountMinor);
     setSettlingId(item.id);
@@ -174,7 +175,7 @@ export default function PersonScreen() {
                   {createElement(NativeText, { accessibilityRole: "header", numberOfLines: 1, style: styles.monthLabel }, month.month ? formatMonth(month.month, "long", true) : "Undated")}
                   {createElement(NativeText, { numberOfLines: 1, style: styles.monthCount }, plural(month.items.length, "entry", "entries"))}
                 </View>
-                <EntryList items={month.items} today={today} settlingId={settlingId} onSettle={setSettleTarget} />
+                <EntryList items={month.items} today={today} settlingId={settlingId} onSettle={settle} onCustom={setSettleTarget} />
               </View>
             ))}
           </View>
@@ -189,8 +190,8 @@ export default function PersonScreen() {
         currency={settleTarget?.currency ?? "PKR"}
         paidMinor={settleTarget ? settledAmountOf(settleTarget) : 0}
         loading={settleMode}
-        onSettleFull={() => settle()}
-        onSettlePartial={(amountMinor) => settle(amountMinor)}
+        onSettleFull={() => settleTarget && settle(settleTarget)}
+        onSettlePartial={(amountMinor) => settleTarget && settle(settleTarget, amountMinor)}
         onClose={() => {
           if (!settlingId) setSettleTarget(null);
         }}
@@ -276,7 +277,7 @@ function InviteSection({ person }: { person: Person }) {
   );
 }
 
-function EntryList({ items, today, settlingId, onSettle }: { items: TransactionItem[]; today: string; settlingId: string | null; onSettle: (item: TransactionItem) => void }) {
+function EntryList({ items, today, settlingId, onSettle, onCustom }: { items: TransactionItem[]; today: string; settlingId: string | null; onSettle: (item: TransactionItem) => void; onCustom: (item: TransactionItem) => void }) {
   return (
     <LedgerList>
       {items.map((item, index) => {
@@ -292,15 +293,13 @@ function EntryList({ items, today, settlingId, onSettle }: { items: TransactionI
             status={copy.status}
             divider={index > 0}
             accessibilityLabel={copy.accessibilityLabel}
+            footerFlush
             footer={copy.canSettle ? (
-              <Button
-                label="Mark settled"
-                icon="check"
-                size="md"
-                variant="secondary"
+              <SettleActions
+                title={copy.title}
                 loading={settlingId === item.id}
-                onPress={() => onSettle(item)}
-                accessibilityHint={`Marks ${copy.title} as settled after you confirm`}
+                onSettle={() => onSettle(item)}
+                onCustom={() => onCustom(item)}
               />
             ) : undefined}
           />

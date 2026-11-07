@@ -24,7 +24,13 @@ type Base = {
 /** A row is either pressable (with an optional chevron) or static (with an optional footer), never both, so buttons never nest in a Touch. */
 export type LedgerRowProps =
   | (Base & { onPress: () => void; chevron?: boolean; footer?: never })
-  | (Base & { onPress?: undefined; chevron?: never; footer?: ReactNode });
+  | (Base & {
+    onPress?: undefined;
+    chevron?: never;
+    footer?: ReactNode;
+    /** Start the footer at the row's left padding instead of under the title, for button pairs that need the width. */
+    footerFlush?: boolean;
+  });
 
 function dotColor(tone: StatusTone, c: Palette) {
   return tone === "positive" ? c.mint : tone === "warning" ? c.gold : tone === "danger" ? c.coral : c.muted;
@@ -108,7 +114,7 @@ export function LedgerRow(props: LedgerRowProps) {
     hairline,
     // Only the row itself is one accessible element; the footer stays outside it so its buttons remain reachable.
     createElement(View, { accessible: true, accessibilityLabel, accessibilityHint }, content),
-    props.footer ? createElement(View, { style: styles.footer }, props.footer) : null,
+    props.footer ? createElement(View, { style: [styles.footer, props.footerFlush && styles.footerFlush] }, props.footer) : null,
   );
 }
 
@@ -214,6 +220,9 @@ const useStyles = makeStyles((c) => ({
     paddingLeft: 78,
     paddingRight: 16,
     paddingBottom: 12,
+  },
+  footerFlush: {
+    paddingLeft: 16,
   },
   listShadow: {
     borderRadius: 22,
