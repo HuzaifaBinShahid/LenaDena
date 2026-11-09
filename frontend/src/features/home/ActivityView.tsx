@@ -46,6 +46,7 @@ import { useLedger } from "@/features/ledger/LedgerProvider";
 import { remainingAmountOf, settledAmountOf } from "@/features/ledger/amounts";
 import { getPlanState } from "@/features/ledger/planState";
 import { describeTransaction, personLink } from "@/features/ledger/rowCopy";
+import { useShare } from "@/features/share/useShare";
 import type { TransactionDirection, TransactionItem, TransactionKind, TransactionStatus } from "@/features/ledger/types";
 import { errorMessage } from "@/lib/api";
 import { chartX } from "@/lib/curve";
@@ -100,6 +101,7 @@ function isGroupScope(scope: string) {
 
 export function ActivityView({ onAddEntry }: HomeTabProps) {
   const { plan, connection, refresh, settlePersonalTransaction } = useLedger();
+  const { shareEntry, sharing } = useShare();
   const { colors: c } = useTheme();
   const styles = useStyles();
   const toast = useToast();
@@ -634,6 +636,15 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
                             accessibilityHint={person.hint}
                           />
                         ) : null}
+                        <Button
+                          label="Share"
+                          icon="share"
+                          size="md"
+                          variant="ghost"
+                          loading={sharing === `entry:${item.id}`}
+                          onPress={() => void shareEntry(item, item.counterparty)}
+                          accessibilityHint={`Opens the share sheet with a message about ${copy.title}`}
+                        />
                       </View>
                     )}
                   />

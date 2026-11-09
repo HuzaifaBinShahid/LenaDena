@@ -108,8 +108,8 @@ describe("SupabaseLedgerRepository people", () => {
 
   it("serves people with the plan and signs every photo in one storage request", async () => {
     const people: Person[] = [
-      { id: ALI, name: "Ali", avatarPath: `${USER}/ali.jpg`, createdAt: "2026-09-08T17:45:00+00:00" },
-      { id: BILAL, name: "Bilal", email: "bilal@example.com", createdAt: "2026-09-09T10:00:00+00:00" },
+      { id: ALI, name: "Ali", avatarPath: `${USER}/ali.jpg`, emailUpdates: true, reminderFrequency: "off", createdAt: "2026-09-08T17:45:00+00:00" },
+      { id: BILAL, name: "Bilal", email: "bilal@example.com", emailUpdates: true, reminderFrequency: "off", createdAt: "2026-09-09T10:00:00+00:00" },
     ];
     const { fake, repository } = await setup({ ...planHandlers, app_get_people: () => ({ status: 200, body: people }) });
     const plan = await repository.getPlan(USER);
@@ -176,7 +176,7 @@ describe("SupabaseLedgerRepository people", () => {
   });
 
   it("removes a replaced or deleted photo, and sends explicit presence flags", async () => {
-    const people: Person[] = [{ id: ALI, name: "Ali", email: "ali@example.com", avatarPath: `${USER}/old.jpg`, createdAt: "2026-09-08T17:45:00+00:00" }];
+    const people: Person[] = [{ id: ALI, name: "Ali", email: "ali@example.com", avatarPath: `${USER}/old.jpg`, emailUpdates: true, reminderFrequency: "off", createdAt: "2026-09-08T17:45:00+00:00" }];
     const { fake, repository } = await setup({
       app_get_people: () => ({ status: 200, body: people }),
       app_update_person: ({ p_payload: payload }) => {
@@ -196,9 +196,9 @@ describe("SupabaseLedgerRepository people", () => {
     });
 
     const replaced = await repository.updatePerson(USER, ALI, { avatarPath: `${USER}/new.jpg` });
-    expect(replaced).toEqual({ id: ALI, name: "Ali", email: "ali@example.com", avatarPath: `${USER}/new.jpg`, avatarUrl: fake.signed(`${USER}/new.jpg`), createdAt: "2026-09-08T17:45:00+00:00" });
+    expect(replaced).toEqual({ id: ALI, name: "Ali", email: "ali@example.com", avatarPath: `${USER}/new.jpg`, avatarUrl: fake.signed(`${USER}/new.jpg`), emailUpdates: true, reminderFrequency: "off", createdAt: "2026-09-08T17:45:00+00:00" });
     expect(fake.rpcCalls.find((item) => item.name === "app_update_person")?.args.p_payload)
-      .toEqual({ updateName: false, name: null, updateEmail: false, email: null, updateAvatar: true, avatarPath: `${USER}/new.jpg` });
+      .toEqual({ updateName: false, name: null, updateEmail: false, email: null, updateAvatar: true, avatarPath: `${USER}/new.jpg`, updateEmailUpdates: false, emailUpdates: null, updateReminderFrequency: false, reminderFrequency: null });
     expect(fake.removed).toEqual([[`${USER}/old.jpg`]]);
 
     await repository.updatePerson(USER, ALI, { name: "Ali Raza" });
@@ -227,5 +227,112 @@ describe("SupabaseLedgerRepository people", () => {
     }
     const missing = await setup({});
     await expect(missing.repository.invitePerson(USER, ALI, null)).rejects.toMatchObject({ statusCode: 503, code: "people_unavailable" });
+  });
+});
+
+const ENTRY = "7f3e1c9a-5d4b-4a0c-9e8f-4b9d0a6c3e25";
+const entryInput = { title: "Lunch", eventDate: "2026-11-10", amountMinor: 50000, currency: "PKR", kind: "expense", direction: "outgoing", counterparty: "Ali", personId: ALI } as const;
+
+describe("SupabaseLedgerRepository person emails", () => {
+  it("fills in the email settings for rows from a database without migration 202611100010", async () => {
+    const { repository } = await setup({ ...planHandlers, app_get_people: () => ({ status: 200, body: [{ id: ALI, name: "Ali", createdAt: "2026-09-08T17:45:00+00:00" }] }) });
+    const plan = await repository.getPlan(USER);
+    expect(plan.people[0]).toMatchObject({ emailUpdates: true, reminderFrequency: "off" });
+  });
+
+  it("returns the email decision with the new entry, and never fails the entry over email", async () => {
+    const decision = { action: "ask", personId: ALI, personName: "Ali", email: "ali@example.com" };
+    const created = await setup({ app_create_personal_transaction: () => ({ status: 200, body: ENTRY }), app_notify_new_entry: () => ({ status: 200, body: decision }) });
+    await expect(created.repository.createPersonalTransaction(USER, entryInput, "entry-key-0001")).resolves.toEqual({ id: ENTRY, email: decision });
+    expect(created.fake.rpcCalls.at(-1)).toEqual({ name: "app_notify_new_entry", args: { p_actor: USER, p_transaction: ENTRY } });
+
+    // A database without the migration, a failing function and an unreadable answer all leave a plain saved entry.
+    const older = await setup({ app_create_personal_transaction: () => ({ status: 200, body: ENTRY }) });
+    await expect(older.repository.createPersonalTransaction(USER, entryInput, "entry-key-0002")).resolves.toEqual({ id: ENTRY });
+    expect(older.warnings).toEqual([]);
+    const failing = await setup({ app_create_personal_transaction: () => ({ status: 200, body: ENTRY }), app_notify_new_entry: () => raised("boom") });
+    await expect(failing.repository.createPersonalTransaction(USER, entryInput, "entry-key-0003")).resolves.toEqual({ id: ENTRY });
+    expect(failing.warnings).toEqual(["app_notify_new_entry failed: boom"]);
+    const odd = await setup({ app_create_personal_transaction: () => ({ status: 200, body: ENTRY }), app_notify_new_entry: () => ({ status: 200, body: { action: "launch" } }) });
+    await expect(odd.repository.createPersonalTransaction(USER, entryInput, "entry-key-0004")).resolves.toEqual({ id: ENTRY });
+  });
+
+  it("sends the new settings with explicit flags and rejects an unknown reminder schedule", async () => {
+    const people: Person[] = [{ id: ALI, name: "Ali", email: "ali@example.com", ...{ emailUpdates: false, reminderFrequency: "weekly" as const }, createdAt: "2026-09-08T17:45:00+00:00" }];
+    const { fake, repository } = await setup({ app_get_people: () => ({ status: 200, body: people }), app_update_person: () => ({ status: 204 }) });
+    const updated = await repository.updatePerson(USER, ALI, { emailUpdates: false, reminderFrequency: "weekly" });
+    expect(updated).toMatchObject({ emailUpdates: false, reminderFrequency: "weekly" });
+    expect(updated.statementQueued).toBeUndefined();
+    expect(fake.rpcCalls.find((item) => item.name === "app_update_person")?.args.p_payload)
+      .toMatchObject({ updateEmailUpdates: true, emailUpdates: false, updateReminderFrequency: true, reminderFrequency: "weekly", updateName: false });
+    await expect(repository.updatePerson(USER, ALI, { reminderFrequency: "daily" as never })).rejects.toMatchObject({ statusCode: 400, code: "invalid_reminder_frequency" });
+  });
+
+  it("emails the full statement when an address is added to someone who had none", async () => {
+    let calls = 0;
+    const withEmail: Person = { id: ALI, name: "Ali", email: "ali@example.com", emailUpdates: true, reminderFrequency: "off", createdAt: "2026-09-08T17:45:00+00:00" };
+    const withoutEmail: Person = { id: ALI, name: "Ali", emailUpdates: true, reminderFrequency: "off", createdAt: "2026-09-08T17:45:00+00:00" };
+    const { fake, repository } = await setup({
+      // Before the edit Ali has no email; after it, one.
+      app_get_people: () => ({ status: 200, body: [calls++ === 0 ? withoutEmail : withEmail] }),
+      app_update_person: () => ({ status: 204 }),
+      app_queue_person_email: () => ({ status: 200, body: "2026-11-10T09:00:00+00:00" }),
+    });
+    const result = await repository.updatePerson(USER, ALI, { email: "ali@example.com" });
+    expect(result.statementQueued).toBe(true);
+    expect(fake.rpcCalls.at(-1)).toEqual({ name: "app_queue_person_email", args: { p_actor: USER, p_person: ALI, p_kind: "statement", p_transaction: null } });
+  });
+
+  it("does not email a statement when updates are off, the person already had an email, or there is nothing to send", async () => {
+    const make = (before: Partial<Person>, after: Partial<Person>, queue: () => Reply) => {
+      let calls = 0;
+      const base = { id: ALI, name: "Ali", emailUpdates: true, reminderFrequency: "off" as const, createdAt: "2026-09-08T17:45:00+00:00" };
+      return setup({
+        app_get_people: () => ({ status: 200, body: [{ ...base, ...(calls++ === 0 ? before : after) }] }),
+        app_update_person: () => ({ status: 204 }),
+        app_queue_person_email: queue,
+      });
+    };
+    const optedOut = await make({}, { email: "ali@example.com", emailUpdates: false }, () => ({ status: 200, body: "2026-11-10T09:00:00+00:00" }));
+    expect((await optedOut.repository.updatePerson(USER, ALI, { email: "ali@example.com" })).statementQueued).toBeUndefined();
+    expect(optedOut.fake.rpcCalls.some((item) => item.name === "app_queue_person_email")).toBe(false);
+
+    const hadEmail = await make({ email: "old@example.com" }, { email: "new@example.com" }, () => ({ status: 200, body: "2026-11-10T09:00:00+00:00" }));
+    expect((await hadEmail.repository.updatePerson(USER, ALI, { email: "new@example.com" })).statementQueued).toBeUndefined();
+    expect(hadEmail.fake.rpcCalls.some((item) => item.name === "app_queue_person_email")).toBe(false);
+
+    for (const message of ["no_entries", "email_recently_sent"]) {
+      const skipped = await make({}, { email: "ali@example.com" }, () => raised(message));
+      const result = await skipped.repository.updatePerson(USER, ALI, { email: "ali@example.com" });
+      expect(result.statementQueued).toBeUndefined();
+      expect(skipped.warnings).toEqual([]);
+    }
+    const oldSchema = await make({}, { email: "ali@example.com" }, () => ({ status: 404, body: { code: "PGRST202", details: null, hint: null, message: "missing" } }));
+    expect((await oldSchema.repository.updatePerson(USER, ALI, { email: "ali@example.com" })).statementQueued).toBeUndefined();
+  });
+
+  it("emails a statement or an entry through app_queue_person_email and maps its errors", async () => {
+    const { fake, repository } = await setup({ app_queue_person_email: () => ({ status: 200, body: "2026-11-10T09:00:00.123456+00:00" }) });
+    await expect(repository.emailPerson(USER, ALI, "statement", undefined)).resolves.toEqual({ queuedAt: "2026-11-10T09:00:00.123Z" });
+    expect(fake.rpcCalls.at(-1)).toEqual({ name: "app_queue_person_email", args: { p_actor: USER, p_person: ALI, p_kind: "statement", p_transaction: null } });
+    await repository.emailPerson(USER, ALI, "entry", ENTRY);
+    expect(fake.rpcCalls.at(-1)?.args).toEqual({ p_actor: USER, p_person: ALI, p_kind: "entry", p_transaction: ENTRY });
+    await expect(repository.emailPerson(USER, ALI, "entry", undefined)).rejects.toMatchObject({ statusCode: 400, code: "transaction_required" });
+    await expect(repository.emailPerson(USER, "not-a-uuid", "statement", undefined)).rejects.toMatchObject({ statusCode: 404, code: "person_not_found" });
+    expect(fake.rpcCalls).toHaveLength(2);
+
+    for (const [message, statusCode, code] of [
+      ["person_not_found", 404, "person_not_found"],
+      ["person_has_no_email", 400, "person_has_no_email"],
+      ["email_recently_sent", 429, "email_recently_sent"],
+      ["email_limit_reached", 429, "email_limit_reached"],
+      ["no_entries", 400, "no_entries"],
+      ["transaction_not_found", 404, "transaction_not_found"],
+    ] as const) {
+      const failing = await setup({ app_queue_person_email: () => raised(message) });
+      await expect(failing.repository.emailPerson(USER, ALI, "statement", undefined)).rejects.toMatchObject({ statusCode, code });
+    }
+    const missing = await setup({});
+    await expect(missing.repository.emailPerson(USER, ALI, "statement", undefined)).rejects.toMatchObject({ statusCode: 503, code: "email_unavailable" });
   });
 });

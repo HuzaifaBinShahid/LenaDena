@@ -17,8 +17,30 @@ const LOGO = "email-logo.png";
 
 type Sample = Omit<NotificationInput, "tone">;
 
+/** A snapshot shaped like private.person_snapshot (supabase/migrations/202611100010_person_emails.sql). */
+const personSnapshot = {
+  personId: "5d1c9a7e-3b2f-4e8a-9c6d-2f7b8e4a1c03",
+  personName: "Ali Raza",
+  ownerId: "2b7e4f60-1c3d-4a58-9e0b-6f1a2d3c4b5e",
+  ownerName: "Huzaifa Bin Shahid",
+  ownerEmail: "huzaifa@example.com",
+  generatedAt: "2026-11-10T09:30:00.000Z",
+  entryCount: 4,
+  openCount: 3,
+  entries: [
+    { id: "e4", title: "Camera rental", eventDate: "2026-11-08", amountMinor: 450000, paidMinor: 0, currency: "PKR", direction: "incoming", kind: "loan", status: "open", note: "Back on the 15th, as agreed." },
+    { id: "e3", title: "Dinner at Kolachi", eventDate: "2026-10-02", amountMinor: 240000, paidMinor: 0, currency: "PKR", direction: "outgoing", kind: "expense", status: "open" },
+    { id: "e2", title: "Coffee money", eventDate: "2026-09-13", amountMinor: 185000, paidMinor: 50000, currency: "PKR", direction: "outgoing", kind: "expense", status: "open" },
+    { id: "e1", title: "Camera loan", eventDate: "2026-09-08", amountMinor: 1200000, paidMinor: 1200000, currency: "PKR", direction: "incoming", kind: "loan", status: "settled" },
+  ],
+  totals: [{ currency: "PKR", personOwesMinor: 450000, ownerOwesMinor: 375000 }],
+};
+
 /** Payloads shaped exactly like today's outbox rows, so the previews show what people will receive. */
 const samples: Record<(typeof notificationEventTypes)[number], Sample> = {
+  person_entry: { eventType: "person_entry", recipientName: "Friend", recipientEmail: "ali@example.com", groupName: "your group", payload: { ...personSnapshot, newEntries: [personSnapshot.entries[0]] } },
+  person_statement: { eventType: "person_statement", recipientName: "Friend", recipientEmail: "ali@example.com", groupName: "your group", payload: personSnapshot },
+  person_reminder: { eventType: "person_reminder", recipientName: "Friend", recipientEmail: "ali@example.com", groupName: "your group", payload: { ...personSnapshot, frequency: "weekly" } },
   person_invite: { eventType: "person_invite", recipientName: "Friend", recipientEmail: "mani@example.com", groupName: "your group", payload: { personId: "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", personName: "Mani Ahmed", inviterName: "Huzaifa Bin Shahid", downloadUrl: "https://i.loadly.io/lenadena" } },
   group_invite: { eventType: "group_invite", recipientName: "Friend", recipientEmail: "ali@example.com", groupName: "Weekend crew", payload: { url: "lenadena://invite/9c1f4e2ab7d04c6f8e3a1b5d7c9e0f2a4b6c8d0e1f3a5b7c" } },
   expense_added: { eventType: "expense_added", recipientName: "Sara Khan", recipientEmail: "sara@example.com", groupName: "Weekend crew", payload: { expenseId: "0b7c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d", eventName: "Dinner at Kolachi", amountMinor: 240000, currency: "PKR" } },
@@ -31,6 +53,18 @@ const samples: Record<(typeof notificationEventTypes)[number], Sample> = {
 
 /** Optional payload fields, long text and hostile input, to check the layout holds up. */
 const extras: Array<{ name: string; input: NotificationInput }> = [
+  {
+    name: "person_entry-several-added-together",
+    input: { eventType: "person_entry", tone: "friendly", recipientName: "Friend", recipientEmail: "ali@example.com", groupName: "your group", payload: { ...personSnapshot, newEntries: personSnapshot.entries.slice(0, 3) } },
+  },
+  {
+    name: "person_statement-all-settled",
+    input: { eventType: "person_statement", tone: "friendly", recipientName: "Friend", recipientEmail: "ali@example.com", groupName: "your group", payload: { ...personSnapshot, openCount: 0, totals: [], entries: personSnapshot.entries.slice(3) } },
+  },
+  {
+    name: "person_reminder-two-currencies-monthly",
+    input: { eventType: "person_reminder", tone: "friendly", recipientName: "Friend", recipientEmail: "ali@example.com", groupName: "your group", payload: { ...personSnapshot, frequency: "monthly", totals: [{ currency: "PKR", personOwesMinor: 450000, ownerOwesMinor: 0 }, { currency: "USD", personOwesMinor: 0, ownerOwesMinor: 2500 }] } },
+  },
   {
     name: "person_invite-no-download-link",
     input: { eventType: "person_invite", tone: "friendly", recipientName: "Friend", recipientEmail: "mani@example.com", groupName: "your group", payload: { personId: "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", personName: "Mani", inviterName: "Huzaifa", downloadUrl: null } },

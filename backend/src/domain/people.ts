@@ -1,5 +1,5 @@
 import { DomainError } from "./errors.js";
-import type { CreatePersonInput, UpdatePersonInput } from "./types.js";
+import type { CreatePersonInput, ReminderFrequency, UpdatePersonInput } from "./types.js";
 
 export const PERSON_NAME_MAX_LENGTH = 80;
 export const PERSON_EMAIL_MAX_LENGTH = 254;
@@ -38,6 +38,31 @@ export class PersonHasNoEmailError extends DomainError {
 export class InviteRecentlySentError extends DomainError {
   constructor() {
     super("An invite already went to this person in the last 12 hours.", 429, "invite_recently_sent");
+  }
+}
+
+export class EmailRecentlySentError extends DomainError {
+  constructor() {
+    super("A statement already went to this person in the last 5 minutes.", 429, "email_recently_sent");
+  }
+}
+
+export class EmailLimitReachedError extends DomainError {
+  constructor() {
+    super("You've reached today's limit of emails to people. Try again tomorrow.", 429, "email_limit_reached");
+  }
+}
+
+export class PersonHasNoEntriesError extends DomainError {
+  constructor() {
+    super("There are no entries with this person yet, so there is nothing to send.", 400, "no_entries");
+  }
+}
+
+/** Emailing statements and entries needs migration 202611100010 (the older people RPCs are not enough). */
+export class EmailUnavailableError extends DomainError {
+  constructor() {
+    super("Emailing people needs the latest database update (migration 202611100010).", 503, "email_unavailable");
   }
 }
 
@@ -80,6 +105,20 @@ export function resolveInviteDownloadUrl(configured: string | undefined, suggest
   const url = cleanHttpsUrl(suggested);
   return url && DOWNLOAD_LINK_HOSTS.has(url.hostname.toLowerCase()) ? url.href : null;
 }
+
+/** An email asked for by id must name a transaction (an entry email) or none (a statement). */
+export const transactionRequired = () => new DomainError("Choose the entry to email.", 400, "transaction_required");
+export const transactionNotFound = () => new DomainError("This entry is not in your history with this person.", 404, "transaction_not_found");
+export const invalidReminderFrequency = () => new DomainError("Reminders can be off, weekly or monthly.", 400, "invalid_reminder_frequency");
+
+export const REMINDER_FREQUENCIES: readonly ReminderFrequency[] = ["off", "weekly", "monthly"];
+
+/** Statement cooldown per person, matching app_queue_person_email. */
+export const STATEMENT_COOLDOWN_MS = 5 * 60 * 1000;
+/** Entries added this close together go out as one email (private.queue_person_email waits 90 seconds). */
+export const ENTRY_EMAIL_DELAY_MS = 90 * 1000;
+/** Emails an owner can queue to people per rolling day. */
+export const DAILY_PERSON_EMAIL_LIMIT = 100;
 
 export const invalidPersonName = () => new DomainError(`Enter a name of 1 to ${PERSON_NAME_MAX_LENGTH} characters.`, 400, "invalid_person_name");
 export const invalidPersonEmail = () => new DomainError("Enter a valid email address, or leave it empty.", 400, "invalid_email");
@@ -152,6 +191,8 @@ export type PersonChanges = {
   name?: string;
   email?: string | null;
   avatarPath?: string | null;
+  emailUpdates?: boolean;
+  reminderFrequency?: ReminderFrequency;
 };
 
 export function cleanPersonChanges(userId: string, input: UpdatePersonInput, options: AvatarPathOptions = {}): PersonChanges {
@@ -159,5 +200,13 @@ export function cleanPersonChanges(userId: string, input: UpdatePersonInput, opt
     ...(input.name !== undefined ? { name: cleanPersonName(input.name) } : {}),
     ...(Object.hasOwn(input, "email") ? { email: cleanPersonEmail(input.email) } : {}),
     ...(Object.hasOwn(input, "avatarPath") ? { avatarPath: cleanAvatarPath(userId, input.avatarPath, options) } : {}),
+    ...(typeof input.emailUpdates === "boolean" ? { emailUpdates: input.emailUpdates } : {}),
+    ...(input.reminderFrequency !== undefined ? { reminderFrequency: cleanReminderFrequency(input.reminderFrequency) } : {}),
   };
+}
+
+export function cleanReminderFrequency(value: string): ReminderFrequency {
+  const found = REMINDER_FREQUENCIES.find((item) => item === value);
+  if (!found) throw invalidReminderFrequency();
+  return found;
 }

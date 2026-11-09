@@ -13,6 +13,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { AuthProvider } from "@/features/auth/AuthProvider";
+import { EntryEmailPromptHost } from "@/components/people/EntryEmailPromptHost";
 import { LedgerProvider } from "@/features/ledger/LedgerProvider";
 import { SplashTransition } from "@/components/brand/SplashTransition";
 import { PreferencesProvider } from "@/features/preferences/PreferencesProvider";
@@ -57,6 +58,7 @@ export default function RootLayout() {
                   <AppLockProvider canPrompt={!showTransition}>
                     <StatusBar style="auto" />
                     <ThemedStack />
+                    <EntryEmailPromptHost />
                   </AppLockProvider>
                 </LedgerProvider>
               </AuthProvider>

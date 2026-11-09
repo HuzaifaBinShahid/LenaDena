@@ -8,6 +8,7 @@ import { BalanceChip } from "@/components/people/BalanceChip";
 import { InviteCard, InviteRow } from "@/components/people/InviteCard";
 import { PersonAvatar } from "@/components/people/PersonAvatar";
 import { PersonHeroCard } from "@/components/people/PersonHeroCard";
+import { StatementCard } from "@/components/people/StatementCard";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { EntryTile } from "@/components/ui/EntryTile";
@@ -35,6 +36,7 @@ import {
 import { addBalanceHref, peopleHref, personFormHref } from "@/features/people/routes";
 import { usePeopleList } from "@/features/people/usePeople";
 import { usePersonInvite } from "@/features/people/usePersonInvite";
+import { useShare } from "@/features/share/useShare";
 import { errorMessage } from "@/lib/api";
 import { dateToIso, formatDayMonth, formatLongDate, formatMoney, formatMonth, todayDate } from "@/lib/format";
 import { makeStyles } from "@/theme/ThemeProvider";
@@ -50,6 +52,7 @@ function plural(count: number, one: string, many: string) {
 export default function PersonScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { plan, connection, refresh, settlePersonalTransaction, settlePersonalTransactions } = useLedger();
+  const { shareEntry, sharing } = useShare();
   const toast = useToast();
   const styles = useStyles();
   const [settleTarget, setSettleTarget] = useState<TransactionItem | null>(null);
@@ -149,6 +152,7 @@ export default function PersonScreen() {
     <Screen>
       <PageHeader title="Person" subtitle={added ? `Added ${formatLongDate(added)} · private to you` : "Private to you"} />
       <Hero summary={summary} />
+      <StatementCard person={person} entries={entries} />
       <InviteSection person={person} />
 
       <View style={shape.history}>
@@ -175,7 +179,7 @@ export default function PersonScreen() {
                   {createElement(NativeText, { accessibilityRole: "header", numberOfLines: 1, style: styles.monthLabel }, month.month ? formatMonth(month.month, "long", true) : "Undated")}
                   {createElement(NativeText, { numberOfLines: 1, style: styles.monthCount }, plural(month.items.length, "entry", "entries"))}
                 </View>
-                <EntryList items={month.items} today={today} settlingId={settlingId} onSettle={settle} onCustom={setSettleTarget} />
+                <EntryList items={month.items} today={today} settlingId={settlingId} sharingId={sharing} onSettle={settle} onCustom={setSettleTarget} onShare={(item) => void shareEntry(item, person.name)} />
               </View>
             ))}
           </View>
@@ -277,7 +281,18 @@ function InviteSection({ person }: { person: Person }) {
   );
 }
 
-function EntryList({ items, today, settlingId, onSettle, onCustom }: { items: TransactionItem[]; today: string; settlingId: string | null; onSettle: (item: TransactionItem) => void; onCustom: (item: TransactionItem) => void }) {
+type EntryListProps = {
+  items: TransactionItem[];
+  today: string;
+  settlingId: string | null;
+  /** The `useShare` key in flight, so the entry being shared shows a spinner. */
+  sharingId: string | null;
+  onSettle: (item: TransactionItem) => void;
+  onCustom: (item: TransactionItem) => void;
+  onShare: (item: TransactionItem) => void;
+};
+
+function EntryList({ items, today, settlingId, sharingId, onSettle, onCustom, onShare }: EntryListProps) {
   return (
     <LedgerList>
       {items.map((item, index) => {
@@ -294,14 +309,27 @@ function EntryList({ items, today, settlingId, onSettle, onCustom }: { items: Tr
             divider={index > 0}
             accessibilityLabel={copy.accessibilityLabel}
             footerFlush
-            footer={copy.canSettle ? (
-              <SettleActions
-                title={copy.title}
-                loading={settlingId === item.id}
-                onSettle={() => onSettle(item)}
-                onCustom={() => onCustom(item)}
-              />
-            ) : undefined}
+            footer={(
+              <View style={shape.entryFooter}>
+                {copy.canSettle ? (
+                  <SettleActions
+                    title={copy.title}
+                    loading={settlingId === item.id}
+                    onSettle={() => onSettle(item)}
+                    onCustom={() => onCustom(item)}
+                  />
+                ) : null}
+                <Button
+                  label="Share"
+                  icon="share"
+                  size="sm"
+                  variant="ghost"
+                  loading={sharingId === `entry:${item.id}`}
+                  onPress={() => onShare(item)}
+                  accessibilityHint={`Opens the share sheet with a message about ${copy.title}`}
+                />
+              </View>
+            )}
           />
         );
       })}
@@ -465,6 +493,9 @@ const useStyles = makeStyles((c) => ({
 }));
 
 const shape = StyleSheet.create({
+  entryFooter: {
+    gap: 2,
+  },
   identity: {
     alignItems: "center",
     paddingTop: 4,

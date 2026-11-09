@@ -112,8 +112,40 @@ export type Person = {
   avatarUrl?: string;
   /** Storage path of the photo, so a client can keep it when editing. */
   avatarPath?: string;
+  /** Email them when an entry is added (needs an email address). On by default. */
+  emailUpdates: boolean;
+  /** How often they are emailed a reminder of what is still open. */
+  reminderFrequency: ReminderFrequency;
   createdAt: string;
 };
+
+export type ReminderFrequency = "off" | "weekly" | "monthly";
+
+/**
+ * What the API did about email when an entry was created:
+ * - `sent`: they already had something open, so an email about the new entry was queued;
+ * - `ask`: they had nothing open before, so the app asks whether to email them (`POST /v1/people/:id/email`);
+ * - `none`: no email address, updates are off for them, or the daily limit was reached.
+ */
+export type EntryEmailDecision = {
+  action: "sent" | "ask" | "none";
+  personId?: string;
+  personName?: string;
+  email?: string;
+  reason?: string;
+};
+
+export type CreatedPersonalTransaction = {
+  id: string;
+  /** Absent when the database could not decide (older schema) or the entry has no saved person. */
+  email?: EntryEmailDecision;
+};
+
+/** What a client can ask to have emailed to a saved person right now. */
+export type PersonEmailKind = "statement" | "entry";
+
+/** A saved person after an edit; `statementQueued` is true when adding their email sent them the full statement. */
+export type PersonUpdate = Person & { statementQueued?: boolean };
 
 export type Plan = {
   user: Member;
@@ -185,4 +217,6 @@ export type UpdatePersonInput = {
   name?: string;
   email?: string | null;
   avatarPath?: string | null;
+  emailUpdates?: boolean;
+  reminderFrequency?: ReminderFrequency;
 };

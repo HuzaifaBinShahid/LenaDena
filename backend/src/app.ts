@@ -49,7 +49,13 @@ export async function buildApp(options: BuildOptions = {}) {
   await app.register(sensible);
   await app.register(helmet, { contentSecurityPolicy: config.nodeEnv === "production" });
   await app.register(multipart, { limits: { files: 1, fileSize: 5 * 1024 * 1024, fields: 0, parts: 1 } });
-  await app.register(cors, { origin: config.corsOrigin === "*" ? true : config.corsOrigin.split(",").map((origin) => origin.trim()), credentials: config.corsOrigin !== "*" });
+  // @fastify/cors only allows GET, HEAD and POST by default, which makes browsers refuse every PATCH and DELETE
+  // (editing or removing a person from the web build). Native apps are not subject to CORS.
+  await app.register(cors, {
+    origin: config.corsOrigin === "*" ? true : config.corsOrigin.split(",").map((origin) => origin.trim()),
+    credentials: config.corsOrigin !== "*",
+    methods: ["GET", "HEAD", "POST", "PATCH", "DELETE"],
+  });
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute", keyGenerator: (request) => request.authUser?.id ?? request.ip });
   await app.register(swagger, {
     openapi: {

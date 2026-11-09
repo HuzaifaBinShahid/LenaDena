@@ -1,6 +1,7 @@
 import type { BadgeTone } from "./brand.js";
-import { cleanText, firstName, formatEmailDate, formatMoney } from "./format.js";
+import { cleanText, firstName, formatEmailDate, formatMoney, formatShortEmailDate } from "./format.js";
 import { renderEmailHtml, renderEmailText, type DetailRow, type EmailModel } from "./layout.js";
+import { netPosition, parseStatement, remainingOf, type StatementData, type StatementEntry } from "./statement.js";
 
 export type EmailTone = "friendly" | "cheeky" | "chaos" | "quiet";
 
@@ -19,6 +20,10 @@ export type NotificationInput = {
    * and expiresAt (invite expiry). person_invite reads personName (greeting, "You're tracked as"), inviterName
    * and downloadUrl (https only; without it the email has no button). Anything else, including proof or receipt
    * paths, is ignored.
+   *
+   * person_statement, person_entry and person_reminder go to a saved person (no account) and read a snapshot the
+   * database took when it queued them: ownerName, personName, ownerEmail (reply-to), entries, totals, entryCount,
+   * openCount, generatedAt, plus newEntries (entry) and frequency (reminder). See ./statement.ts.
    */
   payload: Record<string, unknown>;
 };
@@ -97,6 +102,12 @@ type Context = {
   personName?: string;
   inviter?: string;
   downloadUrl?: string;
+  /** person_statement / person_entry / person_reminder: the snapshot, the owner's first name, and what the email is about. */
+  statement?: StatementData;
+  owner?: string;
+  ownerEmail?: string;
+  newEntries?: StatementEntry[];
+  frequency?: "weekly" | "monthly";
 };
 
 /** An app route ("settlement/<id>", "?tab=activity", "" for home) or a URL from the payload. */
@@ -109,7 +120,11 @@ type EventDefinition = {
   heading(context: Context): string;
   extra?(context: Context): string[];
   amountLabel?: string;
+  /** Replaces the amount highlight (events whose figure is not a single `amountMinor`). */
+  highlight?(context: Context): { label: string; value: string } | undefined;
   details(context: Context): Array<DetailRow | undefined>;
+  /** Titled row lists under the details card; undefined items are skipped. */
+  sections?(context: Context): Array<{ heading: string; rows: DetailRow[] } | undefined>;
   /** Replaces the tone phrase (events whose recipient has no account, so no tone preference). */
   intro?(context: Context): string;
   /** Undefined means no button (and no fallback link). */
@@ -142,7 +157,140 @@ function hostOf(url: string) {
   }
 }
 
+
+// --- Emails to a saved person ------------------------------------------------------------------------------------
+// The reader is the PERSON, not the account owner, so every direction is flipped: an entry the owner marked
+// `incoming` (the person owes the owner) reads "You owe <owner>".
+
+function ownerOf(c: Context) {
+  return c.owner ?? "your friend";
+}
+
+function positionRows(c: Context): DetailRow[] {
+  const owner = ownerOf(c);
+  return (c.statement?.totals ?? []).flatMap((total): DetailRow[] => {
+    const net = netPosition(total);
+    const money = formatMoney(net.amountMinor, total.currency);
+    if (net.side === "even" || !money) return [{ label: `${total.currency} balance`, value: "All square" }];
+    return [{ label: net.side === "personOwes" ? `You owe ${owner}` : `${owner} owes you`, value: money }];
+  });
+}
+
+/** The biggest single figure first: the currency with the largest difference leads the email. */
+function headlinePosition(c: Context): { label: string; value: string } | undefined {
+  const owner = ownerOf(c);
+  const ranked = (c.statement?.totals ?? [])
+    .map((total) => ({ total, net: netPosition(total) }))
+    .filter((item) => item.net.side !== "even")
+    .sort((left, right) => right.net.amountMinor - left.net.amountMinor);
+  const lead = ranked[0];
+  if (!lead) return undefined;
+  const value = formatMoney(lead.net.amountMinor, lead.total.currency);
+  if (!value) return undefined;
+  return { label: lead.net.side === "personOwes" ? `You owe ${owner}` : `${owner} owes you`, value };
+}
+
+function entryRow(entry: StatementEntry, owner: string, reference?: string): DetailRow {
+  const open = remainingOf(entry);
+  const label = `${entry.title} · ${formatShortEmailDate(entry.eventDate, reference) ?? entry.eventDate}`;
+  const who = entry.direction === "incoming" ? "You owe" : `${owner} owes`;
+  if (open === 0) return { label, value: `Settled · ${formatMoney(entry.amountMinor, entry.currency) ?? ""}`.trim() };
+  const left = formatMoney(open, entry.currency) ?? "";
+  const partly = entry.paidMinor > 0 ? ` (of ${formatMoney(entry.amountMinor, entry.currency) ?? ""})` : "";
+  return { label, value: `${who} ${left}${partly}` };
+}
+
+function replyNote(c: Context) {
+  return c.ownerEmail ? [`Questions? Just reply to this email: it goes to ${ownerOf(c)}.`] : [];
+}
+
+function personFooter(c: Context, what: string) {
+  return [
+    `You're getting this because ${ownerOf(c)} saved ${c.recipientEmail ?? "your email address"} in their LenaDena people and ${what}. LenaDena only records what two people track; it never moves money. If you don't know them, you can ignore this email.`,
+  ];
+}
+
 const events = {
+  person_entry: {
+    subject: (c) => {
+      const entries = c.newEntries ?? [];
+      return entries.length === 1 && entries[0]
+        ? `${ownerOf(c)} added "${entries[0].title}" to your account`
+        : `${ownerOf(c)} added ${entries.length || "new"} entries to your account`;
+    },
+    preheader: (c) => {
+      const lead = headlinePosition(c);
+      return lead ? `${lead.label}: ${lead.value}. See what changed.` : `${ownerOf(c)} updated what you owe each other.`;
+    },
+    badge: { glyph: "+", tone: "violet" },
+    heading: (c) => ((c.newEntries?.length ?? 0) > 1 ? `${ownerOf(c)} added new entries` : `New entry from ${ownerOf(c)}`),
+    intro: (c) => `${ownerOf(c)} added ${(c.newEntries?.length ?? 0) > 1 ? "new entries" : "a new entry"} to what you owe each other on LenaDena. Here is what changed.`,
+    extra: () => ["No action needed: this is just so you both see the same figures."],
+    highlight: (c) => {
+      const only = c.newEntries?.length === 1 ? c.newEntries[0] : undefined;
+      const value = only ? formatMoney(only.amountMinor, only.currency) : undefined;
+      return only && value ? { label: `${only.title} · ${only.direction === "incoming" ? `You owe ${ownerOf(c)}` : `${ownerOf(c)} owes you`}`, value } : undefined;
+    },
+    details: (c) => {
+      const only = c.newEntries?.length === 1 ? c.newEntries[0] : undefined;
+      if (!only) return [];
+      return [row("Date", formatEmailDate(only.eventDate)), row("Type", only.kind === "loan" ? "Loan" : "Expense"), row("Note", only.note, true)];
+    },
+    sections: (c) => [
+      (c.newEntries?.length ?? 0) > 1 ? { heading: "What was added", rows: (c.newEntries ?? []).map((entry) => entryRow(entry, ownerOf(c), c.statement?.generatedAt)) } : undefined,
+      { heading: "Where things stand", rows: [...positionRows(c), ...(c.statement ? [{ label: "Open entries", value: String(c.statement.openCount) }] : [])] },
+    ],
+    cta: () => undefined,
+    notes: replyNote,
+    footer: (c) => personFooter(c, "added an entry with you"),
+  },
+  person_statement: {
+    subject: (c) => `Your statement with ${ownerOf(c)}`,
+    preheader: (c) => {
+      const lead = headlinePosition(c);
+      return lead ? `${lead.label}: ${lead.value}. The complete statement is attached as a PDF.` : `The complete statement with ${ownerOf(c)} is attached as a PDF.`;
+    },
+    badge: { glyph: "≡", tone: "violet" },
+    heading: (c) => `Your statement with ${ownerOf(c)}`,
+    intro: (c) => `${ownerOf(c)} sent you the complete account of what you owe each other. Every entry is in the attached PDF, which you can keep or forward.`,
+    extra: (c) => (c.statement && c.statement.openCount === 0 ? ["Everything between you is settled."] : []),
+    highlight: (c) => headlinePosition(c),
+    details: (c) => [
+      ...positionRows(c).slice(headlinePosition(c) ? 1 : 0),
+      row("Entries in total", c.statement ? String(c.statement.entryCount) : undefined),
+      row("Still open", c.statement ? String(c.statement.openCount) : undefined),
+      row("As of", formatEmailDate(c.statement?.generatedAt)),
+    ],
+    sections: (c) => {
+      const open = (c.statement?.entries ?? []).filter((entry) => entry.status === "open");
+      const shown = (open.length > 0 ? open : c.statement?.entries ?? []).slice(0, 8);
+      const total = open.length > 0 ? open.length : c.statement?.entryCount ?? 0;
+      return [{ heading: open.length > 0 ? `Still open${total > shown.length ? ` · latest ${shown.length} of ${total}` : ""}` : "Latest entries", rows: shown.map((entry) => entryRow(entry, ownerOf(c), c.statement?.generatedAt)) }];
+    },
+    cta: () => undefined,
+    notes: (c) => ["The PDF is attached to this email.", ...replyNote(c)],
+    footer: (c) => personFooter(c, "sent you the full statement"),
+  },
+  person_reminder: {
+    subject: (c) => `Reminder: what's still open with ${ownerOf(c)}`,
+    preheader: (c) => {
+      const lead = headlinePosition(c);
+      return lead ? `${lead.label}: ${lead.value}.` : `A reminder of what's still open with ${ownerOf(c)}.`;
+    },
+    badge: { glyph: "↻", tone: "gold" },
+    heading: () => "A friendly reminder",
+    intro: (c) => `${ownerOf(c)} set LenaDena to remind you ${c.frequency === "monthly" ? "every month" : "every week"} of what is still open between you. Already settled it? Let ${ownerOf(c)} know and they'll mark it done.`,
+    highlight: (c) => headlinePosition(c),
+    details: (c) => positionRows(c).slice(headlinePosition(c) ? 1 : 0),
+    sections: (c) => {
+      const open = (c.statement?.entries ?? []).filter((entry) => entry.status === "open").slice(0, 10);
+      const total = c.statement?.openCount ?? open.length;
+      return [{ heading: `Still open${total > open.length ? ` · latest ${open.length} of ${total}` : ""}`, rows: open.map((entry) => entryRow(entry, ownerOf(c), c.statement?.generatedAt)) }];
+    },
+    cta: () => undefined,
+    notes: (c) => [`Only ${ownerOf(c)} can change or stop these reminders.`, ...replyNote(c)],
+    footer: (c) => personFooter(c, `chose to send you ${c.frequency === "monthly" ? "monthly" : "weekly"} reminders`),
+  },
   person_invite: {
     subject: (c) => `${c.inviter ?? "A friend"} invited you to LenaDena`,
     preheader: (c) => `${c.inviter ?? "A friend"} uses LenaDena to keep track of what you owe each other. It never moves money.`,
@@ -280,9 +428,9 @@ function buildContext(input: NotificationInput): Context {
   const group = groupName && groupName.toLowerCase() !== PLACEHOLDER_GROUP ? groupName : undefined;
   const recipientName = cleanText(input.recipientName, 80);
   // An invited person has no account yet (the worker says "Friend"), so greet them by the name they were saved under.
-  const invitedName = input.eventType === "person_invite" ? cleanText(payload.personName, 80) : undefined;
+  const invitedName = input.eventType.startsWith("person_") ? cleanText(payload.personName, 80) : undefined;
   const greetingName = recipientName && recipientName !== PLACEHOLDER_NAME ? firstName(recipientName) : invitedName ? firstName(invitedName) : undefined;
-  const values: Array<[keyof Context, string | undefined]> = [
+  const values: Array<[Exclude<keyof Context, "statement" | "newEntries" | "frequency">, string | undefined]> = [
     ["group", group],
     ["greetingName", greetingName],
     ["recipientEmail", cleanText(input.recipientEmail, 254)],
@@ -302,6 +450,15 @@ function buildContext(input: NotificationInput): Context {
   ];
   const context: Context = { groupLabel: group ?? PLACEHOLDER_GROUP };
   for (const [key, value] of values) if (value) context[key] = value;
+  if (input.eventType === "person_statement" || input.eventType === "person_entry" || input.eventType === "person_reminder") {
+    const statement = parseStatement(payload);
+    context.statement = statement;
+    context.owner = firstName(statement.ownerName) || "your friend";
+    const ownerEmail = cleanText(payload.ownerEmail, 254);
+    if (ownerEmail && /^[^\s@]+@[^\s@]+$/.test(ownerEmail)) context.ownerEmail = ownerEmail;
+    if (input.eventType === "person_entry") context.newEntries = parseStatement({ entries: payload.newEntries }).entries;
+    if (input.eventType === "person_reminder") context.frequency = payload.frequency === "monthly" ? "monthly" : "weekly";
+  }
   return context;
 }
 
@@ -318,14 +475,21 @@ export function buildNotificationModel(input: NotificationInput, options: Render
   const url = cta ? resolveLink(cta.link, normalizeBase(options.linkBaseUrl)) : undefined;
   const webLink = url ? /^https?:/i.test(url) : false;
   const details = definition.details(context).filter((item): item is DetailRow => item !== undefined);
+  const sections = (definition.sections?.(context) ?? []).filter((item): item is { heading: string; rows: DetailRow[] } => item !== undefined && item.rows.length > 0);
   const model: EmailModel = {
     title: subject,
     preheader: definition.preheader(context),
     badge: definition.badge,
     heading: definition.heading(context),
     paragraphs: [`Hi ${context.greetingName ?? "there"},`, definition.intro?.(context) ?? tonePhrase(input.tone, input.eventType), ...(definition.extra?.(context) ?? [])],
-    ...(context.amount && definition.amountLabel ? { highlight: { label: definition.amountLabel, value: context.amount } } : {}),
+    ...(definition.highlight
+      ? (() => {
+          const value = definition.highlight(context);
+          return value ? { highlight: value } : {};
+        })()
+      : context.amount && definition.amountLabel ? { highlight: { label: definition.amountLabel, value: context.amount } } : {}),
     details,
+    ...(sections.length > 0 ? { sections } : {}),
     ...(cta && url
       ? {
           cta: { label: cta.label, url },

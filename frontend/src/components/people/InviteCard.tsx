@@ -43,22 +43,31 @@ type InviteRowProps = {
   trailing: ReactNode;
   /** Dims the icon and text (the trailing control handles its own disabled state). */
   muted?: boolean;
+  /** Full-width content under the row, for a control too wide for the right-hand side (a choice of three, say). */
+  footer?: ReactNode;
 };
 
-export function InviteRow({ icon, title, detail, trailing, muted = false }: InviteRowProps) {
+export function InviteRow({ icon, title, detail, trailing, muted = false, footer }: InviteRowProps) {
   const { colors: c, isDark } = useTheme();
   const styles = useStyles();
-  return (
-    <View style={shape.row}>
+  const row = (
+    <View style={[shape.row, footer ? shape.rowWithFooter : null]}>
       <View style={[styles.iconTile, muted && styles.iconTileMuted]}>
         {/* Violet text-size glyphs drop below 4.5:1 on the dark tiles, so they switch to lavender there. */}
         <Icon name={icon} size={21} color={muted ? c.muted : isDark ? c.lavender : c.violet} />
       </View>
       <View style={shape.copy}>
         {createElement(NativeText, { numberOfLines: 1, style: [styles.rowTitle, muted && styles.rowTitleMuted] }, title)}
-        {createElement(NativeText, { numberOfLines: 2, style: styles.rowDetail }, detail)}
+        {createElement(NativeText, { numberOfLines: 3, style: styles.rowDetail }, detail)}
       </View>
       {trailing}
+    </View>
+  );
+  if (!footer) return row;
+  return (
+    <View>
+      {row}
+      <View style={shape.footer}>{footer}</View>
     </View>
   );
 }
@@ -132,6 +141,13 @@ const shape = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
+  },
+  rowWithFooter: {
+    paddingBottom: 10,
+  },
+  footer: {
+    paddingHorizontal: 16,
+    paddingBottom: 14,
   },
   copy: {
     flex: 1,

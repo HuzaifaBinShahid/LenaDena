@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emailTones, notificationEventTypes, renderNotification, type EmailTone, type NotificationInput } from "./templates.js";
+import { buildNotificationModel, emailTones, notificationEventTypes, renderNotification, type EmailTone, type NotificationInput } from "./templates.js";
 
 const NBSP = String.fromCharCode(160);
 const PKR_2400 = `Rs${NBSP}2,400`;
@@ -44,7 +44,10 @@ describe("notification templates", () => {
       "payment_confirmed",
       "payment_needs_attention",
       "payment_self_confirmed",
+      "person_entry",
       "person_invite",
+      "person_reminder",
+      "person_statement",
     ]);
   });
 
@@ -252,6 +255,146 @@ describe("notification templates", () => {
       expect(message.html).not.toContain("<b>Mani</b>");
       expect(message.html).toContain("Hi &lt;b&gt;Mani&lt;/b&gt;,");
       expect(message.html).toContain("&lt;script&gt;");
+    });
+  });
+});
+
+describe("emails to a saved person", () => {
+  const owner = { ownerId: "o1", ownerName: "Huzaifa Bin Shahid", ownerEmail: "huzaifa@example.com", personId: "p1", personName: "Ali Raza" };
+  // Directions are the owner's: incoming = Ali owes Huzaifa, outgoing = Huzaifa owes Ali.
+  const camera = { id: "e4", title: "Camera rental", eventDate: "2026-11-08", amountMinor: 450000, paidMinor: 0, currency: "PKR", direction: "incoming", kind: "loan", status: "open", note: "Back on the 15th." };
+  const dinner = { id: "e3", title: "Dinner at Kolachi", eventDate: "2026-10-02", amountMinor: 240000, paidMinor: 0, currency: "PKR", direction: "outgoing", kind: "expense", status: "open" };
+  const coffee = { id: "e2", title: "Coffee money", eventDate: "2026-09-13", amountMinor: 185000, paidMinor: 50000, currency: "PKR", direction: "outgoing", kind: "expense", status: "open" };
+  const loan = { id: "e1", title: "Camera loan", eventDate: "2026-09-08", amountMinor: 1200000, paidMinor: 1200000, currency: "PKR", direction: "incoming", kind: "loan", status: "settled" };
+  const snapshot = { ...owner, generatedAt: "2026-11-10T09:30:00.000Z", entryCount: 4, openCount: 3, entries: [camera, dinner, coffee, loan], totals: [{ currency: "PKR", personOwesMinor: 450000, ownerOwesMinor: 375000 }] };
+  const input = (eventType: string, payload: Record<string, unknown>) => ({ eventType, tone: "friendly" as const, recipientName: "Friend", recipientEmail: "ali@example.com", groupName: "your group", payload });
+  // The app's money format has a no-break space ("Rs 750"); compare with a normal one so the expectations read plainly.
+  const plainSpaces = <T,>(value: T): T => JSON.parse(JSON.stringify(value).replaceAll(String.fromCharCode(160), " ")) as T;
+  const build = (eventType: string, payload: Record<string, unknown>) => {
+    const built = buildNotificationModel(input(eventType, payload));
+    return { subject: built.subject, model: plainSpaces(built.model) };
+  };
+  const rowsOf = (model: ReturnType<typeof buildNotificationModel>["model"], heading: string) => model.sections?.find((item) => item.heading.startsWith(heading))?.rows ?? [];
+
+  describe("person_entry", () => {
+    it("tells them about one new entry from their side", () => {
+      const { subject, model } = build("person_entry", { ...snapshot, newEntries: [camera] });
+      expect(subject).toBe('Huzaifa added "Camera rental" to your account');
+      expect(model.heading).toBe("New entry from Huzaifa");
+      expect(model.paragraphs[0]).toBe("Hi Ali,");
+      expect(model.paragraphs[1]).toContain("Huzaifa added a new entry");
+      expect(model.highlight).toEqual({ label: "Camera rental · You owe Huzaifa", value: "Rs 4,500" });
+      expect(model.details).toEqual([
+        { label: "Date", value: "8 November 2026" },
+        { label: "Type", value: "Loan" },
+        { label: "Note", value: "Back on the 15th.", stacked: true },
+      ]);
+      // 4,500 owed to Huzaifa minus 3,750 he owes: Ali owes him 750.
+      expect(rowsOf(model, "Where things stand")).toEqual([{ label: "You owe Huzaifa", value: "Rs 750" }, { label: "Open entries", value: "3" }]);
+      expect(model.cta).toBeUndefined();
+    });
+
+    it("lists every entry added together", () => {
+      const { subject, model } = build("person_entry", { ...snapshot, newEntries: [camera, dinner, coffee] });
+      expect(subject).toBe("Huzaifa added 3 entries to your account");
+      expect(model.heading).toBe("Huzaifa added new entries");
+      expect(model.highlight).toBeUndefined();
+      expect(rowsOf(model, "What was added")).toEqual([
+        { label: "Camera rental · 8 Nov", value: "You owe Rs 4,500" },
+        { label: "Dinner at Kolachi · 2 Oct", value: "Huzaifa owes Rs 2,400" },
+        { label: "Coffee money · 13 Sep", value: "Huzaifa owes Rs 1,350 (of Rs 1,850)" },
+      ]);
+    });
+  });
+
+  describe("person_statement", () => {
+    it("sends the complete account, with the biggest figure first and the PDF mentioned", () => {
+      const { subject, model } = build("person_statement", snapshot);
+      expect(subject).toBe("Your statement with Huzaifa");
+      expect(model.preheader).toContain("attached as a PDF");
+      expect(model.highlight).toEqual({ label: "You owe Huzaifa", value: "Rs 750" });
+      expect(model.details).toEqual([
+        { label: "Entries in total", value: "4" },
+        { label: "Still open", value: "3" },
+        { label: "As of", value: "10 November 2026" },
+      ]);
+      expect(rowsOf(model, "Still open").map((item) => item.value)).toEqual(["You owe Rs 4,500", "Huzaifa owes Rs 2,400", "Huzaifa owes Rs 1,350 (of Rs 1,850)"]);
+      expect(model.notes?.[0]).toBe("The PDF is attached to this email.");
+    });
+
+    it("says when everything is settled", () => {
+      const { model } = build("person_statement", { ...snapshot, openCount: 0, totals: [], entries: [loan] });
+      expect(model.paragraphs.join(" ")).toContain("Everything between you is settled.");
+      expect(model.highlight).toBeUndefined();
+      expect(rowsOf(model, "Latest entries")).toEqual([{ label: "Camera loan · 8 Sep", value: "Settled · Rs 12,000" }]);
+    });
+
+    it("breaks a second currency out and caps a long list", () => {
+      const many = Array.from({ length: 12 }, (_, index) => ({ ...dinner, id: `m${index}`, title: `Open ${index}` }));
+      const { model } = build("person_statement", {
+        ...snapshot,
+        openCount: 12,
+        entryCount: 12,
+        entries: many,
+        totals: [{ currency: "PKR", personOwesMinor: 450000, ownerOwesMinor: 0 }, { currency: "USD", personOwesMinor: 0, ownerOwesMinor: 2500 }],
+      });
+      expect(model.highlight).toEqual({ label: "You owe Huzaifa", value: "Rs 4,500" });
+      expect(model.details?.[0]).toEqual({ label: "Huzaifa owes you", value: expect.stringContaining("25") });
+      const open = model.sections?.find((item) => item.heading.startsWith("Still open"));
+      expect(open?.heading).toBe("Still open · latest 8 of 12");
+      expect(open?.rows).toHaveLength(8);
+    });
+  });
+
+  it("keeps the year on entries from an earlier year", () => {
+    const { model } = build("person_statement", { ...snapshot, entries: [{ ...loan, eventDate: "2025-12-30", status: "open", paidMinor: 0 }] });
+    expect(rowsOf(model, "Still open")[0]?.label).toBe("Camera loan · 30 Dec 2025");
+  });
+
+  describe("person_reminder", () => {
+    it("reminds them how often, and who can stop it", () => {
+      const weekly = build("person_reminder", { ...snapshot, frequency: "weekly" });
+      expect(weekly.subject).toBe("Reminder: what's still open with Huzaifa");
+      expect(weekly.model.heading).toBe("A friendly reminder");
+      expect(weekly.model.paragraphs[1]).toContain("every week");
+      expect(weekly.model.notes?.[0]).toBe("Only Huzaifa can change or stop these reminders.");
+      expect(weekly.model.footer[0]).toContain("weekly reminders");
+      expect(build("person_reminder", { ...snapshot, frequency: "monthly" }).model.paragraphs[1]).toContain("every month");
+      // Settled entries are not part of a reminder.
+      expect(rowsOf(weekly.model, "Still open").map((item) => item.label)).not.toContain("Camera loan · 8 Sep");
+    });
+  });
+
+  describe.each(["person_entry", "person_statement", "person_reminder"])("%s", (eventType) => {
+    const payload = { ...snapshot, newEntries: [camera], frequency: "weekly" };
+
+    it("points replies at the account owner only when it has their address", () => {
+      expect(build(eventType, payload).model.notes).toContain("Questions? Just reply to this email: it goes to Huzaifa.");
+      const { ownerEmail: _removed, ...without } = payload;
+      expect(build(eventType, without).model.notes?.join(" ")).not.toContain("reply to this email");
+      expect(build(eventType, { ...payload, ownerEmail: "not an address" }).model.notes?.join(" ")).not.toContain("reply to this email");
+    });
+
+    it("explains why they got it and never claims to move money", () => {
+      const { model } = build(eventType, payload);
+      expect(model.footer[0]).toContain("Huzaifa saved ali@example.com in their LenaDena people");
+      expect(model.footer[0]).toContain("it never moves money");
+      expect(model.cta).toBeUndefined();
+    });
+
+    it("escapes hostile names and titles in the HTML and keeps a plain-text version", () => {
+      const hostile = { ...payload, ownerName: "<script>alert(1)</script> Mallory", entries: [{ ...camera, title: '"><img src=x onerror=alert(1)>' }], newEntries: [{ ...camera, title: '"><img src=x onerror=alert(1)>' }] };
+      const rendered = renderNotification(input(eventType, hostile));
+      expect(rendered.html).not.toContain("<script>");
+      expect(rendered.html).not.toContain("<img src=x");
+      expect(rendered.text).toContain("Hi Ali,");
+      expect(rendered.html).toContain("</html>");
+    });
+
+    it("survives an empty or broken snapshot", () => {
+      const rendered = renderNotification(input(eventType, { personName: "Ali", ownerName: "Huzaifa", entries: "nope", totals: [{ currency: "XX" }, null], newEntries: 5 }));
+      expect(rendered.subject.length).toBeGreaterThan(0);
+      expect(rendered.html).toContain("Hi Ali,");
     });
   });
 });

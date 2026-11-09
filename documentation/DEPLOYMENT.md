@@ -14,6 +14,8 @@ Apply `202609140005_pgcrypto_search_path.sql` next (SQL editor or Supabase CLI).
 
 Then apply `202609180007_people.sql` (it includes 0006's column, so 0006 is optional before it; running 0006 first is also fine) (People: saved people, `person_id` on individual entries, backfilled from existing counterparties). 0007 needs 0006. If the new functions still answer "not found" afterwards, run `notify pgrst, 'reload schema';`. Until 0007 is applied the app keeps working: the plan returns no people and saving a person reports that the database needs the update.
 
+Then apply `202611100010_person_emails.sql` (emails to people: per-person switches, the statement email with its PDF, new-entry notes, weekly and monthly reminders). It needs 0007 and `202611030009`. Redeploy the notification worker with it: the worker now depends on `pdfkit` and bundles the Manrope fonts under `dist/notifications/assets/fonts` (the `build` script copies them). Emails only leave the building when `SMTP_HOST` is configured; without it the worker just logs them. Until the migration is applied the app keeps working and the email buttons answer that the database needs the update.
+
 ### App download link and invites
 
 Share-invite messages and invite emails link to the Loadly page `https://loadly.io/kzM0n7qg` by default (the app sends it with each invite; the API accepts Loadly links). When the app moves to Google Play, set `EXPO_PUBLIC_APP_DOWNLOAD_URL` in `frontend/.env.local` (restart Metro with `--clear`, rebuild) and/or `APP_DOWNLOAD_URL` in `backend/.env` (wins for emails). Invite and notification emails are only delivered while the worker runs with SMTP configured (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`).

@@ -3,6 +3,7 @@ import { Type } from "@sinclair/typebox";
 import {
   CreateExpenseSchema,
   CreateGroupSchema,
+  CreatedPersonalTransactionSchema,
   CreatePersonalTransactionSchema,
   CreateSettlementSchema,
   ErrorSchema,
@@ -132,7 +133,7 @@ export const ledgerRoutes: FastifyPluginAsyncTypebox = async (fastify) => {
       security: [{ bearerAuth: [] }],
       headers: IdempotencyHeaderSchema,
       body: CreatePersonalTransactionSchema,
-      response: { 201: IdResponseSchema, ...mutationResponses },
+      response: { 201: CreatedPersonalTransactionSchema, ...mutationResponses },
     },
   }, async (request, reply) => {
     const transaction = await fastify.ledger.createPersonalTransaction(request.authUser.id, request.body, request.headers["idempotency-key"]);

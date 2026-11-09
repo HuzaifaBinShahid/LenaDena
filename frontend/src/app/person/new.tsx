@@ -156,8 +156,12 @@ export default function PersonFormScreen() {
           ...(photoChanged ? { avatarUri: photoUri } : {}),
         };
         if (Object.keys(changes).length) {
-          await updatePerson(existing.id, changes);
-          toast.success("Saved", `${first}'s details are up to date.`);
+          const updated = await updatePerson(existing.id, changes);
+          // Adding an email to someone who had none emails them the complete statement (when their updates are on).
+          toast.success(
+            updated.statementQueued ? `Saved, and ${first}'s statement is on its way` : "Saved",
+            updated.statementQueued ? `${updated.email ?? "They"} will get every entry with a PDF attached.` : `${first}'s details are up to date.`,
+          );
         }
         setFinished(true);
         router.back();
@@ -282,7 +286,7 @@ export default function PersonFormScreen() {
             <Button label={`Open ${personFirstName(clash.name)}`} icon="arrow-right" iconSide="right" variant="ghost" size="sm" onPress={() => router.replace(personHref(clash.id))} />
           </View>
         ) : null}
-        <Field label="Email" hint={existing ? "Optional. Only you can see it." : "Optional. Only you can see it; add it to email them an invite."} error={submitted ? emailError : undefined}>
+        <Field label="Email" hint={existing ? (existing.email ? "Optional. Only you can see it." : "Optional. Adding it emails them their full statement with a PDF.") : "Optional. Only you can see it; add it to email them an invite."} error={submitted ? emailError : undefined}>
           <Input
             ref={emailRef}
             value={email}

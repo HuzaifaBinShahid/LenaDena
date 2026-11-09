@@ -21,6 +21,8 @@ export type EmailModel = {
   /** A large figure at the top of the details card: an amount, or a one-time code. */
   highlight?: { label: string; value: string; kind?: "amount" | "code" };
   details?: DetailRow[];
+  /** Titled lists under the details card: entries, balances. Each renders as its own small card. */
+  sections?: Array<{ heading: string; rows: DetailRow[] }>;
   cta?: { label: string; url: string };
   /** The CTA link again as text, for clients that break buttons. */
   fallback?: { lead: string; url: string };
@@ -153,6 +155,11 @@ function panel(highlight: EmailModel["highlight"], details: DetailRow[]) {
   return `<table role="presentation" class="ld-panel" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${L.panel}" style="width:100%;background-color:${L.panel};border:1px solid ${L.line};border-radius:16px;border-collapse:separate;">${rows.join("")}</table>`;
 }
 
+function section(value: NonNullable<EmailModel["sections"]>[number]) {
+  const title = `<p class="ld-muted" style="${textStyle(12, 16, L.slate, "font-weight:800;letter-spacing:1px;text-transform:uppercase;", "0 0 8px")}">${escapeHtml(value.heading)}</p>`;
+  return `${title}${panel(undefined, value.rows)}`;
+}
+
 function button(cta: NonNullable<EmailModel["cta"]>) {
   // mso-padding-alt sizes the button in Outlook for Windows, which ignores padding on links.
   return `<table role="presentation" class="ld-btn" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" bgcolor="${L.violet}" style="border-radius:12px;background-color:${L.violet};mso-padding-alt:14px 30px;"><a class="ld-btn-link" href="${escapeHtml(cta.url)}" target="_blank" rel="noopener" style="display:inline-block;padding:14px 30px;font-family:${FONT};font-size:16px;line-height:22px;font-weight:700;color:${L.onViolet};text-decoration:none;text-align:center;border-radius:12px;mso-line-height-rule:exactly;">${escapeHtml(cta.label)}</a></td></tr></table>`;
@@ -183,6 +190,7 @@ function cardRows(model: EmailModel) {
   blocks.push([heading(model.heading), 14]);
   if (model.paragraphs.length > 0) blocks.push([paragraphs(model.paragraphs), 24]);
   if (model.highlight || details.length > 0) blocks.push([panel(model.highlight, details), 28]);
+  for (const value of model.sections ?? []) if (value.rows.length > 0) blocks.push([section(value), 28]);
   if (model.cta) blocks.push([button(model.cta), 24]);
   if (model.fallback) blocks.push([fallbackLink(model.fallback), 28]);
   if (model.notes && model.notes.length > 0) blocks.push([notesBlock(model.notes), 0]);
@@ -244,6 +252,12 @@ export function renderEmailText(model: EmailModel) {
   if (model.highlight) lines.push(`${model.highlight.label}: ${model.highlight.value}`);
   for (const row of details) lines.push(`${row.label}: ${row.value}`);
   if (model.highlight || details.length > 0) lines.push("");
+  for (const value of model.sections ?? []) {
+    if (value.rows.length === 0) continue;
+    lines.push(value.heading.toUpperCase());
+    for (const row of value.rows) lines.push(`${row.label}: ${row.value}`);
+    lines.push("");
+  }
   if (model.cta) lines.push(`${model.cta.label}:`, model.cta.url, "");
   for (const note of model.notes ?? []) lines.push(note, "");
   lines.push("--", `${brand.name} · ${brand.tagline}`, ...model.footer);

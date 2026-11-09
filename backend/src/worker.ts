@@ -3,6 +3,7 @@ import nodemailer from "nodemailer";
 import { createClient } from "@supabase/supabase-js";
 import { loadNotificationConfig } from "./notifications/config.js";
 import { loadEmailLogo } from "./notifications/logo.js";
+import { personMailExtras } from "./notifications/person-mail.js";
 import { renderNotification } from "./notifications/templates.js";
 
 type ClaimedNotification = {
@@ -47,15 +48,33 @@ async function finish(id: string, error?: string) {
   if (updateError) throw updateError;
 }
 
-async function runBatch() {
+/**
+ * Queues this cycle's reminders: group debts, then the weekly and monthly reminders owners chose for people
+ * (migration 202611100010; a database without it simply has none).
+ */
+async function enqueueReminders() {
   await supabase.rpc("app_enqueue_due_reminders");
+  const { error } = await supabase.rpc("app_enqueue_person_reminders");
+  if (error && error.code !== "PGRST202" && error.code !== "42883") throw error;
+}
+
+async function runBatch() {
+  await enqueueReminders();
   const { data, error } = await supabase.rpc("app_claim_notifications", { p_worker: workerId, p_limit: 25 });
   if (error) throw error;
   for (const item of (data ?? []) as ClaimedNotification[]) {
     try {
       if (!(item.tone === "quiet" && item.eventType === "debt_reminder")) {
         const message = renderNotification(item, renderOptions);
-        const result = await mailer.sendMail({ from: config.smtpFrom, to: item.recipientEmail, ...message, attachments: logo.attachments.map((attachment) => ({ ...attachment })) });
+        // Person emails add the owner as Reply-To, and a statement carries its PDF.
+        const extras = await personMailExtras(item.eventType, item.payload);
+        const result = await mailer.sendMail({
+          from: config.smtpFrom,
+          to: item.recipientEmail,
+          ...(extras.replyTo ? { replyTo: extras.replyTo } : {}),
+          ...message,
+          attachments: [...logo.attachments.map((attachment) => ({ ...attachment })), ...extras.attachments],
+        });
         // Without SMTP the JSON transport only logs; skip the message body and base64 logo.
         if (!config.smtpHost) process.stdout.write(`${JSON.stringify({ messageId: result.messageId, envelope: result.envelope, subject: message.subject })}\n`);
       }

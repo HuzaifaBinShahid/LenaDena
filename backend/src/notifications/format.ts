@@ -49,3 +49,24 @@ export function formatEmailDate(value: unknown): string | undefined {
   if (Number.isNaN(date.getTime())) return undefined;
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(date);
 }
+
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/**
+ * "13 Sep 2026" for an ISO date or timestamp: the compact form used in lists ("13 Sep" when `reference`, an ISO
+ * timestamp, falls in the same year). The month comes from a fixed table
+ * because Intl abbreviates September as "Sep" or "Sept" depending on the server's ICU, and an email should read the
+ * same wherever it is sent from. Undefined when the value does not parse.
+ */
+export function formatShortEmailDate(value: unknown, reference?: string): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(trimmed);
+  const date = new Date(dateOnly ? `${trimmed}T12:00:00Z` : trimmed);
+  if (Number.isNaN(date.getTime())) return undefined;
+  const day = `${date.getUTCDate()} ${SHORT_MONTHS[date.getUTCMonth()]}`;
+  // In a list, the year is only worth the width when it differs from the one the list is about.
+  const around = reference ? new Date(reference) : undefined;
+  if (around && !Number.isNaN(around.getTime()) && around.getUTCFullYear() === date.getUTCFullYear()) return day;
+  return `${day} ${date.getUTCFullYear()}`;
+}

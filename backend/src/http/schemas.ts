@@ -90,12 +90,16 @@ export const TransactionSchema = Type.Object({
   createdAt: Type.String(),
 });
 
+export const ReminderFrequencySchema = Type.Union([Type.Literal("off"), Type.Literal("weekly"), Type.Literal("monthly")]);
+
 export const PersonSchema = Type.Object({
   id: Type.String(),
   name: Type.String(),
   email: Type.Optional(Type.String()),
   avatarUrl: Type.Optional(Type.String()),
   avatarPath: Type.Optional(Type.String()),
+  emailUpdates: Type.Boolean(),
+  reminderFrequency: ReminderFrequencySchema,
   createdAt: Type.String(),
 });
 
@@ -185,7 +189,31 @@ export const UpdatePersonSchema = Type.Object({
   name: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
   email: Type.Optional(Type.Union([Type.String({ maxLength: 254 }), Type.Null()])),
   avatarPath: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 2048 }), Type.Null()])),
+  emailUpdates: Type.Optional(Type.Boolean()),
+  reminderFrequency: Type.Optional(ReminderFrequencySchema),
 }, { additionalProperties: false });
+
+/** An edited person; `statementQueued` is true when adding their email sent them the full statement. */
+export const PersonUpdatedSchema = Type.Composite([PersonSchema, Type.Object({ statementQueued: Type.Optional(Type.Boolean()) })]);
+
+// A statement needs no entry id; an entry email needs the id of the entry it is about.
+export const EmailPersonSchema = Type.Object({
+  kind: Type.Union([Type.Literal("statement"), Type.Literal("entry")]),
+  transactionId: Type.Optional(Type.String({ format: "uuid" })),
+}, { additionalProperties: false });
+
+export const EntryEmailDecisionSchema = Type.Object({
+  action: Type.Union([Type.Literal("sent"), Type.Literal("ask"), Type.Literal("none")]),
+  personId: Type.Optional(Type.String()),
+  personName: Type.Optional(Type.String()),
+  email: Type.Optional(Type.String()),
+  reason: Type.Optional(Type.String()),
+});
+
+export const CreatedPersonalTransactionSchema = Type.Object({
+  id: Type.String(),
+  email: Type.Optional(EntryEmailDecisionSchema),
+});
 
 // The link is only a suggestion: the API keeps it only when it is https on an allowlisted host (see
 // resolveInviteDownloadUrl), and APP_DOWNLOAD_URL on the server always wins.

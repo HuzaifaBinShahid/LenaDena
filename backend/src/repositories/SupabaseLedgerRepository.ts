@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../domain/errors.js";
-import { cleanNewPerson, cleanPersonChanges, invalidAvatarPath, invalidPersonEmail, invalidPersonName, InviteRecentlySentError, isUuid, PeopleUnavailableError, PersonExistsError, PersonHasNoEmailError, PersonNotFoundError } from "../domain/people.js";
-import type { CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, Group, InviteLink, Member, Person, Plan, SettlementStatus, TransactionItem, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
+import { cleanNewPerson, cleanPersonChanges, EmailLimitReachedError, EmailRecentlySentError, EmailUnavailableError, invalidAvatarPath, invalidPersonEmail, invalidPersonName, invalidReminderFrequency, InviteRecentlySentError, isUuid, PeopleUnavailableError, PersonExistsError, PersonHasNoEmailError, PersonHasNoEntriesError, PersonNotFoundError, transactionNotFound, transactionRequired } from "../domain/people.js";
+import type { CreatedPersonalTransaction, CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, EntryEmailDecision, Group, InviteLink, Member, Person, PersonEmailKind, PersonUpdate, Plan, SettlementStatus, TransactionItem, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
 import type { LedgerRepository } from "./LedgerRepository.js";
 
 type RepositoryLogger = { warn: (message: string) => void };
@@ -25,9 +25,29 @@ function toPeopleError(error: RpcError): DomainError {
   if (error.message.includes("invalid_avatar_path")) return invalidAvatarPath();
   if (error.message.includes("person_has_no_email")) return new PersonHasNoEmailError();
   if (error.message.includes("invite_recently_sent")) return new InviteRecentlySentError();
+  if (error.message.includes("invalid_reminder_frequency")) return invalidReminderFrequency();
   // The route only passes vetted https links, so this means a bad APP_DOWNLOAD_URL slipped past config.
   if (error.message.includes("invalid_download_url")) return new DomainError("The app download link is not a valid https URL.", 400, "invalid_download_url");
   return new DomainError(error.message, 400, "database_error");
+}
+
+/**
+ * The email RPCs (supabase/migrations/202611100010_person_emails.sql). A database without that migration has no
+ * such function, which answers 503 so the app can say what is missing instead of a vague failure.
+ */
+function toEmailError(error: RpcError): DomainError {
+  if (isMissingFunction(error)) return new EmailUnavailableError();
+  if (error.message.includes("email_recently_sent")) return new EmailRecentlySentError();
+  if (error.message.includes("email_limit_reached")) return new EmailLimitReachedError();
+  if (error.message.includes("no_entries")) return new PersonHasNoEntriesError();
+  if (error.message.includes("transaction_not_found")) return transactionNotFound();
+  if (error.message.includes("invalid_email_kind")) return transactionRequired();
+  return toPeopleError(error);
+}
+
+/** Rows from a database before migration 202611100010 carry neither setting: treat them as the defaults. */
+function withEmailSettings(person: Person): Person {
+  return { ...person, emailUpdates: person.emailUpdates ?? true, reminderFrequency: person.reminderFrequency ?? "off" };
 }
 
 function withAvatarUrl(person: Person, signed: Map<string, string>): Person {
@@ -131,7 +151,7 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     return { id: String(data) };
   }
 
-  async createPersonalTransaction(userId: string, input: CreatePersonalTransactionInput, idempotencyKey: string): Promise<{ id: string }> {
+  async createPersonalTransaction(userId: string, input: CreatePersonalTransactionInput, idempotencyKey: string): Promise<CreatedPersonalTransaction> {
     const { data, error } = await this.client.rpc("app_create_personal_transaction", {
       p_actor: userId,
       // `personId` travels inside the payload, so a database without the People migration simply ignores it.
@@ -142,7 +162,26 @@ export class SupabaseLedgerRepository implements LedgerRepository {
       if (error.message.includes("person_not_found")) throw new PersonNotFoundError();
       throw new DomainError(error.message, 400, "database_error");
     }
-    return { id: String(data) };
+    const id = String(data);
+    // The entry is saved either way: a failing email step only means the app gets no decision (and asks nothing).
+    const email = await this.decideEntryEmail(userId, id);
+    return { id, ...(email ? { email } : {}) };
+  }
+
+  /** app_notify_new_entry: email now (they already had something open), ask, or nothing. Undefined when it can't say. */
+  private async decideEntryEmail(userId: string, transactionId: string): Promise<EntryEmailDecision | undefined> {
+    try {
+      const { data, error } = await this.client.rpc("app_notify_new_entry", { p_actor: userId, p_transaction: transactionId });
+      if (error) {
+        if (!isMissingFunction(error)) this.log.warn(`app_notify_new_entry failed: ${error.message}`);
+        return undefined;
+      }
+      const decision = data as EntryEmailDecision | null;
+      return decision && (decision.action === "sent" || decision.action === "ask" || decision.action === "none") ? decision : undefined;
+    } catch (cause) {
+      this.log.warn(`app_notify_new_entry failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+      return undefined;
+    }
   }
 
   async settlePersonalTransaction(userId: string, transactionId: string, amountMinor: number | undefined, idempotencyKey: string): Promise<void> {
@@ -171,11 +210,13 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     return this.getPerson(userId, String(data));
   }
 
-  async updatePerson(userId: string, personId: string, input: UpdatePersonInput): Promise<Person> {
+  async updatePerson(userId: string, personId: string, input: UpdatePersonInput): Promise<PersonUpdate> {
     if (!isUuid(personId)) throw new PersonNotFoundError();
     const changes = cleanPersonChanges(userId, input);
     const changesPhoto = changes.avatarPath !== undefined;
-    const previousPhoto = changesPhoto ? (await this.findPerson(userId, personId)).avatarPath : undefined;
+    // Read before the update only when something below needs the old values.
+    const before = changesPhoto || changes.email ? await this.findPerson(userId, personId) : undefined;
+    const previousPhoto = changesPhoto ? before?.avatarPath : undefined;
     const { error } = await this.client.rpc("app_update_person", {
       p_actor: userId,
       p_person: personId,
@@ -187,12 +228,42 @@ export class SupabaseLedgerRepository implements LedgerRepository {
         email: changes.email ?? null,
         updateAvatar: changesPhoto,
         avatarPath: changes.avatarPath ?? null,
+        updateEmailUpdates: changes.emailUpdates !== undefined,
+        emailUpdates: changes.emailUpdates ?? null,
+        updateReminderFrequency: changes.reminderFrequency !== undefined,
+        reminderFrequency: changes.reminderFrequency ?? null,
       },
     });
     if (error) throw toPeopleError(error);
     const people = await this.listPeople(userId);
     if (previousPhoto && !people.some((person) => person.avatarPath === previousPhoto)) await this.removeAvatar(previousPhoto);
-    return this.getPerson(userId, personId, people);
+    const person = await this.getPerson(userId, personId, people);
+    // An email added to someone who had none sends them the complete statement, unless they opted out of emails.
+    const statementQueued = Boolean(changes.email) && !before?.email && person.emailUpdates && await this.queueStatementQuietly(userId, personId);
+    return { ...person, ...(statementQueued ? { statementQueued: true } : {}) };
+  }
+
+  /** The edit already succeeded, so a statement that can't be queued (no entries, cooldown, old schema) is just skipped. */
+  private async queueStatementQuietly(userId: string, personId: string): Promise<boolean> {
+    const { error } = await this.client.rpc("app_queue_person_email", { p_actor: userId, p_person: personId, p_kind: "statement", p_transaction: null });
+    if (!error) return true;
+    const expected = isMissingFunction(error) || /no_entries|email_recently_sent|email_limit_reached|person_has_no_email/.test(error.message);
+    if (!expected) this.log.warn(`Statement email for a new address failed: ${error.message}`);
+    return false;
+  }
+
+  async emailPerson(userId: string, personId: string, kind: PersonEmailKind, transactionId: string | undefined): Promise<{ queuedAt: string }> {
+    if (!isUuid(personId)) throw new PersonNotFoundError();
+    if (kind === "entry" && !transactionId) throw transactionRequired();
+    const { data, error } = await this.client.rpc("app_queue_person_email", {
+      p_actor: userId,
+      p_person: personId,
+      p_kind: kind,
+      p_transaction: kind === "entry" ? transactionId : null,
+    });
+    if (error) throw toEmailError(error);
+    const queued = new Date(String(data));
+    return { queuedAt: Number.isNaN(queued.getTime()) ? new Date().toISOString() : queued.toISOString() };
   }
 
   async deletePerson(userId: string, personId: string): Promise<void> {
@@ -282,13 +353,13 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     }
     if (error) throw new DomainError(error.message, 500, "database_error");
     this.warnedPeopleMissing = false;
-    return (data ?? []) as Person[];
+    return ((data ?? []) as Person[]).map(withEmailSettings);
   }
 
   private async listPeople(userId: string): Promise<Person[]> {
     const { data, error } = await this.client.rpc("app_get_people", { p_actor: userId });
     if (error) throw toPeopleError(error);
-    return (data ?? []) as Person[];
+    return ((data ?? []) as Person[]).map(withEmailSettings);
   }
 
   private async findPerson(userId: string, personId: string, people?: Person[]): Promise<Person> {

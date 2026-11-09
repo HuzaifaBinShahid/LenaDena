@@ -520,6 +520,16 @@ export function peopleErrorMessage(error: { status: number; code?: string | unde
       return name ? `Add an email for ${personFirstName(name)} first, or share the invite instead.` : "Add their email first, or share the invite instead.";
     case "invite_recently_sent":
       return name ? `${personFirstName(name)} already got an invite in the last 12 hours.` : "They already got an invite in the last 12 hours.";
+    case "email_recently_sent":
+      return name ? `${personFirstName(name)} already got a statement in the last 5 minutes.` : "They already got a statement in the last 5 minutes.";
+    case "email_limit_reached":
+      return "You've reached today's limit of emails to people. Try again tomorrow.";
+    case "no_entries":
+      return name ? `Nothing to send yet: add an entry with ${personFirstName(name)} first.` : "Nothing to send yet: add an entry first.";
+    case "email_unavailable":
+      return "Emailing people needs the latest database update. Try again once it's applied.";
+    case "transaction_not_found":
+      return "This entry isn't in your history with them any more. Refresh and try again.";
     default:
       if (options.peopleRoute && error.status === 404 && !error.code) return "People needs the latest server update.";
       return null;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanText, escapeHtml, formatEmailDate, formatMoney } from "./format.js";
+import { cleanText, escapeHtml, formatEmailDate, formatMoney, formatShortEmailDate } from "./format.js";
 import { loadEmailLogo } from "./logo.js";
 
 const NBSP = String.fromCharCode(160);
@@ -52,5 +52,25 @@ describe("email logo", () => {
 
   it("prefers a hosted logo URL", () => {
     expect(loadEmailLogo("https://cdn.example.com/logo.png")).toEqual({ src: "https://cdn.example.com/logo.png", attachments: [] });
+  });
+});
+
+describe("formatShortEmailDate", () => {
+  it("uses fixed English month names, whatever the server's ICU says", () => {
+    expect(formatShortEmailDate("2026-09-13")).toBe("13 Sep 2026");
+    expect(formatShortEmailDate("2026-01-05")).toBe("5 Jan 2026");
+    expect(formatShortEmailDate("2026-12-31T23:30:00Z")).toBe("31 Dec 2026");
+  });
+
+  it("leaves the year out when it matches the reference year", () => {
+    expect(formatShortEmailDate("2026-09-13", "2026-11-10T09:30:00.000Z")).toBe("13 Sep");
+    expect(formatShortEmailDate("2025-09-13", "2026-11-10T09:30:00.000Z")).toBe("13 Sep 2025");
+    expect(formatShortEmailDate("2026-09-13", "garbage")).toBe("13 Sep 2026");
+  });
+
+  it("answers undefined for anything that is not a date", () => {
+    expect(formatShortEmailDate("not a date")).toBeUndefined();
+    expect(formatShortEmailDate(20260913)).toBeUndefined();
+    expect(formatShortEmailDate(undefined)).toBeUndefined();
   });
 });

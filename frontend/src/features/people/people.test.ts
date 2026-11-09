@@ -367,6 +367,16 @@ describe("peopleErrorMessage", () => {
     expect(peopleErrorMessage({ status: 400, code: "invalid_email" })).toBeNull();
   });
 
+  it("explains why an emailed statement or entry couldn't be sent", () => {
+    expect(peopleErrorMessage({ status: 429, code: "email_recently_sent" }, { name: "Mani Ahmed" })).toBe("Mani already got a statement in the last 5 minutes.");
+    expect(peopleErrorMessage({ status: 429, code: "email_recently_sent" })).toBe("They already got a statement in the last 5 minutes.");
+    expect(peopleErrorMessage({ status: 429, code: "email_limit_reached" })).toMatch(/today's limit/);
+    expect(peopleErrorMessage({ status: 400, code: "no_entries" }, { name: "Mani Ahmed" })).toBe("Nothing to send yet: add an entry with Mani first.");
+    expect(peopleErrorMessage({ status: 400, code: "no_entries" })).toBe("Nothing to send yet: add an entry first.");
+    expect(peopleErrorMessage({ status: 503, code: "email_unavailable" })).toMatch(/needs the latest database update/);
+    expect(peopleErrorMessage({ status: 404, code: "transaction_not_found" })).toMatch(/isn't in your history/);
+  });
+
   it("explains why an emailed invite couldn't be sent", () => {
     expect(peopleErrorMessage({ status: 400, code: "person_has_no_email" }, { name: "Mani Ahmed" })).toBe("Add an email for Mani first, or share the invite instead.");
     expect(peopleErrorMessage({ status: 400, code: "person_has_no_email" })).toBe("Add their email first, or share the invite instead.");

@@ -16,7 +16,7 @@ import { speechUnavailableMessage, startOnDeviceSpeech, type SpeechSession } fro
 import { groupSkin } from "@/features/groups/groupSkin";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import type { TransactionDirection, TransactionKind } from "@/features/ledger/types";
-import { findPersonByName, isHistoryPersonId, personNameError } from "@/features/people/people";
+import { findPersonByName, isHistoryPersonId, personFirstName, personNameError } from "@/features/people/people";
 import { PersonPicker } from "@/features/people/PersonPicker";
 import { usePeopleList, usePeopleSummaries } from "@/features/people/usePeople";
 import { usePreferences } from "@/features/preferences/PreferencesProvider";
@@ -165,7 +165,7 @@ export default function NewPersonalTransactionScreen() {
     setSaving(true);
     const isNewPerson = !linked;
     try {
-      await createPersonalTransaction({
+      const created = await createPersonalTransaction({
         title: title.trim(),
         eventDate,
         amountMinor,
@@ -181,7 +181,7 @@ export default function NewPersonalTransactionScreen() {
       router.replace("/");
       toast.success(
         direction === "outgoing" ? `You owe ${personName}` : `${personName} owes you`,
-        `${formatMoney(amountMinor, currency)} for ${title.trim()} is now open on your home balance.${isNewPerson ? ` ${personName} is now in your people.` : ""}`,
+        `${formatMoney(amountMinor, currency)} for ${title.trim()} is now open on your home balance.${isNewPerson ? ` ${personName} is now in your people.` : ""}${created.email?.action === "sent" ? ` ${personFirstName(personName)} will get an email about it.` : ""}`,
       );
     } catch (error) {
       toast.error("Couldn't save the entry", errorMessage(error));
@@ -206,7 +206,7 @@ export default function NewPersonalTransactionScreen() {
     const isNewPerson = !voiceLinked;
     setSaving(true);
     try {
-      await createPersonalTransaction({
+      const created = await createPersonalTransaction({
         title: draft.title.trim(),
         eventDate: draft.eventDate,
         amountMinor: draft.amountMinor,
@@ -219,7 +219,7 @@ export default function NewPersonalTransactionScreen() {
       router.replace("/");
       toast.success(
         draft.direction === "outgoing" ? `You owe ${voicePerson}` : `${voicePerson} owes you`,
-        `${formatMoney(draft.amountMinor, draft.currency)} for ${draft.title.trim()} is now open on your home balance.${isNewPerson ? ` ${voicePerson} is now in your people.` : ""}`,
+        `${formatMoney(draft.amountMinor, draft.currency)} for ${draft.title.trim()} is now open on your home balance.${isNewPerson ? ` ${voicePerson} is now in your people.` : ""}${created.email?.action === "sent" ? ` ${personFirstName(voicePerson)} will get an email about it.` : ""}`,
       );
     } catch (error) {
       toast.error("Couldn't save the entry", errorMessage(error));

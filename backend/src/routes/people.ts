@@ -2,7 +2,7 @@ import type { FastifyPluginAsyncTypebox } from "@fastify/type-provider-typebox";
 import { Type } from "@sinclair/typebox";
 import type { AppConfig } from "../config.js";
 import { resolveInviteDownloadUrl } from "../domain/people.js";
-import { CreatePersonSchema, ErrorSchema, IdParamsSchema, InvitePersonSchema, PersonInviteSchema, PersonSchema, UpdatePersonSchema } from "../http/schemas.js";
+import { CreatePersonSchema, EmailPersonSchema, ErrorSchema, IdParamsSchema, InvitePersonSchema, PersonInviteSchema, PersonSchema, PersonUpdatedSchema, UpdatePersonSchema } from "../http/schemas.js";
 
 type PeopleRoutesOptions = {
   config: Pick<AppConfig, "appDownloadUrl">;
@@ -37,7 +37,7 @@ export const peopleRoutes: FastifyPluginAsyncTypebox<PeopleRoutesOptions> = asyn
       security: [{ bearerAuth: [] }],
       params: IdParamsSchema,
       body: UpdatePersonSchema,
-      response: { 200: PersonSchema, ...errorResponses },
+      response: { 200: PersonUpdatedSchema, ...errorResponses },
     },
   }, async (request) => fastify.ledger.updatePerson(request.authUser.id, request.params.id, request.body));
 
@@ -51,6 +51,24 @@ export const peopleRoutes: FastifyPluginAsyncTypebox<PeopleRoutesOptions> = asyn
   }, async (request, reply) => {
     await fastify.ledger.deletePerson(request.authUser.id, request.params.id);
     return reply.code(204).send(null);
+  });
+
+  // Emails a saved person now: their complete statement with a PDF, or one entry. Entry emails after adding an entry
+  // are decided by the entry route itself (POST /v1/personal-transactions answers `email: { action: "ask" }` when the
+  // app should offer this). The limits below sit on top of the database's own 5-minute statement cooldown and its
+  // 100-emails-a-day ceiling, which stop anyone using LenaDena to mail a stranger repeatedly.
+  fastify.post("/people/:id/email", {
+    config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    schema: {
+      tags: ["people"],
+      security: [{ bearerAuth: [] }],
+      params: IdParamsSchema,
+      body: EmailPersonSchema,
+      response: { 202: PersonInviteSchema, ...errorResponses, 429: ErrorSchema },
+    },
+  }, async (request, reply) => {
+    const queued = await fastify.ledger.emailPerson(request.authUser.id, request.params.id, request.body.kind, request.body.transactionId);
+    return reply.code(202).send(queued);
   });
 
   // Emails a saved person an invite to install LenaDena. The database allows one per person per 12 hours; the
