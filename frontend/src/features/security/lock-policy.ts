@@ -79,7 +79,10 @@ export function parseLockPreference(raw: string | null): LockPreference {
   }
 }
 
-/** The account that turned on biometric unlock on this device, offered as a biometric sign-in shortcut. */
+/**
+ * The account that turned on biometric sign-in on this device. This is only the label for the "Face ID · Sara"
+ * button: the password itself lives in BiometricCredential, behind the phone's biometrics.
+ */
 export type RememberedAccount = {
   email: string;
   name: string;
@@ -122,4 +125,53 @@ export function authenticationFailureMessage(error: string | undefined, label: s
     default:
       return { title: "Verification didn't finish", message: "Try again.", tone: "error" };
   }
+}
+
+// --- Biometric sign-in: the password kept behind Face ID / fingerprint ---------------------------------------------
+
+/** What Face ID or a fingerprint releases to sign in. Never leaves the phone's secure storage. */
+export type BiometricCredential = {
+  email: string;
+  password: string;
+};
+
+export const biometricCredentialKey = "lenadena.biometric-credential.v1";
+export const biometricCredentialModeKey = "lenadena.biometric-credential-mode.v1";
+
+/**
+ * `hardware`: the secure store itself demands a biometric to read the value, and the system destroys it when
+ * a face or fingerprint is added. `gated`: the phone's biometric is too weak to guard a key (some Android face
+ * unlocks), so the value sits in the encrypted store and LenaDena checks the owner before every read.
+ */
+export type CredentialProtection = "hardware" | "gated";
+
+export function parseCredentialProtection(raw: string | null): CredentialProtection | null {
+  return raw === "hardware" || raw === "gated" ? raw : null;
+}
+
+export function serializeCredential(credential: BiometricCredential): string {
+  return JSON.stringify({ email: credential.email.trim().toLowerCase(), password: credential.password });
+}
+
+export function parseCredential(raw: string | null): BiometricCredential | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<BiometricCredential>;
+    if (typeof value.email !== "string" || !value.email.includes("@")) return null;
+    if (typeof value.password !== "string" || value.password.length === 0 || value.password.length > 500) return null;
+    return { email: value.email, password: value.password };
+  } catch {
+    return null;
+  }
+}
+
+/** Remembers a "Not now" per account, so the offer after sign-in is made once rather than every time. */
+export function biometricOfferDismissedKey(email: string) {
+  return `lenadena.biometric-offer-dismissed.v1.${email.trim().toLowerCase().replace(/[^A-Za-z0-9._-]/g, "_")}`;
+}
+
+/** The secure store reports a dismissed prompt as an error whose wording differs by platform and version. */
+export function isCancelledSecureStoreError(error: unknown): boolean {
+  const { message, code } = (error && typeof error === "object" ? error : {}) as { message?: unknown; code?: unknown };
+  return /cancel|dismiss|user_cancel|not.?authenticated by user|authentication was canceled/i.test(`${typeof message === "string" ? message : ""} ${typeof code === "string" ? code : ""}`);
 }

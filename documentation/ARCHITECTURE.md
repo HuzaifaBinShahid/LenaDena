@@ -6,7 +6,7 @@
 Expo React Native client
   ├─ Expo Router screens
   ├─ NativeWind design system
-  ├─ Supabase session (instant email sign-in in development, email links otherwise)
+  ├─ Supabase session (email + password, email confirmation, biometric sign-in)
   ├─ biometric app lock and app-wide toasts
   ├─ on-device OCR and field dictation
   ├─ reviewed voice-entry recording client
@@ -43,8 +43,7 @@ frontend/
   src/features/            auth, security (app lock), capture, ledger, preferences, home views
   src/lib/                 API, formatting, Supabase client
 backend/
-  src/routes/              transport contracts (public auth helpers and financial routes)
-  src/auth/                Supabase Auth admin gateway for instant sign-in
+  src/routes/              transport contracts (financial routes; the API has no sign-in routes)
   src/plugins/             auth and repository composition
   src/domain/              money rules and shared domain types
   src/repositories/        in-memory and Supabase adapters
@@ -109,11 +108,11 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 
 ### Account and profile
 
-1. The auth screen asks `GET /v1/auth/options` whether instant sign-in is on.
-2. Instant sign-up (development only, `ALLOW_INSTANT_AUTH=true`): name and email go to `POST /v1/auth/instant`. Fastify creates an already-confirmed Supabase user with `metadata.name`, then issues a single-use `recovery` link token hash, which the client exchanges with `verifyOtp({ type: "email" })` for a session. The auth trigger creates the profile from the name.
-3. Instant sign-in issues the same token only for an existing account; a `recovery` link answers `user_not_found` instead of creating an account for a mistyped email. Signing up with a registered email returns `account_exists`.
-4. When instant sign-in is off (always in production), the client falls back to Supabase email links (`signInWithOtp`).
-5. Fastify resolves the bearer token to the immutable profile ID used by every owned record. A 401 from the plan read signs the device out locally, so a deleted or revoked account returns to sign-in.
+1. Sign-up: name, email and password go straight to Supabase Auth (`signUp`, PKCE). With "Confirm email" on there is no session until the emailed link is opened; the screen shows "Check your email" and can resend. The auth trigger creates the profile from the name (cleaned and capped, with fallbacks).
+2. Sign-in: `signInWithPassword`. An unconfirmed email shows the same "Check your email" view; wrong email or password gets one message. Accounts that existed before passwords (email-only) have none and use "Forgot password".
+3. Forgot password: `resetPasswordForEmail` always answers the same, whether or not the address has an account. The link opens `/reset-password?code=…`; the app exchanges the code (only the phone that asked can), enters recovery mode and asks for a new password twice. Signed-in people change it under Settings → Sign-in, which asks for the current password first.
+4. Biometric sign-in: after a password sign-in the app offers to keep the password behind Face ID / fingerprint (secure storage, this device only); the auth screen then shows "Face ID · Name". A changed biometric set or a password changed elsewhere removes it and the person signs in with the password once.
+5. Fastify verifies the bearer token with Supabase, refuses an account whose email is not confirmed (403 `email_not_confirmed`), and resolves it to the immutable profile ID used by every owned record. A 401 from the plan read signs the device out locally, so a deleted or revoked account returns to sign-in.
 6. The Account screen updates the display name and may upload a square image to the private `avatars` bucket.
 7. Plan responses receive short-lived signed avatar URLs; changing identity presentation never rewrites financial ownership or history.
 8. Opening the authenticated plan updates `last_seen_at`, which is used only to choose the fallback review window.
@@ -121,11 +120,11 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 ### App lock
 
 1. Settings turns on unlock with Face ID, Touch ID, fingerprint, or face unlock after a successful device check; turning it off needs a check too. The per-account preference and lock delay (immediately, 1 minute, 5 minutes) live in SecureStore.
-2. An account with the lock on stays locked until it passes a biometric check in the current run: a session restored at launch, one that reappears after an offline token refresh, and an email-only sign-in all meet the lock. Unlocking, turning the lock on, and biometric sign-in record the check; signing out forgets every check. Returning from the background after the delay locks again, and a clock moved backwards counts as time away.
+2. An account with the lock on stays locked until it passes a biometric check in the current run: a session restored at launch and one that reappears after an offline token refresh both meet the lock. Unlocking, turning the lock on, a password sign-in and a biometric sign-in record the check; signing out forgets every check. Returning from the background after the delay locks again, and a clock moved backwards counts as time away.
 3. The lock is an overlay above the navigation stack, so screens and half-filled forms survive locking. Native modals hide while it shows, the Android back button is consumed, and a privacy cover hides balances from the iOS app switcher.
 4. Leaving through something LenaDena opened (photo picker, share sheet, permission dialog, the passcode screen of a biometric prompt) gets a three-minute grace period instead of an immediate lock; staying away longer still locks.
 5. If the phone's passcode and biometrics are removed, no check can pass, so the lock screen and Settings offer to turn the lock off (removing a passcode already requires the owner).
-6. The account that turned on biometric unlock is remembered on the device and offered as a biometric sign-in shortcut on the auth screen while instant sign-in is available; its email is never prefilled.
+6. Biometric sign-in is a separate switch from the lock: the account that turned it on is remembered on the device (label only) and offered as a shortcut on the auth screen; its email is never prefilled and its password is released only after a biometric check.
 7. Expo Go on iOS has no `NSFaceIDUsageDescription`, so iOS asks for the passcode there; Face ID needs a development build.
 
 ### Invite
@@ -140,8 +139,6 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 | Method | Route | Purpose |
 | --- | --- | --- |
 | GET | `/health` | Liveness and version |
-| GET | `/v1/auth/options` | Public: whether instant email sign-in is enabled |
-| POST | `/v1/auth/instant` | Public, development only: create an account or sign in with an email and receive a one-time session token hash |
 | GET | `/v1/me/plan` | Private member dashboard |
 | PATCH | `/v1/me/profile` | Update display name and optional profile photo |
 | GET | `/v1/groups/:id` | Authorized group summary |
@@ -178,7 +175,7 @@ Every email shares one branded layout (`backend/src/notifications/layout.ts`): l
 ## Production checklist
 
 - Apply the migrations to a fresh Supabase project and inspect the Security Advisor. `202609140005_pgcrypto_search_path.sql` is required on Supabase, where pgcrypto lives in the `extensions` schema. `202609180007_people.sql` requires `202609180006` first.
-- Keep `ALLOW_INSTANT_AUTH` unset in any shared or production environment, and replace email-only sign-in with passwords, one-time codes, or passkeys before real users.
+- In Supabase Authentication: Confirm email ON, minimum password length 8, custom SMTP, redirect URL `lenadena://**`. Apply `202611130011_robust_signup_profile.sql`.
 - Test Face ID, Touch ID, and Android biometric unlock in development builds on physical devices.
 - Configure redirect URLs for `lenadena://` and the invite deep-link path.
 - Set frontend publishable values and backend secret values separately.

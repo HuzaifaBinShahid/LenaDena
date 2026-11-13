@@ -13,6 +13,8 @@ type InputProps = TextInputProps & {
   leadingIcon?: IconName;
   trailingIcon?: IconName;
   onTrailingPress?: () => void;
+  /** What a screen reader says for the trailing button (for example "Show password"); defaults to a generic label. */
+  trailingActionLabel?: string;
   invalid?: boolean;
   /** Voice input is listening: the trailing action shows bouncing dots and stops listening when tapped. */
   listening?: boolean;
@@ -28,7 +30,7 @@ type InputProps = TextInputProps & {
 };
 
 export const Input = forwardRef<TextInput, InputProps>(function Input(
-  { leadingIcon, trailingIcon, onTrailingPress, invalid = false, listening = false, appearance = "light", datePicker, className: _className, onFocus, onBlur, style, multiline, ...props },
+  { leadingIcon, trailingIcon, onTrailingPress, trailingActionLabel, invalid = false, listening = false, appearance = "light", datePicker, className: _className, onFocus, onBlur, style, multiline, ...props },
   ref,
 ) {
   const focusProgress = useSharedValue(0);
@@ -83,7 +85,7 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
         disabled={!onTrailingPress}
         pressableStyle={styles.trailingAction}
         accessibilityRole={onTrailingPress ? "button" : undefined}
-        accessibilityLabel={listening ? "Stop voice input" : onTrailingPress ? "Input action" : undefined}
+        accessibilityLabel={listening ? "Stop voice input" : onTrailingPress ? (trailingActionLabel ?? "Input action") : undefined}
         hitSlop={4}
       >
         {listening ? (

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import { router } from "expo-router";
+import { router, type Href } from "expo-router";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +10,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Input } from "@/components/ui/Input";
 import { Screen } from "@/components/ui/Screen";
 import { Switch } from "@/components/ui/Switch";
+import { Touch } from "@/components/ui/Touch";
 import { Text } from "@/components/ui/Text";
 import { TopTabs } from "@/components/ui/TopTabs";
 import { useToast } from "@/components/ui/Toast";
@@ -114,6 +115,8 @@ export default function SettingsScreen() {
           <Text className="text-[11px] leading-4 text-slate">Changing your name or photo never changes ownership of past records.</Text>
         </View>
 
+        {configured && session ? <SignInSection /> : null}
+
         <SecuritySection />
 
         <AppearancePicker />
@@ -156,6 +159,76 @@ export default function SettingsScreen() {
         <Button label="Delete account" icon="trash-2" variant="danger" fullWidth onPress={() => toast.info("Deletion isn't available yet", "Account deletion needs a confirmed production backend first.")} />
       </View>
     </Screen>
+  );
+}
+
+/** How this account signs in: its password, and optionally Face ID or a fingerprint in place of typing it. */
+function SignInSection() {
+  const toast = useToast();
+  const { session } = useAuth();
+  const { supported, capability, rememberedAccount, disableBiometricSignIn, refreshCapability } = useAppLock();
+  const { colors: c } = useTheme();
+  const [busy, setBusy] = useState(false);
+  const label = capability?.label ?? "Face ID";
+  const glyph = capability?.kind === "face" ? "face-id" : "finger-print";
+  const email = session?.user.email?.toLowerCase();
+  const enabled = Boolean(email && rememberedAccount?.email.toLowerCase() === email);
+  // Offer the switch where the phone can use it, and always let an existing one be turned off.
+  const showBiometric = supported && (enabled || capability?.available === true);
+
+  useEffect(() => {
+    void refreshCapability();
+  }, [refreshCapability]);
+
+  const toggle = async (next: boolean) => {
+    if (next) {
+      router.push("/enable-biometric" as Href);
+      return;
+    }
+    setBusy(true);
+    try {
+      await disableBiometricSignIn();
+      toast.success(`${label} sign-in is off`, "Sign in with your password. Your password is no longer kept on this phone.");
+    } catch (error) {
+      toast.error("Couldn't turn it off", errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View className="gap-2.5">
+      <Text className="px-1 text-[11px] font-bold uppercase tracking-[1.2px] text-slate">Sign-in</Text>
+      <View className="overflow-hidden rounded-card border border-line bg-raised">
+        <Touch
+          onPress={() => router.push("/change-password" as Href)}
+          accessibilityRole="button"
+          accessibilityLabel="Change password"
+          pressableStyle={{ flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, paddingVertical: 14 }}
+        >
+          <View className="h-11 w-11 items-center justify-center rounded-2xl bg-violet-soft">
+            <Icon name="lock-closed" size={22} color={c.violet} />
+          </View>
+          <View className="min-w-0 flex-1">
+            <Text className="text-[15px] font-bold text-ink">Change password</Text>
+            <Text className="mt-0.5 text-xs leading-4 text-slate">Use a password you don't use anywhere else.</Text>
+          </View>
+          <Icon name="chevron-right" size={20} color={c.slate} />
+        </Touch>
+        {showBiometric ? (
+          <View className="flex-row items-center gap-3.5 border-t border-line px-4 py-3.5">
+            <View className="h-11 w-11 items-center justify-center rounded-2xl bg-violet-soft">
+              <Icon name={glyph} size={22} color={c.violet} />
+            </View>
+            <View className="min-w-0 flex-1">
+              <Text className="text-[15px] font-bold text-ink">Sign in with {label}</Text>
+              <Text className="mt-0.5 text-xs leading-4 text-slate">Skip typing your password on this phone.</Text>
+            </View>
+            <Switch value={enabled} onValueChange={(next) => void toggle(next)} busy={busy} accessibilityLabel={`Sign in with ${label}`} />
+          </View>
+        ) : null}
+      </View>
+    </View>
   );
 }
 

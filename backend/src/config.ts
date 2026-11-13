@@ -6,7 +6,6 @@ export type AppConfig = {
   port: number;
   corsOrigin: string;
   authMode: "demo" | "supabase";
-  allowInstantAuth: boolean;
   supabaseUrl?: string;
   supabasePublishableKey?: string;
   supabaseSecretKey?: string;
@@ -32,8 +31,6 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     port: overrides.port ?? Number(process.env.PORT || 3000),
     corsOrigin: overrides.corsOrigin ?? process.env.CORS_ORIGIN ?? "*",
     authMode,
-    // Email-only sign-in has no proof of inbox ownership, so it is opt-in and can never run in production.
-    allowInstantAuth: nodeEnv !== "production" && (overrides.allowInstantAuth ?? process.env.ALLOW_INSTANT_AUTH === "true"),
     ...(supabaseUrl ? { supabaseUrl } : {}),
     ...(supabasePublishableKey ? { supabasePublishableKey } : {}),
     ...(supabaseSecretKey ? { supabaseSecretKey } : {}),

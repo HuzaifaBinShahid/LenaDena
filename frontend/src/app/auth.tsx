@@ -16,6 +16,7 @@ import { Text } from "@/components/ui/Text";
 import { Touch } from "@/components/ui/Touch";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { EMAIL_MAX_LENGTH, NAME_MAX_LENGTH, useAuthForm, type AuthForm } from "@/features/auth/useAuthForm";
+import { PASSWORD_MAX_BYTES } from "@/features/auth/password";
 import { colors } from "@/theme/tokens";
 
 const WIDE_BREAKPOINT = 900;
@@ -92,40 +93,104 @@ function WideLayout({ form }: { form: AuthForm }) {
 
 function ModeLink({ form }: { form: AuthForm }) {
   const signup = form.mode === "signup";
+  // Forgot-password and "check your email" both lead back to the sign-in form.
+  const back = form.mode === "forgot" || form.notice !== null;
+  const target = back ? "signin" : signup ? "signin" : "signup";
   return (
     <Touch
-      onPress={() => form.switchMode(signup ? "signin" : "signup")}
+      onPress={() => form.switchMode(target)}
       disabled={form.busy}
       hitSlop={8}
       accessibilityRole="button"
-      accessibilityLabel={signup ? "Have an account? Sign in" : "New to LenaDena? Sign up"}
+      accessibilityLabel={back ? "Back to sign in" : signup ? "Have an account? Sign in" : "New to LenaDena? Sign up"}
       pressableStyle={styles.modeLink}
     >
       <Text className="text-[10.5px] font-semibold uppercase tracking-[1.4px] text-white/60">
-        {signup ? "Have an account? " : "New here? "}
-        <Text className="text-[10.5px] font-extrabold uppercase tracking-[1.4px] text-white">{signup ? "Sign in" : "Sign up"}</Text>
+        {back ? "Back to " : signup ? "Have an account? " : "New here? "}
+        <Text className="text-[10.5px] font-extrabold uppercase tracking-[1.4px] text-white">{back ? "Sign in" : signup ? "Sign in" : "Sign up"}</Text>
       </Text>
     </Touch>
+  );
+}
+
+const STRENGTH_LABEL = { weak: "Too weak", okay: "Okay", strong: "Strong" } as const;
+const STRENGTH_FILLED = { weak: 1, okay: 2, strong: 3 } as const;
+const STRENGTH_COLOR = { weak: colors.coralBright, okay: colors.goldBright, strong: colors.mintBright } as const;
+
+function StrengthMeter({ strength }: { strength: "weak" | "okay" | "strong" }) {
+  return (
+    <View style={styles.strengthRow} accessible accessibilityLabel={`Password strength: ${STRENGTH_LABEL[strength]}`}>
+      <View style={styles.strengthBars}>
+        {[1, 2, 3].map((step) => (
+          <View key={step} style={[styles.strengthBar, { backgroundColor: step <= STRENGTH_FILLED[strength] ? STRENGTH_COLOR[strength] : "rgba(255,255,255,0.16)" }]} />
+        ))}
+      </View>
+      <Text className="text-[11.5px] font-semibold text-white/70">{STRENGTH_LABEL[strength]}</Text>
+    </View>
+  );
+}
+
+function CheckEmailPanel({ form, headingSize }: { form: AuthForm; headingSize: number }) {
+  const reduceMotion = useReducedMotion();
+  const notice = form.notice;
+  if (!notice) return null;
+  const confirm = notice.kind === "confirm_email";
+  return createElement(
+    Animated.View,
+    { entering: reduceMotion ? undefined : FadeIn.duration(260) },
+    <Text className="font-extrabold uppercase text-white" style={{ fontSize: headingSize * 0.78, lineHeight: Math.round(headingSize * 0.84), letterSpacing: -1 }} accessibilityRole="header">
+      Check your email
+    </Text>,
+    <Text className="mt-4 text-[13px] font-semibold leading-[19px] text-white/85">
+      {confirm ? "We sent a confirmation link to " : "If an account uses "}
+      <Text className="text-[13px] font-extrabold text-white">{notice.email}</Text>
+      {confirm ? ". Open it on this phone to finish creating your account, then sign in." : ", we sent a link to choose a new password. Open it on this phone."}
+    </Text>,
+    <Text className="mt-3 text-[11.5px] leading-[17px] text-white/55">It can take a minute to arrive. Look in your spam folder too.</Text>,
+    <View style={styles.fields}>
+      <Button
+        label={form.resendIn > 0 ? `Send again in ${form.resendIn}s` : "Send the email again"}
+        variant="glass"
+        size="lg"
+        fullWidth
+        loading={form.resendLoading}
+        disabled={form.resendIn > 0 || form.busy}
+        onPress={form.resend}
+      />
+      <Touch
+        onPress={() => form.switchMode("signin")}
+        disabled={form.busy}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel="Back to sign in"
+        pressableStyle={styles.backLink}
+      >
+        <Text className="text-[12.5px] font-semibold text-lavender">Back to sign in</Text>
+      </Touch>
+    </View>,
   );
 }
 
 function AuthPanel({ form, headingSize }: { form: AuthForm; headingSize: number }) {
   const reduceMotion = useReducedMotion();
   const emailInput = useRef<TextInput>(null);
+  const passwordInput = useRef<TextInput>(null);
   const signup = form.mode === "signup";
-  const linkOnly = form.instantAuth === false;
+  const forgot = form.mode === "forgot";
   const layout = reduceMotion ? undefined : LinearTransition.springify().damping(24).stiffness(240);
+
+  if (form.notice) return <CheckEmailPanel form={form} headingSize={headingSize} />;
 
   return (
     <View>
       {createElement(
         Animated.View,
         { key: form.mode, entering: reduceMotion ? undefined : FadeIn.duration(260) },
-        <Text className="font-extrabold uppercase text-white" style={{ fontSize: headingSize, lineHeight: Math.round(headingSize * 1.06), letterSpacing: -1 }} accessibilityRole="header">
-          {signup ? "Sign up" : "Sign in"}
+        <Text className="font-extrabold uppercase text-white" style={{ fontSize: forgot ? headingSize * 0.78 : headingSize, lineHeight: Math.round((forgot ? headingSize * 0.78 : headingSize) * 1.06), letterSpacing: -1 }} accessibilityRole="header">
+          {forgot ? "Reset password" : signup ? "Sign up" : "Sign in"}
         </Text>,
         <Text className="mt-4 text-[13px] font-semibold text-white/85">
-          {linkOnly ? "We'll email you a one-time sign-in link" : signup ? "Create your account with your name and email" : "Sign in with your email address"}
+          {forgot ? "Enter your email and we'll send you a link to choose a new password" : signup ? "Create your account with your name, email and a password" : "Sign in with your email and password"}
         </Text>,
       )}
 
@@ -171,16 +236,61 @@ function AuthPanel({ form, headingSize }: { form: AuthForm; headingSize: number 
               textContentType="emailAddress"
               accessibilityLabel="Email"
               invalid={Boolean(form.emailError)}
+              returnKeyType={forgot ? "go" : "next"}
+              submitBehavior={forgot ? undefined : "submit"}
+              onSubmitEditing={() => (forgot ? void form.submit() : passwordInput.current?.focus())}
+            />
+          </Field>,
+        )}
+        {!forgot ? createElement(
+          Animated.View,
+          { layout, entering: reduceMotion ? undefined : FadeInDown.duration(240), exiting: reduceMotion ? undefined : FadeOutUp.duration(150) },
+          <Field appearance="dark" error={form.passwordError} hint={form.passwordHint}>
+            <Input
+              ref={passwordInput}
+              appearance="dark"
+              value={form.password}
+              onChangeText={form.setPassword}
+              placeholder="Password"
+              // The server only reads the first 72 bytes, so a longer password is refused rather than trimmed.
+              maxLength={PASSWORD_MAX_BYTES}
+              leadingIcon="lock-closed"
+              trailingIcon={form.showPassword ? "eye-off" : "eye"}
+              onTrailingPress={form.toggleShowPassword}
+              trailingActionLabel={form.showPassword ? "Hide password" : "Show password"}
+              secureTextEntry={!form.showPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete={signup ? "new-password" : "current-password"}
+              textContentType={signup ? "newPassword" : "password"}
+              passwordRules={signup ? "minlength: 8; required: lower; required: digit; maxlength: 72;" : undefined}
+              accessibilityLabel="Password"
+              invalid={Boolean(form.passwordError)}
               returnKeyType="go"
               onSubmitEditing={() => void form.submit()}
             />
           </Field>,
-        )}
+          signup && form.passwordStrength ? <StrengthMeter strength={form.passwordStrength} /> : null,
+        ) : null}
+        {form.mode === "signin" ? createElement(
+          Animated.View,
+          { layout, style: styles.forgotRow },
+          <Touch
+            onPress={() => form.switchMode("forgot")}
+            disabled={form.busy}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Forgot your password?"
+            pressableStyle={styles.forgotLink}
+          >
+            <Text className="text-[12px] font-semibold text-lavender">Forgot password?</Text>
+          </Touch>,
+        ) : null}
         {createElement(
           Animated.View,
           { layout },
           <Button
-            label={linkOnly ? "Email me a link" : signup ? "Create account" : "Sign in"}
+            label={forgot ? "Email me a link" : signup ? "Create account" : "Sign in"}
             variant="gradient"
             size="lg"
             icon="arrow-right"
@@ -193,7 +303,7 @@ function AuthPanel({ form, headingSize }: { form: AuthForm; headingSize: number 
         )}
       </View>
 
-      {form.quickSignIn ? createElement(
+      {form.quickSignIn && form.mode === "signin" ? createElement(
         Animated.View,
         { layout, entering: reduceMotion ? undefined : FadeIn.duration(220) },
         <View style={styles.divider} />,
@@ -262,6 +372,34 @@ const styles = StyleSheet.create({
   },
   quickRow: {
     marginTop: 10,
+  },
+  forgotRow: {
+    alignItems: "flex-end",
+    marginTop: -4,
+  },
+  forgotLink: {
+    minHeight: 36,
+    justifyContent: "center",
+  },
+  backLink: {
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  strengthRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+  },
+  strengthBars: {
+    flexDirection: "row",
+    gap: 4,
+  },
+  strengthBar: {
+    width: 28,
+    height: 4,
+    borderRadius: 2,
   },
   wideRoot: {
     flex: 1,

@@ -31,7 +31,7 @@ Share-invite messages and invite emails link to the Loadly page `https://loadly.
 - **Free-plan projects created on or after 3 June 2026 cannot edit Auth email templates while they use Supabase's default sender**, and the default sender only delivers to project team members (about 2 emails an hour) as "Supabase Auth". Configure custom SMTP first (Authentication → SMTP; any provider such as Resend, Brevo or Postmark), turn off the provider's click tracking (it rewrites the one-time links), then run the script.
 - Keep the redirect allowlist in step with the app's return addresses (`lenadena://**`, your Expo `exp://…/--/**` address, the web origin), or links open the Site URL instead.
 
-Instant email sign-in is never enabled on Render: `NODE_ENV=production` disables it regardless of `ALLOW_INSTANT_AUTH`, and the app falls back to Supabase email links. Add the email-link redirect URLs you use (for example your Expo development URL) to the Supabase Auth allowlist.
+Accounts sign up and sign in with email and password, so before opening the app to anyone set these in the Supabase dashboard (Authentication): **Providers → Email → Confirm email ON** and **Minimum password length 8**; **SMTP** with a custom provider (Brevo, Resend, Postmark) so people other than team members receive the confirm and reset emails; **URL configuration → Redirect URLs** includes `lenadena://**` (and your Expo development URL or web origin). Run migration `202611130011_robust_signup_profile.sql`. The API has no sign-in routes any more: it verifies the Supabase bearer token and refuses an unconfirmed email.
 
 The backend needs:
 

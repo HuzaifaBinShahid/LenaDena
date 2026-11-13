@@ -2,20 +2,25 @@ import { createContext, createElement, useCallback, useContext, useEffect, useMe
 import type { ReactNode } from "react";
 import { AppState, BackHandler, Keyboard, StyleSheet, View } from "react-native";
 import type { LocalAuthenticationResult } from "expo-local-authentication";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { ScreenObscuredContext } from "@/components/ui/ScreenObscured";
 import { useToast } from "@/components/ui/Toast";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { goToSignIn } from "@/features/auth/navigation";
-import { useLedger } from "@/features/ledger/LedgerProvider";
 import {
   appLockSupported,
   authenticateOwner,
+  clearBiometricCredential,
   hasDeviceCredential,
   loadLockPreference,
   loadRememberedAccount,
   readBiometricCapability,
+  readBiometricCredential,
+  rememberBiometricOfferDismissed,
+  saveBiometricCredential,
   saveLockPreference,
   saveRememberedAccount,
+  wasBiometricOfferDismissed,
   type BiometricCapability,
 } from "@/features/security/biometrics";
 import {
@@ -24,6 +29,7 @@ import {
   isMissingDeviceCredential,
   resumeAllowance,
   shouldLockOnResume,
+  type BiometricCredential,
   type LockDelay,
   type LockPreference,
   type RememberedAccount,
@@ -36,23 +42,47 @@ export type LockChangeResult =
 
 export type UnlockResult = { ok: true } | { ok: false; error: string };
 
+/** What turning biometric sign-in on needs: the account's password, which is only ever kept behind biometrics. */
+export type BiometricSignInInput = { email: string; name: string; password: string };
+
+export type BiometricSignInChange = { ok: true } | { ok: false; reason: "unavailable" | "cancelled" | "failed"; error?: string };
+
+export type BiometricSignInResult =
+  | { ok: true; credential: BiometricCredential }
+  /** `invalidated`: the phone destroyed the stored password (a face or fingerprint was added), or none was stored. */
+  | { ok: false; reason: "cancelled" | "invalidated" | "failed" | "unavailable" };
+
 type AppLockValue = {
   supported: boolean;
   capability: BiometricCapability | null;
   preference: LockPreference;
   locked: boolean;
-  /** The account that turned on biometric unlock on this device; powers biometric sign-in. */
+  /** The account that turned on biometric sign-in on this device; labels the "Face ID · Sara" button. */
   rememberedAccount: RememberedAccount | null;
   setEnabled: (enabled: boolean) => Promise<LockChangeResult>;
   setLockDelay: (delay: LockDelay) => Promise<void>;
   unlock: () => Promise<UnlockResult>;
   /** Face, fingerprint or passcode check that never trips the lock or privacy cover itself. */
   verifyOwner: (promptMessage: string) => Promise<LocalAuthenticationResult>;
-  /** Checks the owner before a biometric sign-in and remembers the check, so that sign-in does not lock again. */
-  verifyForSignIn: (account: RememberedAccount) => Promise<LocalAuthenticationResult>;
+  /**
+   * Face ID or a fingerprint releases the stored password so the sign-in form can use it. The check counts as this
+   * run's unlock, so signing in does not ask again.
+   */
+  signInWithBiometrics: () => Promise<BiometricSignInResult>;
+  /** Locks the account's password behind the phone's biometrics so Face ID or a fingerprint can sign in. */
+  enableBiometricSignIn: (input: BiometricSignInInput) => Promise<BiometricSignInChange>;
+  disableBiometricSignIn: () => Promise<void>;
+  /** After a password change: keeps the stored password current, or drops it if that can't be done. */
+  updateBiometricPassword: (email: string, password: string) => Promise<void>;
+  /** After a password sign-in: asks, once per account, whether to use Face ID next time. */
+  offerBiometricSignIn: (input: BiometricSignInInput) => Promise<void>;
+  /**
+   * Call just before signing in with a password: the password proves who is there, so the account does not also meet
+   * the lock right away. Returns an undo for when the sign-in fails.
+   */
+  markPasswordSignIn: (email: string) => () => void;
   /** Only succeeds when the phone has no passcode or biometrics left, so no check could ever pass. */
   turnOffWithoutCredential: () => Promise<boolean>;
-  forgetRememberedAccount: () => Promise<void>;
   refreshCapability: () => Promise<BiometricCapability | null>;
   /** Wrap photo pickers, share sheets and permission requests: Android backgrounds the app while they are open. */
   runWithoutLocking: <T>(task: () => Promise<T>) => Promise<T>;
@@ -68,7 +98,7 @@ type AppLockProviderProps = {
 
 export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
   const { session, configured, signOut } = useAuth();
-  const { plan } = useLedger();
+  const toast = useToast();
   const identity = session?.user.id ?? (configured ? null : "demo-user");
   const email = session?.user.email?.toLowerCase();
   // Biometric checks are remembered per email (or the demo identity) for this run only.
@@ -78,6 +108,8 @@ export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
   const [rememberedAccount, setRememberedAccount] = useState<RememberedAccount | null>(null);
   const [locked, setLocked] = useState(false);
   const [covered, setCovered] = useState(false);
+  const [offer, setOffer] = useState<BiometricSignInInput | null>(null);
+  const [offerBusy, setOfferBusy] = useState(false);
   const verified = useRef(new Set<string>());
   const authenticating = useRef(false);
   const externalFlows = useRef(0);
@@ -171,11 +203,80 @@ export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
     if (key) verified.current.add(key);
   }, []);
 
-  const verifyForSignIn = useCallback(async (account: RememberedAccount) => {
-    const result = await verifyOwner(`Sign in to LenaDena as ${account.name.split(/\s+/)[0] ?? account.name}`);
-    if (result.success) markVerified(account.email.toLowerCase());
-    return result;
-  }, [markVerified, verifyOwner]);
+  const markPasswordSignIn = useCallback((email: string) => {
+    const key = email.trim().toLowerCase();
+    const alreadyVerified = verified.current.has(key);
+    verified.current.add(key);
+    return () => {
+      if (!alreadyVerified) verified.current.delete(key);
+    };
+  }, []);
+
+  const forgetBiometricSignIn = useCallback(async () => {
+    await clearBiometricCredential();
+    await saveRememberedAccount(null);
+    setRememberedAccount(null);
+  }, []);
+
+  const signInWithBiometrics = useCallback(async (): Promise<BiometricSignInResult> => {
+    if (!appLockSupported) return { ok: false, reason: "unavailable" };
+    if (authenticating.current) return { ok: false, reason: "cancelled" };
+    authenticating.current = true;
+    try {
+      const result = await readBiometricCredential("Sign in to LenaDena");
+      if (result.ok) {
+        markVerified(result.credential.email.toLowerCase());
+        return { ok: true, credential: result.credential };
+      }
+      if (result.reason === "invalidated" || result.reason === "missing") {
+        await forgetBiometricSignIn();
+        return { ok: false, reason: "invalidated" };
+      }
+      return { ok: false, reason: result.reason };
+    } finally {
+      authenticating.current = false;
+    }
+  }, [forgetBiometricSignIn, markVerified]);
+
+  const enableBiometricSignIn = useCallback(async ({ email, name, password }: BiometricSignInInput): Promise<BiometricSignInChange> => {
+    if (!appLockSupported) return { ok: false, reason: "unavailable" };
+    const current = await refreshCapability();
+    if (!current?.available) return { ok: false, reason: "unavailable" };
+    authenticating.current = true;
+    try {
+      const saved = await saveBiometricCredential({ email, password }, `Turn on ${current.label} sign-in for LenaDena`);
+      if (!saved.ok) return { ok: false, reason: saved.cancelled ? "cancelled" : "failed", error: saved.error };
+      const account = { email: email.trim().toLowerCase(), name: name.trim() || email.split("@")[0] || email };
+      await saveRememberedAccount(account);
+      setRememberedAccount(account);
+      return { ok: true };
+    } finally {
+      authenticating.current = false;
+    }
+  }, [refreshCapability]);
+
+  const disableBiometricSignIn = forgetBiometricSignIn;
+
+  const updateBiometricPassword = useCallback(async (email: string, password: string) => {
+    if (!rememberedAccount || rememberedAccount.email.toLowerCase() !== email.trim().toLowerCase()) return;
+    authenticating.current = true;
+    try {
+      const saved = await saveBiometricCredential({ email, password }, "Update your LenaDena sign-in");
+      // A stored password that no longer works would only fail later; better to sign in with the password once.
+      if (!saved.ok) await forgetBiometricSignIn();
+    } finally {
+      authenticating.current = false;
+    }
+  }, [forgetBiometricSignIn, rememberedAccount]);
+
+  const offerBiometricSignIn = useCallback(async (input: BiometricSignInInput) => {
+    if (!appLockSupported) return;
+    const current = capability ?? await refreshCapability();
+    if (!current?.available) return;
+    if (rememberedAccount?.email.toLowerCase() === input.email.trim().toLowerCase()) return;
+    if (await wasBiometricOfferDismissed(input.email)) return;
+    setOffer(input);
+  }, [capability, refreshCapability, rememberedAccount]);
 
   const unlock = useCallback(async (): Promise<UnlockResult> => {
     try {
@@ -195,8 +296,6 @@ export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
     const next = { ...preference, enabled: false };
     await saveLockPreference(identity, next);
     setPreference(next);
-    await saveRememberedAccount(null);
-    setRememberedAccount(null);
   }, [identity, preference]);
 
   const turnOffWithoutCredential = useCallback(async () => {
@@ -231,11 +330,8 @@ export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
     const next = { ...preference, enabled: true };
     await saveLockPreference(identity, next);
     setPreference(next);
-    const account = session?.user.email ? { email: session.user.email, name: plan.user.name } : null;
-    await saveRememberedAccount(account);
-    setRememberedAccount(account);
     return { ok: true };
-  }, [capability, disableLock, identity, markVerified, plan.user.name, preference, refreshCapability, session?.user.email, turnOffWithoutCredential, verificationKey, verifyOwner]);
+  }, [capability, disableLock, identity, markVerified, preference, refreshCapability, turnOffWithoutCredential, verificationKey, verifyOwner]);
 
   const setLockDelay = useCallback(async (delay: LockDelay) => {
     if (!identity) return;
@@ -243,11 +339,6 @@ export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
     setPreference(next);
     await saveLockPreference(identity, next);
   }, [identity, preference]);
-
-  const forgetRememberedAccount = useCallback(async () => {
-    await saveRememberedAccount(null);
-    setRememberedAccount(null);
-  }, []);
 
   const runWithoutLocking = useCallback(async <T,>(task: () => Promise<T>) => {
     externalFlows.current += 1;
@@ -271,16 +362,20 @@ export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
     setLockDelay,
     unlock,
     verifyOwner,
-    verifyForSignIn,
+    signInWithBiometrics,
+    enableBiometricSignIn,
+    disableBiometricSignIn,
+    updateBiometricPassword,
+    offerBiometricSignIn,
+    markPasswordSignIn,
     turnOffWithoutCredential,
-    forgetRememberedAccount,
     refreshCapability,
     runWithoutLocking,
-  }), [capability, forgetRememberedAccount, locked, preference, refreshCapability, rememberedAccount, runWithoutLocking, setEnabled, setLockDelay, turnOffWithoutCredential, unlock, verifyForSignIn, verifyOwner]);
+  }), [capability, disableBiometricSignIn, enableBiometricSignIn, locked, markPasswordSignIn, offerBiometricSignIn, preference, refreshCapability, rememberedAccount, runWithoutLocking, setEnabled, setLockDelay, signInWithBiometrics, turnOffWithoutCredential, unlock, updateBiometricPassword, verifyOwner]);
 
   const showLock = locked && Boolean(identity);
 
-  const { setObscured } = useToast();
+  const { setObscured } = toast;
 
   useEffect(() => {
     // Toasts can carry names and amounts; keep them off the lock screen and out of the app-switcher snapshot.
@@ -295,6 +390,31 @@ export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => true);
     return () => subscription.remove();
   }, [showLock]);
+
+  const offerLabel = capability?.label ?? "Face ID";
+
+  const acceptOffer = useCallback(async () => {
+    if (!offer || offerBusy) return;
+    setOfferBusy(true);
+    try {
+      const result = await enableBiometricSignIn(offer);
+      if (result.ok) {
+        toast.success(`${offerLabel} sign-in is on`, "Next time, tap the button instead of typing your password.");
+      } else if (result.reason === "failed") {
+        toast.warning(`Couldn't turn on ${offerLabel}`, "You can try again in Settings.");
+      }
+    } finally {
+      // The password is only needed for this one save; drop it from memory either way.
+      setOffer(null);
+      setOfferBusy(false);
+    }
+  }, [enableBiometricSignIn, offer, offerBusy, offerLabel, toast]);
+
+  const dismissOffer = useCallback(() => {
+    if (offerBusy) return;
+    if (offer) void rememberBiometricOfferDismissed(offer.email);
+    setOffer(null);
+  }, [offer, offerBusy]);
 
   const signOutFromLock = useCallback(async () => {
     await signOut();
@@ -323,6 +443,17 @@ export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
             onSignOut={configured ? signOutFromLock : undefined}
           />
         ) : covered ? <PrivacyCover /> : null}
+        <ConfirmModal
+          visible={Boolean(offer) && !showLock}
+          icon={capability?.kind === "face" ? "face-id" : "finger-print"}
+          title={`Sign in with ${offerLabel} next time?`}
+          detail={`Skip typing your password: LenaDena checks it's you with your ${capability?.kind === "face" ? "face" : "fingerprint"}. Your password stays locked in your phone's secure storage, and you can turn this off in Settings.`}
+          confirmLabel={`Use ${offerLabel}`}
+          cancelLabel="Not now"
+          loading={offerBusy}
+          onConfirm={() => void acceptOffer()}
+          onClose={dismissOffer}
+        />
       </ScreenObscuredContext.Provider>
     </AppLockContext.Provider>
   );

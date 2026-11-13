@@ -4,6 +4,11 @@ import { createClient, isAuthRetryableFetchError } from "@supabase/supabase-js";
 import type { AppConfig } from "../config.js";
 import { DomainError } from "../domain/errors.js";
 
+/**
+ * Turns `Authorization: Bearer <Supabase access token>` into `request.authUser` for every /v1 route. Accounts sign
+ * up and sign in directly with Supabase Auth (email and password), so the API has no public sign-in routes: every
+ * /v1 request needs a token Supabase vouches for.
+ */
 export const authPlugin = fp(async function authPlugin(fastify, config: AppConfig) {
   const supabase = config.authMode === "supabase" && config.supabaseUrl && config.supabaseSecretKey
     ? createClient(config.supabaseUrl, config.supabaseSecretKey, { auth: { autoRefreshToken: false, persistSession: false } })
@@ -11,8 +16,7 @@ export const authPlugin = fp(async function authPlugin(fastify, config: AppConfi
 
   fastify.decorateRequest("authUser");
   fastify.addHook("onRequest", async (request, reply) => {
-    // /v1/auth/* are the public routes a signed-out client uses to obtain a session.
-    if (!request.url.startsWith("/v1/") || request.url.startsWith("/v1/auth/")) {
+    if (!request.url.startsWith("/v1/")) {
       return;
     }
     if (config.authMode === "demo") {
@@ -33,6 +37,12 @@ export const authPlugin = fp(async function authPlugin(fastify, config: AppConfi
     }
     if (error || !data.user) {
       throw new DomainError("The bearer token is invalid or expired", 401, "unauthorized");
+    }
+    // Group invites are matched to the account's email address, so an address nobody has proven they own must not
+    // reach any data. With "Confirm email" on, Supabase never issues such a session; this keeps the API safe even
+    // if that setting is switched off by mistake.
+    if (!data.user.email_confirmed_at) {
+      throw new DomainError("Confirm your email address first: open the link we sent to your inbox.", 403, "email_not_confirmed");
     }
     request.authUser = data.user.email ? { id: data.user.id, email: data.user.email } : { id: data.user.id };
   });

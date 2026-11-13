@@ -11,8 +11,8 @@ The canonical technical identifiers are `lenadena` for the Expo slug and deep-li
 
 ## What is implemented
 
-- Email accounts with persistent profiles, editable names, private profile-photo uploads, and a no-credentials demo path. In development, name and email create the account instantly and email alone signs in (no confirmation email); otherwise sign-in uses Supabase email links.
-- Optional biometric app lock (Face ID, Touch ID, fingerprint, or face unlock with passcode fallback), a lock delay setting, and biometric sign-in for the account that enabled it.
+- Email accounts with persistent profiles, editable names, private profile-photo uploads, and a no-credentials demo path. Accounts sign up and sign in with email and password (email confirmation, forgot, reset and change password).
+- Optional biometric app lock (Face ID, Touch ID, fingerprint, or face unlock with passcode fallback), a lock delay setting, and Face ID / fingerprint sign-in (the password stays behind biometrics on that phone).
 - App-wide toasts that slide in from the top right for results, errors, and hints.
 - A space-themed sign-up, sign-in, and lock experience based on the supplied Login / SignUp Figma reference, with a split layout on wide screens.
 - Personal My plan dashboard.
@@ -113,12 +113,10 @@ Leave Supabase values empty and keep `AUTH_MODE=demo` in `backend/.env`. The app
 3. Set the frontend URL and publishable key.
 4. Set the backend URL, publishable key, and secret key.
 5. Change backend `AUTH_MODE` to `supabase` and restart both apps.
-6. For development without confirmation emails, set `ALLOW_INSTANT_AUTH=true` in `backend/.env`. It is ignored when `NODE_ENV=production`.
-7. Add SMTP settings and start the notification worker.
+6. In Supabase → Authentication: turn Confirm email on, set the minimum password length to 8, add custom SMTP (Brevo, Resend or Postmark), and add `lenadena://**` to the redirect URLs. Without custom SMTP, Supabase only emails team members.
+7. Add SMTP settings for the notification worker and start it.
 
 The frontend uses Supabase for authentication. Financial mutations go through Fastify with the bearer token. Never place the Supabase secret key in the frontend.
-
-With `ALLOW_INSTANT_AUTH=true`, anyone who can reach the API and knows an email address can open that account. Use it only for local development and replace it with passwords, one-time codes, or passkeys before real users.
 
 Supabase Auth creates one profile per account. Financial rows continue to reference the immutable account ID when a user changes their display name or photo. `last_seen_at` distinguishes a recipient who has never opened LenaDena from an active recipient who still has a 72-hour review window.
 

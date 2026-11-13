@@ -83,7 +83,7 @@ const config: ExpoConfig = {
     ],
     ["expo-audio", { microphonePermission: "Use the microphone to turn a short spoken balance into a draft for your review." }],
     ["expo-mlkit-ocr", { iosEngine: "auto" }],
-    ["expo-local-authentication", { faceIDPermission: "Use Face ID to unlock LenaDena." }],
+    ["expo-local-authentication", { faceIDPermission: "Use Face ID to unlock LenaDena and to sign you in." }],
     "expo-secure-store",
     ["expo-build-properties", { ios: { deploymentTarget: "16.4", useFrameworks: "static" } }],
     "expo-sqlite",

@@ -31,7 +31,7 @@ pnpm --filter @lenadena/frontend exec expo start --clear   # after NativeWind/Me
 
 - **Demo mode**: no Supabase values, `AUTH_MODE=demo`. Backend uses `MemoryLedgerRepository` with seeded data; client sends `x-user-id: demo-user`.
 - **Supabase mode**: frontend has `EXPO_PUBLIC_SUPABASE_URL` + `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; backend has `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `AUTH_MODE=supabase`. The local `.env` files currently point at the hosted project.
-- `ALLOW_INSTANT_AUTH=true` (backend, development only) enables email-only account creation and sign-in without email verification. It is hard-disabled when `NODE_ENV=production`. See "Authentication" below.
+- Accounts use Supabase Auth directly (email + password). The backend has no sign-in routes: it only checks the bearer token and that the email is confirmed. See "Authentication" below.
 - Never read, print, or commit `backend/.env` or `frontend/.env.local`. The Supabase secret key must never reach the frontend.
 - `EXPO_PUBLIC_API_URL` defaults to `http://localhost:3000`; a physical phone needs the computer's LAN IP.
 
@@ -55,7 +55,7 @@ frontend/src/
   components/layout/       PageHeader, AppHeader, SectionHeader, EmptyState
   components/brand/        BrandMark (app-icon tile + wordmark), CoinMark (split gold coin, the logo), SplashTransition,
                            SpaceBackdrop (SVG scene for auth/lock), Clay (3D clay illustrations)
-  features/auth/           AuthProvider (session, instant auth, email-link fallback), useAuthForm, goToSignIn
+  features/auth/           AuthProvider (password sign-up/in, reset, change, email-link codes), useAuthForm, password/authErrors/authLinks (pure rules), goToSignIn
   features/security/       app lock: biometric capability, preference storage, lock provider and screen
   features/ledger/         LedgerProvider (all API mutations), types, split math, selectors, demo data
   features/preferences/    theme / email tone / voice locale (expo-sqlite localStorage)
@@ -70,11 +70,10 @@ frontend/src/
 backend/src/
   app.ts                   plugin registration + shared error contract
   config.ts                env parsing (AppConfig)
-  plugins/auth.ts          resolves bearer token -> request.authUser (skips public /v1/auth/* routes)
+  plugins/auth.ts          resolves bearer token -> request.authUser; refuses unconfirmed emails (403 email_not_confirmed)
   plugins/repository.ts    Memory vs Supabase repository
-  routes/                  health.ts, auth.ts (public /v1/auth/options + /v1/auth/instant), ledger.ts (all financial routes),
+  routes/                  health.ts, ledger.ts (all financial routes),
                            people.ts (/v1/people CRUD)
-  auth/                    InstantAuthGateway (Supabase Auth admin calls; faked in routes/auth.test.ts)
   http/schemas.ts          TypeBox request/response schemas
   repositories/            LedgerRepository interface + Memory and Supabase adapters
   domain/                  money rules, types, DomainError family
@@ -88,14 +87,18 @@ Provider order in `_layout.tsx`: `GestureHandlerRootView > SafeAreaProvider > To
 
 ## Authentication (current state)
 
-- **Create account**: name + email -> `POST /v1/auth/instant {mode:"signup"}` -> backend `auth.admin.createUser({ email_confirm: true, user_metadata: { name } })` -> `auth.admin.generateLink({ type: "recovery" })` -> returns a one-time `tokenHash` -> client `supabase.auth.verifyOtp({ token_hash, type: "email" })` -> session. The DB trigger creates the profile from `metadata.name`. Duplicate email -> 409 `account_exists`.
-- **Sign in**: email -> same route with `mode:"signin"`. A `recovery` link is used on purpose: `magiclink` silently creates accounts for unknown emails, `recovery` answers `user_not_found` (-> 404 `account_not_found`).
+- **Create account**: name + email + password -> `supabase.auth.signUp` (PKCE flow, `data: { name }`). With "Confirm email" on in the dashboard there is no session until the emailed link is opened; the form shows "Check your email" (resend with a 60 s cooldown). The DB trigger `handle_new_user` makes the profile (name cleaned, trimmed, cut to 80, falls back to the email name, then "Friend"; migration `202611130011`). Signing up with an existing email answers the same as a new one (no account enumeration).
+- **Sign in**: `signInWithPassword`. `email_not_confirmed` shows the check-email view; `invalid_credentials` shows one message for wrong email or wrong password. Legacy accounts created email-only have no password: they use "Forgot password".
+- **Email links** (confirm, reset) open the app with `?code=` (PKCE). `AuthProvider` parses it with `authLinks.parseAuthLink` and calls `exchangeCodeForSession`; only the phone that asked holds the code verifier, so another phone cannot use the link. `PASSWORD_RECOVERY` sets `recovering`, and `RecoveryRedirect` (in `_layout.tsx`) opens `/reset-password`. Tokens in URLs (`access_token`, `refresh_token`) are ignored on purpose.
+- **Password rules** (`password.ts`): at least 8 characters, a letter and a number, at most 72 bytes (bcrypt). Unicode aware. The server's own minimum (dashboard) must be 8 or more.
+- **Change password** (`/change-password`): asks the current password (re-auth), then `updateUser`. **Reset** (`/reset-password`): new + confirm.
+- **Biometric sign-in** (iOS and Android): after a password sign-in the app offers "Sign in with Face ID next time?"; Settings → Sign-in has the switch. The password is stored with `expo-secure-store` `requireAuthentication` (hardware-bound where `canUseBiometricAuthentication()`, otherwise a gated fallback), under `WHEN_PASSCODE_SET_THIS_DEVICE_ONLY`. If the biometric set changes, the key is invalidated and the next attempt falls back to the password. A stored password that no longer works (changed elsewhere) is deleted. Changing/resetting the password refreshes it. Emulators do not enforce biometrics; test on devices.
+- **API guard**: every `/v1` route needs a Supabase token whose user has `email_confirmed_at` (group invites match the profile email, so an unproven address must not reach data). 403 `email_not_confirmed` otherwise; 503 `auth_unavailable` when Supabase Auth is unreachable.
 - The service role has **no direct table privileges** on the hosted project (all DB access is `app_*` SECURITY DEFINER RPCs). Auth helpers must use only the Auth admin API, never `from("profiles")`.
-- **Fallback**: `GET /v1/auth/options` reports `instantAuth`. When it is off (production, flag unset), the auth screen falls back to Supabase email links (`signInWithOtp`).
-- Verified end to end on 2026-09-14 against the hosted project (script-driven and through the web UI), using throwaway accounts that were deleted afterwards.
+- Verified on 2026-11-13 in the web build against a local fake of Supabase Auth (sign-up, confirm link, unconfirmed sign-in, wrong password, change password, forgot + reset, expired link). Native biometric prompts are not verified (no device); the hosted project was not touched.
 - **Stale sessions**: a 401 from `/v1/me/plan` is confirmed with `supabase.auth.getUser()` before signing the device out locally (`LedgerProvider`), so a deleted account lands on `/auth` but a network hiccup never signs anyone out. The API answers 503 `auth_unavailable` (not 401) when Supabase Auth is unreachable.
-- **Security trade-off (accepted "for now" by the product owner, 2026-09-14)**: while instant auth is enabled, anyone who can reach the API and knows an email address can open that account. Cross-site browser calls are blocked (non-loopback `Origin` rejected) and the route is rate-limited, but this must be replaced with passwords, OTP codes, or passkeys before real users.
-- **App lock** (`features/security`): optional per-account biometric lock (Face ID / Touch ID / fingerprint / face unlock, device passcode fallback) enabled in Settings, with a lock delay. Preference lives in SecureStore. An identity with the lock on stays locked until it passes a biometric check **in this run** (`verified` set keyed by email; unlock, enabling, and `verifyForSignIn` add to it, sign-out clears it) — this covers restored sessions, sessions that reappear after an offline refresh, and email-only sign-ins. Returning from background after the delay locks again (negative elapsed time locks). The lock is an overlay (navigation state survives; `ScreenObscuredContext` hides native modals; Android back is consumed); a privacy cover hides the iOS app-switcher snapshot. Flows the app opens (`runWithoutLocking()` pickers/share/permission dialogs, biometric prompts) get a bounded 3-minute grace, never a free pass. With no device credential left, `turnOffWithoutCredential()` lets the owner switch it off. The account that enabled it is remembered for the "Or continue with Face ID" sign-in shortcut (only while instant auth is on; email never prefilled). Expo Go on iOS cannot use Face ID (no `NSFaceIDUsageDescription`), so iOS falls back to the passcode there; Face ID works in a development build. On-device prompts have not been exercised yet (no CocoaPods on the dev Mac).
+- **Dashboard settings the code relies on** (Authentication in Supabase): Confirm email ON, minimum password length 8, custom SMTP (Brevo) so strangers get the emails, redirect URL `lenadena://**` (and the web origin). Without custom SMTP only team members receive auth emails.
+- **App lock** (`features/security`): optional per-account biometric lock (Face ID / Touch ID / fingerprint / face unlock, device passcode fallback) enabled in Settings, with a lock delay. Preference lives in SecureStore. An identity with the lock on stays locked until it passes a biometric check **in this run** (`verified` set keyed by email; unlock, enabling, a password sign-in (`markPasswordSignIn`) and a biometric sign-in add to it, sign-out clears it) — this covers restored sessions and sessions that reappear after an offline refresh. Returning from background after the delay locks again (negative elapsed time locks). The lock is an overlay (navigation state survives; `ScreenObscuredContext` hides native modals; Android back is consumed); a privacy cover hides the iOS app-switcher snapshot. Flows the app opens (`runWithoutLocking()` pickers/share/permission dialogs, biometric prompts) get a bounded 3-minute grace, never a free pass. With no device credential left, `turnOffWithoutCredential()` lets the owner switch it off. Lock and biometric sign-in are independent switches. The account that enabled biometric sign-in is remembered for the "Or continue with Face ID" shortcut (email never prefilled; the password sits behind biometrics only). Expo Go on iOS cannot use Face ID (no `NSFaceIDUsageDescription`), so iOS falls back to the passcode there; Face ID works in a development build. On-device prompts have not been exercised yet (no CocoaPods on the dev Mac).
 
 ## Conventions that bite
 
@@ -145,7 +148,8 @@ Status is tracked at the bottom of this file.
 ## Workstream status
 
 - [x] Toast system + replace banners/alerts
-- [x] Instant account creation and sign-in (backend + client, tests; verified end to end against the hosted project)
+- [x] Password accounts: sign-up with email confirmation, sign-in, forgot/reset/change password, Face ID / fingerprint sign-in (2026-11-13; replaces the email-only sign-in; unit tests + web verification against a fake Auth server)
+- [ ] Hosted project: apply migration 202611130011, set Confirm email ON + min password 8 + Brevo SMTP, then install the new build (the old build cannot sign in again once the API drops /v1/auth)
 - [x] Biometric app lock + Settings controls (unit tested; on-device prompts need a dev build to verify)
 - [x] Figma-based auth redesign (+ lock screen styling, desktop split layout, pastel badges/panels neutralized); checked in web screenshots at 402x874, 375x667 and 1440x900
 - [x] Docs updated (ARCHITECTURE API table and flows, PROJECT_MEMORY, DESIGN_SYSTEM, README, DEPLOYMENT)

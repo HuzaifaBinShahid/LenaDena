@@ -11,6 +11,8 @@ export const supabase = url && key
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
+        // Email links carry a one-time code that only this phone can redeem, not the session itself.
+        flowType: "pkce",
       },
     })
   : null;

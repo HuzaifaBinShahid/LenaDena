@@ -12,6 +12,11 @@ import {
   lockPreferenceKey,
   parseLockPreference,
   parseRememberedAccount,
+  biometricOfferDismissedKey,
+  isCancelledSecureStoreError,
+  parseCredential,
+  parseCredentialProtection,
+  serializeCredential,
   shouldLockOnResume,
 } from "./lock-policy";
 
@@ -88,5 +93,42 @@ describe("stored lock preference", () => {
     expect(authenticationFailureMessage("lockout", "Face ID")).toMatchObject({ title: "Face ID is paused", tone: "warning" });
     expect(authenticationFailureMessage("not_enrolled", "Fingerprint").title).toBe("Fingerprint isn't set up");
     expect(authenticationFailureMessage("something new", "Touch ID").tone).toBe("error");
+  });
+});
+
+describe("biometric sign-in credential", () => {
+  it("round-trips an email and password, lower-casing the email", () => {
+    const raw = serializeCredential({ email: "  Sara@Example.com ", password: "Sunrise 2026!" });
+    expect(parseCredential(raw)).toEqual({ email: "sara@example.com", password: "Sunrise 2026!" });
+  });
+
+  it("keeps the password exactly as typed, spaces and symbols included", () => {
+    expect(parseCredential(serializeCredential({ email: "a@b.co", password: "  edge case \"quoted\" \\ ✓ " }))?.password).toBe("  edge case \"quoted\" \\ ✓ ");
+  });
+
+  it("refuses anything that is not a stored credential", () => {
+    for (const raw of [null, "", "oops", "{}", JSON.stringify({ email: "no-at-sign", password: "x" }), JSON.stringify({ email: "a@b.co" }), JSON.stringify({ email: "a@b.co", password: "" }), JSON.stringify({ email: "a@b.co", password: 42 }), JSON.stringify({ email: "a@b.co", password: "x".repeat(501) })]) {
+      expect(parseCredential(raw)).toBeNull();
+    }
+  });
+
+  it("knows only the two protection modes", () => {
+    expect(parseCredentialProtection("hardware")).toBe("hardware");
+    expect(parseCredentialProtection("gated")).toBe("gated");
+    for (const raw of [null, "", "none", "HARDWARE"]) expect(parseCredentialProtection(raw)).toBeNull();
+  });
+
+  it("keys the 'not now' answer per account with only characters the secure store allows", () => {
+    expect(biometricOfferDismissedKey(" Sara@Example.com ")).toBe("lenadena.biometric-offer-dismissed.v1.sara_example.com");
+    expect(biometricOfferDismissedKey("a+b@x.co")).toMatch(/^[A-Za-z0-9._-]+$/);
+  });
+
+  it("recognises a dismissed system prompt", () => {
+    expect(isCancelledSecureStoreError(new Error("User canceled the authentication"))).toBe(true);
+    expect(isCancelledSecureStoreError(new Error("Authentication was cancelled"))).toBe(true);
+    expect(isCancelledSecureStoreError({ code: "ERR_USER_CANCEL" })).toBe(true);
+    expect(isCancelledSecureStoreError(new Error("Key permanently invalidated"))).toBe(false);
+    expect(isCancelledSecureStoreError(undefined)).toBe(false);
+    expect(isCancelledSecureStoreError("oops")).toBe(false);
   });
 });
