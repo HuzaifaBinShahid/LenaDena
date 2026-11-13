@@ -13,6 +13,9 @@ export const supabase = url && key
         detectSessionInUrl: false,
         // Email links carry a one-time code that only this phone can redeem, not the session itself.
         flowType: "pkce",
+        // Each email link names the request it answers (`sb_flow_id`), so a resend, a second reset or a forged link
+        // cannot use up the secret another link needs. The redirect allow-list entry `lenadena://**` covers it.
+        experimental: { appendPkceFlowIdToRedirects: true },
       },
     })
   : null;

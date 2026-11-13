@@ -39,7 +39,11 @@ describe("Supabase auth email templates", () => {
     expect(byType(type)).not.toContain("<!--");
   });
 
-  it.each(AUTH_TEMPLATE_TYPES)("%s renders with and without a display name", (type) => {
+  // The sign-up confirmation is the one email anyone holding the public key can start toward any address, with a
+  // name of their own choosing, so it never prints the name. The others go to an account that already exists.
+  const greetsByName = AUTH_TEMPLATE_TYPES.filter((type) => type !== "confirmation");
+
+  it.each(greetsByName)("%s renders with and without a display name", (type) => {
     const filled = fillAuthPlaceholders(byType(type), placeholders);
     const named = renderGoTemplate(filled, sample);
     const anonymous = renderGoTemplate(filled, { ...sample, Data: {} });
@@ -52,6 +56,17 @@ describe("Supabase auth email templates", () => {
       expect(html).toContain(`src="${placeholders.LOGO_URL}"`);
       expect(html).toContain('<meta name="color-scheme" content="light dark">');
     }
+  });
+
+  it("confirmation never prints the sign-up name, whatever it says", () => {
+    const filled = fillAuthPlaceholders(byType("confirmation"), placeholders);
+    const html = renderGoTemplate(filled, { ...sample, Data: { name: "Your bank needs you to reply to this email" } });
+    expect(html).toContain("Hi there,");
+    expect(html).not.toContain("Your bank");
+    expect(byType("confirmation")).not.toContain(".Data");
+    expect(html).not.toContain("no value");
+    expect(html).not.toContain("{{");
+    expect(html).toContain("expires in 1 hour");
   });
 
   it.each(linkTypes)("%s signs in through one button with a fallback link, not a code", (type) => {

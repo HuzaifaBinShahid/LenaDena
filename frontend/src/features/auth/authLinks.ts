@@ -2,10 +2,13 @@
 //
 // Supabase's confirm-email and reset-password links open the app with a one-time `code` (the PKCE flow). The code is
 // only useful to the phone that asked for the email, because that phone holds the matching secret: a link crafted by
-// someone else cannot sign this phone into their account. A failed link carries `error*` fields instead.
+// someone else cannot sign this phone into their account. The link also carries `sb_flow_id`, which names the exact
+// request it answers: with several emails in flight (a resend, a second reset) each link is matched to its own secret,
+// so opening an older email, or a forged link, cannot use up the secret that a newer one needs. A failed link carries
+// `error*` fields instead.
 
 export type AuthLink =
-  | { kind: "code"; code: string }
+  | { kind: "code"; code: string; flowId: string | null }
   | { kind: "error"; code: string; description: string }
   | { kind: "none" };
 
@@ -19,6 +22,8 @@ function paramsOf(url: string): URLSearchParams[] {
 
 /** A code can be long but never huge: anything else is not from Supabase. */
 const CODE_PATTERN = /^[A-Za-z0-9._~-]{8,512}$/;
+/** The shape supabase-js gives a flow id; anything else is discarded before it is used to look up a secret. */
+const FLOW_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 
 export function parseAuthLink(url: string | null | undefined): AuthLink {
   if (!url) return { kind: "none" };
@@ -34,7 +39,10 @@ export function parseAuthLink(url: string | null | undefined): AuthLink {
   }
   for (const params of paramsOf(url)) {
     const code = params.get("code");
-    if (code && CODE_PATTERN.test(code)) return { kind: "code", code };
+    if (code && CODE_PATTERN.test(code)) {
+      const flowId = params.get("sb_flow_id");
+      return { kind: "code", code, flowId: flowId && FLOW_ID_PATTERN.test(flowId) ? flowId : null };
+    }
   }
   return { kind: "none" };
 }

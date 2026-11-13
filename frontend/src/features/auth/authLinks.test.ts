@@ -2,13 +2,25 @@ import { describe, expect, it } from "vitest";
 import { authReturnPath, parseAuthLink } from "./authLinks";
 
 const CODE = "6d1f0b6e-5d0c-4c1e-9d5e-2f4a8f3c1b77";
+const FLOW = "9f2c4e6a8b1d3f5a7c9e0b2d4f6a8c1e";
 
 describe("parseAuthLink", () => {
   it("reads the one-time code Supabase puts on a confirm or reset link", () => {
-    expect(parseAuthLink(`lenadena:///?code=${CODE}`)).toEqual({ kind: "code", code: CODE });
-    expect(parseAuthLink(`lenadena:///reset-password?code=${CODE}`)).toEqual({ kind: "code", code: CODE });
-    expect(parseAuthLink(`exp://192.168.18.75:8081/--/?code=${CODE}`)).toEqual({ kind: "code", code: CODE });
-    expect(parseAuthLink(`lenadena:///?code=${CODE}#section`)).toEqual({ kind: "code", code: CODE });
+    expect(parseAuthLink(`lenadena:///?code=${CODE}`)).toEqual({ kind: "code", code: CODE, flowId: null });
+    expect(parseAuthLink(`lenadena:///reset-password?code=${CODE}`)).toEqual({ kind: "code", code: CODE, flowId: null });
+    expect(parseAuthLink(`exp://192.168.18.75:8081/--/?code=${CODE}`)).toEqual({ kind: "code", code: CODE, flowId: null });
+    expect(parseAuthLink(`lenadena:///?code=${CODE}#section`)).toEqual({ kind: "code", code: CODE, flowId: null });
+  });
+
+  it("reads the flow id that names which request the link answers", () => {
+    expect(parseAuthLink(`lenadena:///reset-password?sb_flow_id=${FLOW}&code=${CODE}`)).toEqual({ kind: "code", code: CODE, flowId: FLOW });
+    expect(parseAuthLink(`lenadena:///?code=${CODE}&sb_flow_id=${FLOW}`)).toEqual({ kind: "code", code: CODE, flowId: FLOW });
+  });
+
+  it("drops a flow id that is not the shape supabase-js makes, so it never reaches a storage key", () => {
+    for (const flow of ["short", "has spaces in it", "../../etc/passwd", "x".repeat(65), "a%2Fb%2Fc%2Fd%2Fe%2Ff"]) {
+      expect(parseAuthLink(`lenadena:///?code=${CODE}&sb_flow_id=${flow}`)).toEqual({ kind: "code", code: CODE, flowId: null });
+    }
   });
 
   it("reads an error from the query or the fragment, whichever Supabase used", () => {

@@ -49,7 +49,7 @@ export function authErrorKind(error: unknown): AuthErrorKind {
   if (c === "over_request_rate_limit" || c === "over_email_send_rate_limit" || c === "over_sms_send_rate_limit" || status === 429 || m.includes("rate limit")) return "rate_limited";
   if (c === "signup_disabled" || c === "email_provider_disabled") return "signups_disabled";
   if (c === "email_address_invalid" || c === "validation_failed" || m.includes("unable to validate email")) return "invalid_email";
-  if (["otp_expired", "flow_state_expired", "flow_state_not_found", "bad_code_verifier", "bad_oauth_callback", "validation_failed"].includes(c) || m.includes("expired") || m.includes("code verifier") || m.includes("invalid flow state")) return "link_expired";
+  if (["otp_expired", "flow_state_expired", "flow_state_not_found", "bad_code_verifier", "bad_oauth_callback", "pkce_code_verifier_not_found", "validation_failed"].includes(c) || m.includes("expired") || m.includes("code verifier") || m.includes("invalid flow state")) return "link_expired";
   if (c === "reauthentication_needed" || c === "reauthentication_not_valid" || m.includes("reauthentication")) return "reauthenticate";
   return "unknown";
 }

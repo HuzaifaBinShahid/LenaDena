@@ -93,6 +93,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(!supabase);
   const [recovering, setRecovering] = useState(false);
   const [verifyingLink, setVerifyingLink] = useState(Boolean(supabase));
+  /** Links being read: the one the app was opened with, plus any that arrive while it runs. */
+  const pendingLinks = useRef(supabase ? 1 : 0);
   const recoveringRef = useRef(false);
   const handledCodes = useRef(new Set<string>());
 
@@ -135,7 +137,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // The same link arrives as the launch URL and again as an event; a code works once.
       if (handledCodes.current.has(link.code)) return;
       handledCodes.current.add(link.code);
-      const { error } = await client.auth.exchangeCodeForSession(link.code);
+      // A link without a flow id (an older email, or one made by someone else) cannot say which request it answers.
+      // Using it would try the newest secret and burn it, so it is refused without touching any.
+      if (!link.flowId) {
+        const copy = describeAuthError({ code: "flow_state_not_found" }, "link");
+        toastRef.current.error(copy.title, copy.message);
+        return;
+      }
+      const { error } = await client.auth.exchangeCodeForSession(link.code, { flowId: link.flowId });
       if (error) {
         const copy = describeAuthError(error, "link");
         toastRef.current.error(copy.title, copy.message);
@@ -143,13 +152,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       if (!recoveringRef.current) toastRef.current.success("You're signed in", "Your email address is confirmed.");
     };
+    const settleLink = () => {
+      pendingLinks.current = Math.max(0, pendingLinks.current - 1);
+      setVerifyingLink(pendingLinks.current > 0);
+    };
+    pendingLinks.current = 1;
     void Linking.getInitialURL()
       .then((url) => handleUrl(url))
       .catch(() => undefined)
-      .finally(() => setVerifyingLink(false));
+      .finally(settleLink);
     const linkSubscription = Linking.addEventListener("url", ({ url }) => {
+      // A counter, not a flag: two links in a row must not let the first one's end hide the second one's wait.
+      pendingLinks.current += 1;
       setVerifyingLink(true);
-      void handleUrl(url).catch(() => undefined).finally(() => setVerifyingLink(false));
+      void handleUrl(url).catch(() => undefined).finally(settleLink);
     });
     return () => {
       data.subscription.unsubscribe();
