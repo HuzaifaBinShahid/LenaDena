@@ -96,10 +96,19 @@ describe("API sign-in (Supabase tokens)", () => {
     expect(response.json()).toMatchObject({ code: "auth_unavailable" });
   });
 
-  it("has no public sign-in routes: the old email-only ones are gone and answer 401 like any /v1 route", async () => {
+  it("has no public sign-in routes: the old email-only ones no longer exist", async () => {
     const { app } = await setup();
-    expect((await app.inject({ method: "GET", url: "/v1/auth/options" })).statusCode).toBe(401);
-    expect((await app.inject({ method: "POST", url: "/v1/auth/instant", payload: { mode: "signin", email: "sara@example.com" } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/v1/auth/options" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "POST", url: "/v1/auth/instant", payload: { mode: "signin", email: "sara@example.com" } })).statusCode).toBe(404);
+  });
+
+  it("cannot be skipped by writing the /v1 path percent-encoded", async () => {
+    const { app } = await setup();
+    // The router decodes this to the same route as /v1/me/plan, so it must meet the same check.
+    const encoded = await app.inject({ method: "GET", url: "/%76%31/me/plan" });
+    expect(encoded.statusCode).toBe(401);
+    expect(encoded.json()).toMatchObject({ code: "unauthorized" });
+    expect((await app.inject({ method: "GET", url: "/v1/me/plan" })).statusCode).toBe(401);
   });
 
   it("keeps the health check public", async () => {

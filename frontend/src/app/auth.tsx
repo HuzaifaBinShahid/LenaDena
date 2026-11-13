@@ -146,7 +146,7 @@ function CheckEmailPanel({ form, headingSize }: { form: AuthForm; headingSize: n
       <Text className="text-[13px] font-extrabold text-white">{notice.email}</Text>
       {confirm ? ". Open it on this phone to finish creating your account, then sign in." : ", we sent a link to choose a new password. Open it on this phone."}
     </Text>,
-    <Text className="mt-3 text-[11.5px] leading-[17px] text-white/55">It can take a minute to arrive. Look in your spam folder too.</Text>,
+    <Text className="mt-3 text-[11.5px] leading-[17px] text-white/55">It can take a minute to arrive. Look in your spam folder too, and if you asked for more than one email, open the newest.</Text>,
     <View style={styles.fields}>
       <Button
         label={form.resendIn > 0 ? `Send again in ${form.resendIn}s` : "Send the email again"}

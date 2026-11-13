@@ -46,7 +46,7 @@ export default function EnableBiometricScreen() {
       await confirmPassword({ email, password });
       const result = await enableBiometricSignIn({ email, name: plan.user.name, password });
       if (result.ok) {
-        toast.success(`${label} sign-in is on`, "Next time, tap the button on the sign-in screen instead of typing your password.");
+        toast.success(`${label} sign-in is on`, result.protection === "gated" ? "Your phone can't tie it to biometrics alone, so its passcode also works here." : "Next time, tap the button on the sign-in screen instead of typing your password.");
         router.back();
         return;
       }
@@ -73,7 +73,7 @@ export default function EnableBiometricScreen() {
             <Icon name={glyph} size={22} color={c.violet} />
           </View>
           <Text className="min-w-0 flex-1 text-[13px] leading-5 text-slate">
-            Your password stays locked in your phone's secure storage and is released only after {label} confirms it's you. If you add a new {capability?.kind === "face" ? "face" : "fingerprint"} to your phone, this switches off and you sign in with your password once.
+            Your password stays locked in your phone's secure storage and is released only after {label} confirms it's you. (A phone that can't bind it to {label} alone also accepts its passcode, and says so.) If you add a new {capability?.kind === "face" ? "face" : "fingerprint"} to your phone, this switches off and you sign in with your password once.
           </Text>
         </View>
         <Field label="Your password" error={submitted ? problem : undefined}>

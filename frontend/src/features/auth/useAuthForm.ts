@@ -141,7 +141,14 @@ export function useAuthForm(next: string | undefined) {
       setResendIn(RESEND_COOLDOWN_SECONDS);
     } catch (error) {
       const copy = describeAuthError(error, "reset");
-      toast.error(copy.title, copy.message);
+      // Supabase only rate-limits an address that has an account. Answering "too many attempts" would tell anyone
+      // which addresses do, so a limit looks exactly like success.
+      if (copy.kind === "rate_limited") {
+        setNotice({ kind: "reset_sent", email: email.trim().toLowerCase() });
+        setResendIn(RESEND_COOLDOWN_SECONDS);
+      } else {
+        toast.error(copy.title, copy.message);
+      }
     } finally {
       setLoading(null);
     }

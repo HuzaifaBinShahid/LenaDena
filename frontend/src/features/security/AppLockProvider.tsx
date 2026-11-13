@@ -30,6 +30,7 @@ import {
   resumeAllowance,
   shouldLockOnResume,
   type BiometricCredential,
+  type CredentialProtection,
   type LockDelay,
   type LockPreference,
   type RememberedAccount,
@@ -45,7 +46,7 @@ export type UnlockResult = { ok: true } | { ok: false; error: string };
 /** What turning biometric sign-in on needs: the account's password, which is only ever kept behind biometrics. */
 export type BiometricSignInInput = { email: string; name: string; password: string };
 
-export type BiometricSignInChange = { ok: true } | { ok: false; reason: "unavailable" | "cancelled" | "failed"; error?: string };
+export type BiometricSignInChange = { ok: true; protection: CredentialProtection } | { ok: false; reason: "unavailable" | "cancelled" | "failed"; error?: string };
 
 export type BiometricSignInResult =
   | { ok: true; credential: BiometricCredential }
@@ -147,7 +148,7 @@ export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
       if (cancelled) return;
       setPreference(stored);
       // Any session that has not passed a biometric check in this run starts locked: a restored session,
-      // one that reappears after an offline refresh, or an email-only sign-in to a lock-enabled account.
+      // or one that reappears after an offline refresh.
       if (stored.enabled && !verified.current.has(verificationKey)) setLocked(true);
     });
     return () => {
@@ -249,7 +250,7 @@ export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
       const account = { email: email.trim().toLowerCase(), name: name.trim() || email.split("@")[0] || email };
       await saveRememberedAccount(account);
       setRememberedAccount(account);
-      return { ok: true };
+      return { ok: true, protection: saved.protection };
     } finally {
       authenticating.current = false;
     }
@@ -262,8 +263,9 @@ export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
     authenticating.current = true;
     try {
       const saved = await saveBiometricCredential({ email, password }, "Update your LenaDena sign-in");
-      // A stored password that no longer works would only fail later; better to sign in with the password once.
-      if (!saved.ok) await forgetBiometricSignIn();
+      // A real failure leaves nothing reliable stored, so start over. Backing out of the prompt changes nothing:
+      // the old password is stale, and the next sign-in with it clears itself.
+      if (!saved.ok && !saved.cancelled) await forgetBiometricSignIn();
     } finally {
       authenticating.current = false;
     }
@@ -399,7 +401,7 @@ export function AppLockProvider({ children, canPrompt }: AppLockProviderProps) {
     try {
       const result = await enableBiometricSignIn(offer);
       if (result.ok) {
-        toast.success(`${offerLabel} sign-in is on`, "Next time, tap the button instead of typing your password.");
+        toast.success(`${offerLabel} sign-in is on`, result.protection === "gated" ? "Your phone can't tie it to biometrics alone, so its passcode also works here." : "Next time, tap the button instead of typing your password.");
       } else if (result.reason === "failed") {
         toast.warning(`Couldn't turn on ${offerLabel}`, "You can try again in Settings.");
       }

@@ -7,6 +7,29 @@ import { describeAuthError } from "@/features/auth/authErrors";
 import { parseAuthLink } from "@/features/auth/authLinks";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
+/**
+ * Opening a reset link signs the person in. Remembering whose reset is unfinished (in storage, not memory) means
+ * killing the app before choosing a password cannot leave them signed in without having chosen one.
+ */
+const recoveryPendingKey = "lenadena.recovery-pending";
+
+function readRecoveryPending(): string | null {
+  try {
+    return globalThis.localStorage?.getItem(recoveryPendingKey) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeRecoveryPending(userId: string | null) {
+  try {
+    if (userId) globalThis.localStorage?.setItem(recoveryPendingKey, userId);
+    else globalThis.localStorage?.removeItem(recoveryPendingKey);
+  } catch {
+    // Storage can be unavailable; the in-memory flag still covers this run.
+  }
+}
+
 export type SignUpResult =
   /** "Confirm email" is off in Supabase: the account is ready and the session has landed. */
   | { kind: "signed_in" }
@@ -53,6 +76,15 @@ function requireClient(): SupabaseClient {
 
 const normalize = (email: string) => email.trim().toLowerCase();
 
+/** A new password should end every other session, so a session someone else holds stops working. */
+async function endOtherSessions(client: SupabaseClient) {
+  try {
+    await client.auth.signOut({ scope: "others" });
+  } catch {
+    // The password is already changed; failing to end other sessions must not look like a failed change.
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const toast = useToast();
   const toastRef = useRef(toast);
@@ -70,6 +102,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void client.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setReady(true);
+      if (data.session && readRecoveryPending() === data.session.user.id) {
+        recoveringRef.current = true;
+        setRecovering(true);
+      }
     });
     const { data } = client.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
@@ -77,9 +113,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === "PASSWORD_RECOVERY") {
         recoveringRef.current = true;
         setRecovering(true);
+        writeRecoveryPending(nextSession?.user.id ?? null);
       } else if (event === "SIGNED_OUT") {
         recoveringRef.current = false;
         setRecovering(false);
+        writeRecoveryPending(null);
       }
     });
 
@@ -89,7 +127,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const link = parseAuthLink(url);
       if (link.kind === "none") return;
       if (link.kind === "error") {
-        const copy = describeAuthError({ code: link.code, message: link.description }, "link");
+        // Only the code is used: the description comes from whoever made the link, so it is never shown.
+        const copy = describeAuthError({ code: link.code }, "link");
         toastRef.current.error(copy.title, copy.message);
         return;
       }
@@ -159,13 +198,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (reauthenticated.error) throw reauthenticated.error;
     const { error } = await client.auth.updateUser({ password: newPassword });
     if (error) throw error;
+    await endOtherSessions(client);
   }, []);
 
   const setNewPassword = useCallback(async (newPassword: string) => {
-    const { error } = await requireClient().auth.updateUser({ password: newPassword });
+    const client = requireClient();
+    const { error } = await client.auth.updateUser({ password: newPassword });
     if (error) throw error;
     recoveringRef.current = false;
     setRecovering(false);
+    writeRecoveryPending(null);
+    await endOtherSessions(client);
   }, []);
 
   const signOut = useCallback(async () => {

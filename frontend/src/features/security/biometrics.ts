@@ -129,8 +129,10 @@ export async function saveBiometricCredential(credential: BiometricCredential, p
     await SecureStore.setItemAsync(biometricCredentialModeKey, protection);
     return { ok: true, protection };
   } catch (error) {
-    await clearBiometricCredential();
-    return { ok: false, cancelled: isCancelledSecureStoreError(error), error: describeError(error) };
+    const cancelled = isCancelledSecureStoreError(error);
+    // Backing out of the prompt leaves whatever was stored as it was; only a real failure clears it.
+    if (!cancelled) await clearBiometricCredential();
+    return { ok: false, cancelled, error: describeError(error) };
   }
 }
 
