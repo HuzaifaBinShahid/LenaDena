@@ -1,95 +1,17 @@
-import { randomUUID } from "node:crypto";
-import nodemailer from "nodemailer";
-import { createClient } from "@supabase/supabase-js";
 import { loadNotificationConfig } from "./notifications/config.js";
-import { loadEmailLogo } from "./notifications/logo.js";
-import { personMailExtras } from "./notifications/person-mail.js";
-import { renderNotification } from "./notifications/templates.js";
+import { createNotificationRunner } from "./notifications/runner.js";
 
-type ClaimedNotification = {
-  id: string;
-  eventType: string;
-  recipientEmail: string;
-  recipientName: string;
-  groupName: string;
-  tone: "friendly" | "cheeky" | "chaos" | "quiet";
-  payload: Record<string, unknown>;
-};
-
+/**
+ * The long-lived email worker: one pass every NOTIFICATION_INTERVAL_MS. It is the same code the hosted API runs on a
+ * schedule (`POST /internal/notifications/run`); use this loop when you have a machine that stays on.
+ */
 const config = loadNotificationConfig();
-const workerId = randomUUID();
-// Loaded once: EMAIL_LOGO_URL, or the bundled PNG as an inline CID attachment. A missing file only drops the image.
-const logo = loadEmailLogo(config.emailLogoUrl);
-if (!logo.src) process.stderr.write("email-logo.png not found; emails will show the LenaDena wordmark without the logo\n");
-const renderOptions = { ...(logo.src ? { logoSrc: logo.src } : {}), ...(config.emailLinkBaseUrl ? { linkBaseUrl: config.emailLinkBaseUrl } : {}) };
-const supabase = createClient(config.supabaseUrl, config.supabaseSecretKey, { auth: { autoRefreshToken: false, persistSession: false } });
-const mailer = config.smtpHost
-  ? nodemailer.createTransport({
-      host: config.smtpHost,
-      port: config.smtpPort,
-      secure: config.smtpSecure,
-      ...((config.smtpUser && config.smtpPassword) ? { auth: { user: config.smtpUser, pass: config.smtpPassword } } : {}),
-    })
-  : nodemailer.createTransport({ jsonTransport: true });
-
-/**
- * Marks a claimed row sent (`error` omitted) or failed (retried in five minutes). Goes through
- * `app_finish_notification` because the service role has no table privileges on the hosted project;
- * falls back to a direct update only on a database without that function (before migration 202609180007).
- */
-async function finish(id: string, error?: string) {
-  const { error: rpcError } = await supabase.rpc("app_finish_notification", { p_id: id, p_worker: workerId, ...(error === undefined ? {} : { p_error: error.slice(0, 1000) }) });
-  if (!rpcError) return;
-  if (rpcError.code !== "PGRST202" && rpcError.code !== "42883") throw rpcError;
-  const values = error === undefined
-    ? { sent_at: new Date().toISOString(), locked_at: null, locked_by: null, last_error: null }
-    : { locked_at: null, locked_by: null, last_error: error.slice(0, 1000), available_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
-  const { error: updateError } = await supabase.from("notification_outbox").update(values).eq("id", id).eq("locked_by", workerId);
-  if (updateError) throw updateError;
-}
-
-/**
- * Queues this cycle's reminders: group debts, then the weekly and monthly reminders owners chose for people
- * (migration 202611100010; a database without it simply has none).
- */
-async function enqueueReminders() {
-  await supabase.rpc("app_enqueue_due_reminders");
-  const { error } = await supabase.rpc("app_enqueue_person_reminders");
-  if (error && error.code !== "PGRST202" && error.code !== "42883") throw error;
-}
-
-async function runBatch() {
-  await enqueueReminders();
-  const { data, error } = await supabase.rpc("app_claim_notifications", { p_worker: workerId, p_limit: 25 });
-  if (error) throw error;
-  for (const item of (data ?? []) as ClaimedNotification[]) {
-    try {
-      if (!(item.tone === "quiet" && item.eventType === "debt_reminder")) {
-        const message = renderNotification(item, renderOptions);
-        // Person emails add the owner as Reply-To, and a statement carries its PDF.
-        const extras = await personMailExtras(item.eventType, item.payload);
-        const result = await mailer.sendMail({
-          from: config.smtpFrom,
-          to: item.recipientEmail,
-          ...(extras.replyTo ? { replyTo: extras.replyTo } : {}),
-          ...message,
-          attachments: [...logo.attachments.map((attachment) => ({ ...attachment })), ...extras.attachments],
-        });
-        // Without SMTP the JSON transport only logs; skip the message body and base64 logo.
-        if (!config.smtpHost) process.stdout.write(`${JSON.stringify({ messageId: result.messageId, envelope: result.envelope, subject: message.subject })}\n`);
-      }
-      await finish(item.id);
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      await finish(item.id, message);
-    }
-  }
-}
+const runner = createNotificationRunner(config);
 
 async function main() {
   for (;;) {
     try {
-      await runBatch();
+      await runner.runBatch();
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       process.stderr.write(`${message}\n`);

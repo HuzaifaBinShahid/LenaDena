@@ -20,6 +20,30 @@ Then apply `202611100010_person_emails.sql` (emails to people: per-person switch
 
 Share-invite messages and invite emails link to the Loadly page `https://loadly.io/kzM0n7qg` by default (the app sends it with each invite; the API accepts Loadly links). When the app moves to Google Play, set `EXPO_PUBLIC_APP_DOWNLOAD_URL` in `frontend/.env.local` (restart Metro with `--clear`, rebuild) and/or `APP_DOWNLOAD_URL` in `backend/.env` (wins for emails). Invite and notification emails are only delivered while the worker runs with SMTP configured (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`).
 
+## Hosted email worker (free, no server to look after)
+
+Emails to people (statements, reminders, invites) are queued in the database and sent by a worker. Instead of a terminal on your computer, the Vercel API can send one small batch each time a scheduler calls it, and Supabase's own scheduler calls it every minute.
+
+1. **Vercel environment variables** (Project → Settings → Environment Variables, then redeploy): `NOTIFICATIONS_CRON_SECRET` (make one with `openssl rand -hex 32`; keep a copy for step 3), and the mail settings the worker already uses: `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, `SMTP_USER`, `SMTP_PASSWORD` (the Brevo SMTP key), `SMTP_FROM`. `SUPABASE_URL` and `SUPABASE_SECRET_KEY` are already there. Optional: `EMAIL_LINK_BASE_URL`, `APP_DOWNLOAD_URL`. Leave `ENABLE_GROUP_DEBT_REMINDERS` unset.
+2. **Try it by hand** (expect `200` and JSON such as `{"claimed":0,"sent":0,"failed":0,"skipped":0}`; `401` means the secret is wrong, `404` that the variable is missing, `503` that the SMTP settings are missing):
+   `curl -s -X POST -H "Authorization: Bearer <secret>" https://<your-api-host>/internal/notifications/run`
+3. **Schedule it in Supabase** (Database → Extensions: enable `pg_cron` and `pg_net`; then the SQL editor). Keep the secret in Vault rather than in the job text:
+   ```sql
+   select vault.create_secret('<the same secret>', 'notifications_cron_secret');
+   select cron.schedule('lenadena-notifications', '* * * * *', $$
+     select net.http_post(
+       url := 'https://<your-api-host>/internal/notifications/run',
+       headers := jsonb_build_object('Content-Type', 'application/json',
+         'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'notifications_cron_secret')),
+       body := '{}'::jsonb,
+       timeout_milliseconds := 30000);
+   $$);
+   ```
+   Stop it any time with `select cron.unschedule('lenadena-notifications');`. See what happened with `select * from net._http_response order by created desc limit 5;`.
+4. **Check the first real email**: tap Send on a person's page, wait a minute or two, and look at Brevo's transactional log.
+
+Each call sends at most 3 emails, so a minute-by-minute schedule is about 180 an hour: plenty for statements and the reminders owners switch on. A failed email is retried every five minutes. If you would rather run a machine that stays on, `pnpm worker` runs the same code as a loop.
+
 ### Branded Auth emails
 
 `supabase/templates/` holds branded templates for all six Supabase Auth emails (sign-in link, confirm signup, invite, reset password, change email, reauthentication) and `subjects.json`.

@@ -61,8 +61,8 @@ export default function PersonFormScreen() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
-  // New people with an email get an invite by default; the switch is shown only once an email is typed.
-  const [emailInvite, setEmailInvite] = useState(true);
+  // An invite email is only sent if you turn this on; the switch is shown once an email is typed.
+  const [emailInvite, setEmailInvite] = useState(false);
   const [removing, setRemoving] = useState(false);
   // Set once the save or removal went through, so the refreshed plan can't flash "already in your people" or
   // "not in your people" while the screen animates away.
@@ -156,12 +156,9 @@ export default function PersonFormScreen() {
           ...(photoChanged ? { avatarUri: photoUri } : {}),
         };
         if (Object.keys(changes).length) {
-          const updated = await updatePerson(existing.id, changes);
-          // Adding an email to someone who had none emails them the complete statement (when their updates are on).
-          toast.success(
-            updated.statementQueued ? `Saved, and ${first}'s statement is on its way` : "Saved",
-            updated.statementQueued ? `${updated.email ?? "They"} will get every entry with a PDF attached.` : `${first}'s details are up to date.`,
-          );
+          // Adding or changing an email sends nothing: you send a statement yourself from their page.
+          await updatePerson(existing.id, changes);
+          toast.success("Saved", `${first}'s details are up to date.`);
         }
         setFinished(true);
         router.back();
@@ -286,7 +283,7 @@ export default function PersonFormScreen() {
             <Button label={`Open ${personFirstName(clash.name)}`} icon="arrow-right" iconSide="right" variant="ghost" size="sm" onPress={() => router.replace(personHref(clash.id))} />
           </View>
         ) : null}
-        <Field label="Email" hint={existing ? (existing.email ? "Optional. Only you can see it." : "Optional. Adding it emails them their full statement with a PDF.") : "Optional. Only you can see it; add it to email them an invite."} error={submitted ? emailError : undefined}>
+        <Field label="Email" hint={existing ? (existing.email ? "Optional. Only you can see it." : "Optional. Only you can see it. Adding it sends nothing; email their statement yourself from their page.") : "Optional. Only you can see it; add it to email them an invite."} error={submitted ? emailError : undefined}>
           <Input
             ref={emailRef}
             value={email}
@@ -309,7 +306,7 @@ export default function PersonFormScreen() {
               key="email"
               icon="send"
               title="Email them an invite"
-              detail={emailInvite ? `Sent to ${typedEmail} when you add ${trimmedName ? first : "them"}.` : "Off: no email will be sent."}
+              detail={emailInvite ? `Sent to ${typedEmail} when you add ${trimmedName ? first : "them"}.` : "Off: nothing is emailed when you add them."}
               trailing={<Switch value={emailInvite} onValueChange={setEmailInvite} accessibilityLabel="Email them an invite" />}
             />
           ) : null}

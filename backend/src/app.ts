@@ -15,6 +15,8 @@ import { DomainError } from "./domain/errors.js";
 import { authPlugin } from "./plugins/auth.js";
 import { repositoryPlugin } from "./plugins/repository.js";
 import { healthRoutes } from "./routes/health.js";
+import { notificationRoutes } from "./routes/notifications.js";
+import type { NotificationRunner } from "./notifications/runner.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { peopleRoutes } from "./routes/people.js";
 import { voiceRoutes } from "./routes/voice.js";
@@ -24,6 +26,8 @@ type BuildOptions = {
   config?: Partial<AppConfig>;
   repository?: LedgerRepository;
   voiceTranscriber?: VoiceTranscriber;
+  /** Tests pass a stand-in for the hosted email worker pass. */
+  notificationRunner?: NotificationRunner;
 };
 
 export async function buildApp(options: BuildOptions = {}) {
@@ -73,6 +77,7 @@ export async function buildApp(options: BuildOptions = {}) {
   await app.register(repositoryPlugin, options.repository ? { config, repository: options.repository } : { config });
   await app.register(authPlugin, config);
   await app.register(healthRoutes);
+  await app.register(notificationRoutes, { config, ...(options.notificationRunner ? { runner: options.notificationRunner } : {}) });
   await app.register(ledgerRoutes, { prefix: "/v1" });
   await app.register(peopleRoutes, { prefix: "/v1", config });
   await app.register(voiceRoutes, { prefix: "/v1", config, ...(options.voiceTranscriber ? { transcriber: options.voiceTranscriber } : {}) });

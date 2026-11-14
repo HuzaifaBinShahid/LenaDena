@@ -13,6 +13,12 @@ export type NotificationConfig = {
   emailLogoUrl?: string;
   /** Web origin for email buttons instead of lenadena:// (Gmail removes links with custom schemes). */
   emailLinkBaseUrl?: string;
+  /**
+   * The automatic group-debt reminders (every 72 hours to each group member who still owes something). Off unless
+   * ENABLE_GROUP_DEBT_REMINDERS=true, because they email people nobody chose to remind. The per-person weekly and
+   * monthly reminders an owner switches on are separate and always run.
+   */
+  groupDebtReminders: boolean;
 };
 
 function optionalHttpUrl(name: string, { trimTrailingSlash = false } = {}): string | undefined {
@@ -52,5 +58,6 @@ export function loadNotificationConfig(): NotificationConfig {
     production,
     ...(emailLogoUrl ? { emailLogoUrl } : {}),
     ...(emailLinkBaseUrl ? { emailLinkBaseUrl } : {}),
+    groupDebtReminders: process.env.ENABLE_GROUP_DEBT_REMINDERS === "true",
   };
 }

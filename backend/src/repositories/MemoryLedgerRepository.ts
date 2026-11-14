@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../domain/errors.js";
 import { pairKey, validateShares } from "../domain/money.js";
-import { cleanNewPerson, cleanPersonChanges, cleanPersonName, DAILY_PERSON_EMAIL_LIMIT, EmailLimitReachedError, EmailRecentlySentError, ENTRY_EMAIL_DELAY_MS, InviteRecentlySentError, PERSON_INVITE_COOLDOWN_MS, PersonExistsError, PersonHasNoEntriesError, PersonHasNoEmailError, PersonNotFoundError, personNameKey, STATEMENT_COOLDOWN_MS, transactionNotFound, transactionRequired } from "../domain/people.js";
+import { cleanNewPerson, cleanPersonChanges, cleanPersonName, DAILY_PERSON_EMAIL_LIMIT, EmailLimitReachedError, EmailRecentlySentError, InviteRecentlySentError, PERSON_INVITE_COOLDOWN_MS, PersonExistsError, PersonHasNoEntriesError, PersonHasNoEmailError, PersonNotFoundError, personNameKey, STATEMENT_COOLDOWN_MS } from "../domain/people.js";
 import type {
   ActivityItem,
   CreatedPersonalTransaction,
@@ -15,7 +15,6 @@ import type {
   InviteLink,
   Member,
   Person,
-  PersonEmailKind,
   PersonUpdate,
   Plan,
   Settlement,
@@ -329,8 +328,8 @@ export class MemoryLedgerRepository implements LedgerRepository {
       createdAt: new Date().toISOString(),
     };
     this.personalTransactions.unshift(transaction);
-    // Cached with the decision, so a retried request never queues the email twice.
-    const result: CreatedPersonalTransaction = { id: transaction.id, email: this.decideEntryEmail(userId, person, transaction) };
+    // Saving an entry sends no email.
+    const result: CreatedPersonalTransaction = { id: transaction.id };
     this.idempotency.set(key, result);
     return result;
   }
@@ -399,7 +398,6 @@ export class MemoryLedgerRepository implements LedgerRepository {
         if (transaction.userId === userId && transaction.personId === person.id) transaction.counterparty = person.name;
       }
     }
-    const hadEmail = Boolean(person.email);
     if (changes.email !== undefined) {
       if (changes.email) person.email = changes.email;
       else delete person.email;
@@ -410,9 +408,8 @@ export class MemoryLedgerRepository implements LedgerRepository {
     }
     if (changes.emailUpdates !== undefined) person.emailUpdates = changes.emailUpdates;
     if (changes.reminderFrequency !== undefined) person.reminderFrequency = changes.reminderFrequency;
-    // An email added later sends them the complete statement (once, and only when they have entries to show).
-    const statementQueued = !hadEmail && Boolean(person.email) && person.emailUpdates && this.queueStatementQuietly(userId, person);
-    return { ...this.toPerson(person), ...(statementQueued ? { statementQueued: true } : {}) };
+    // Adding or changing an address sends nothing: the owner sends a statement by hand.
+    return this.toPerson(person);
   }
 
   async deletePerson(userId: string, personId: string): Promise<void> {
@@ -449,23 +446,17 @@ export class MemoryLedgerRepository implements LedgerRepository {
     return { queuedAt: invite.queuedAt };
   }
 
-  async emailPerson(userId: string, personId: string, kind: PersonEmailKind, transactionId: string | undefined): Promise<{ queuedAt: string }> {
+  async emailPerson(userId: string, personId: string): Promise<{ queuedAt: string }> {
     if (!this.users.has(userId)) throw new NotFoundError("Profile not found");
     const person = this.people.find((item) => item.id === personId && item.ownerId === userId);
     if (!person) throw new PersonNotFoundError();
     if (!person.email) throw new PersonHasNoEmailError();
     this.assertWithinDailyLimit(userId);
     const now = this.now();
-    if (kind === "statement") {
-      const recent = this.personEmails.some((email) => email.kind === "statement" && email.personId === person.id && Date.parse(email.queuedAt) > now.getTime() - STATEMENT_COOLDOWN_MS);
-      if (recent) throw new EmailRecentlySentError();
-      if (!this.entriesWith(userId, person.id).length) throw new PersonHasNoEntriesError();
-      return { queuedAt: this.queueEmail(userId, person, "statement", [], 0).queuedAt };
-    }
-    if (!transactionId) throw transactionRequired();
-    const entry = this.entriesWith(userId, person.id).find((item) => item.id === transactionId);
-    if (!entry) throw transactionNotFound();
-    return { queuedAt: this.queueEmail(userId, person, "entry", [entry.id], 0).queuedAt };
+    const recent = this.personEmails.some((email) => email.kind === "statement" && email.personId === person.id && Date.parse(email.queuedAt) > now.getTime() - STATEMENT_COOLDOWN_MS);
+    if (recent) throw new EmailRecentlySentError();
+    if (!this.entriesWith(userId, person.id).length) throw new PersonHasNoEntriesError();
+    return { queuedAt: this.queueEmail(userId, person, "statement", [], 0).queuedAt };
   }
 
   /** Emails queued so far (demo mode sends none). For tests. */
@@ -621,37 +612,6 @@ export class MemoryLedgerRepository implements LedgerRepository {
     };
     this.personEmails.push(email);
     return email;
-  }
-
-  /** Queues the statement for a person who just got an email address; never throws (the edit itself already succeeded). */
-  private queueStatementQuietly(userId: string, person: StoredPerson): boolean {
-    try {
-      if (!this.entriesWith(userId, person.id).length) return false;
-      this.assertWithinDailyLimit(userId);
-      this.queueEmail(userId, person, "statement", [], 0);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /** The same decision as app_notify_new_entry: email now if they already had something open, else ask. */
-  private decideEntryEmail(userId: string, person: StoredPerson, transaction: StoredPersonalTransaction): NonNullable<CreatedPersonalTransaction["email"]> {
-    if (!person.email) return { action: "none", reason: "no_email" };
-    if (!person.emailUpdates) return { action: "none", reason: "disabled" };
-    const hadOpen = this.entriesWith(userId, person.id).some((item) => item.id !== transaction.id && item.status !== "settled" && (item.settledAmountMinor ?? 0) < item.amountMinor);
-    const details = { personId: person.id, personName: person.name, email: person.email };
-    if (!hadOpen) return { action: "ask", ...details };
-    try {
-      this.assertWithinDailyLimit(userId);
-    } catch {
-      return { action: "none", reason: "limited" };
-    }
-    const now = this.now().getTime();
-    const pending = this.personEmails.find((email) => email.kind === "entry" && email.personId === person.id && Date.parse(email.availableAt) > now);
-    if (pending) pending.transactionIds.push(transaction.id);
-    else this.queueEmail(userId, person, "entry", [transaction.id], ENTRY_EMAIL_DELAY_MS);
-    return { action: "sent", ...details };
   }
 
   private findPersonByName(userId: string, name: string) {

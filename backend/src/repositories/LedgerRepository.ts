@@ -1,4 +1,4 @@
-import type { CreatedPersonalTransaction, CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, Group, InviteLink, Member, Person, PersonEmailKind, PersonUpdate, Plan, SettlementStatus, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
+import type { CreatedPersonalTransaction, CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, Group, InviteLink, Member, Person, PersonUpdate, Plan, SettlementStatus, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
 
 export interface LedgerRepository {
   getPlan(userId: string): Promise<Plan>;
@@ -6,7 +6,7 @@ export interface LedgerRepository {
   getGroup(userId: string, groupId: string): Promise<Group>;
   createGroup(userId: string, input: CreateGroupInput, idempotencyKey: string): Promise<Group>;
   createExpense(userId: string, input: CreateExpenseInput, idempotencyKey: string): Promise<{ id: string }>;
-  /** Also decides about email: see EntryEmailDecision. A failing email step never fails the entry. */
+  /** Saving an entry never sends an email: the owner emails a statement by hand. */
   createPersonalTransaction(userId: string, input: CreatePersonalTransactionInput, idempotencyKey: string): Promise<CreatedPersonalTransaction>;
   settlePersonalTransaction(userId: string, transactionId: string, amountMinor: number | undefined, idempotencyKey: string): Promise<void>;
   settlePersonalTransactions(userId: string, transactionIds: string[], idempotencyKey: string): Promise<void>;
@@ -15,7 +15,7 @@ export interface LedgerRepository {
   updatePerson(userId: string, personId: string, input: UpdatePersonInput): Promise<PersonUpdate>;
   deletePerson(userId: string, personId: string): Promise<void>;
   /** Queues the complete statement (with a PDF) or one entry for a saved person right away. */
-  emailPerson(userId: string, personId: string, kind: PersonEmailKind, transactionId: string | undefined): Promise<{ queuedAt: string }>;
+  emailPerson(userId: string, personId: string): Promise<{ queuedAt: string }>;
   /** Queues an invite email to a saved person; `downloadUrl` is already vetted (or null for none). */
   invitePerson(userId: string, personId: string, downloadUrl: string | null): Promise<{ queuedAt: string }>;
   createSettlement(userId: string, input: CreateSettlementInput, idempotencyKey: string): Promise<{ id: string }>;

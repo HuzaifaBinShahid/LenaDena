@@ -13,6 +13,11 @@ export type AppConfig = {
   deepgramApiKey?: string;
   /** https link to install the app (APP_DOWNLOAD_URL), put in person invite emails; overrides any link a client suggests. */
   appDownloadUrl?: string;
+  /**
+   * Shared secret for POST /internal/notifications/run, the hosted email worker pass that a scheduler calls every
+   * minute. Unset means the endpoint does not exist. At least 32 characters; never exposed to the app.
+   */
+  notificationsCronSecret?: string;
 };
 
 export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -25,6 +30,8 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const rawDownloadUrl = (overrides.appDownloadUrl ?? process.env.APP_DOWNLOAD_URL)?.trim();
   const appDownloadUrl = rawDownloadUrl ? cleanConfiguredDownloadUrl(rawDownloadUrl) : undefined;
   if (rawDownloadUrl && !appDownloadUrl) throw new Error("APP_DOWNLOAD_URL must be an https URL");
+  const notificationsCronSecret = (overrides.notificationsCronSecret ?? process.env.NOTIFICATIONS_CRON_SECRET)?.trim();
+  if (notificationsCronSecret && notificationsCronSecret.length < 32) throw new Error("NOTIFICATIONS_CRON_SECRET must be at least 32 characters");
   const config: AppConfig = {
     nodeEnv,
     host: overrides.host ?? process.env.HOST ?? "0.0.0.0",
@@ -36,6 +43,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     ...(supabaseSecretKey ? { supabaseSecretKey } : {}),
     ...(deepgramApiKey ? { deepgramApiKey } : {}),
     ...(appDownloadUrl ? { appDownloadUrl } : {}),
+    ...(notificationsCronSecret ? { notificationsCronSecret } : {}),
   };
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
     throw new Error("PORT must be an integer between 1 and 65535");

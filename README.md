@@ -37,7 +37,7 @@ The canonical technical identifiers are `lenadena` for the Expo slug and deep-li
 - A composed Reanimated splash with orbiting expense cues, staged wordmark reveal, progress motion, reduced-motion handling, and no runtime blur.
 - Supabase migration with row-level security policies.
 - Fastify route schemas, authentication hook, request IDs, rate limiting, security headers, and injection tests.
-- An SMTP notification worker with locked outbox delivery, retries, and 72-hour reminder throttling.
+- An SMTP notification worker with locked outbox delivery and retries. People are emailed only when the owner taps Send or has switched on a weekly or monthly reminder for them; it can run as a loop or hosted on the API behind a scheduler (see documentation/DEPLOYMENT.md).
 
 ## Requirements
 

@@ -10,13 +10,11 @@ import type {
   CreateGroupInput,
   CreatePersonalTransactionInput,
   CreatePersonInput,
-  EntryEmailPrompt,
   Group,
   InviteLink,
   Person,
   Plan,
   SettlementStatus,
-  UpdatedPerson,
   UpdatePersonInput,
 } from "@/features/ledger/types";
 import { useAuth } from "@/features/auth/AuthProvider";
@@ -42,29 +40,19 @@ type LedgerContextValue = {
   refresh: () => Promise<void>;
   createGroup: (input: CreateGroupInput) => Promise<void>;
   createExpense: (input: CreateExpenseInput) => Promise<void>;
-  /**
-   * Saves an individual entry. The API also decides about email: when the person already had something open it
-   * queues an email about this entry; when they had nothing open it answers `ask`, and `entryEmailPrompt` is set so
-   * the app can offer to email them (see EntryEmailPromptHost).
-   */
+  /** Saves an individual entry. This never sends an email: the owner emails a statement by hand. */
   createPersonalTransaction: (input: CreatePersonalTransactionInput) => Promise<CreatedPersonalTransaction>;
-  /** The pending "email them about this entry?" question, if any. */
-  entryEmailPrompt: EntryEmailPrompt | null;
-  dismissEntryEmailPrompt: () => void;
   settlePersonalTransaction: (id: string, amountMinor?: number) => Promise<void>;
   settlePersonalTransactions: (ids: string[]) => Promise<void>;
   /** Saves someone to People. Rejects with a friendly message for a duplicate name or a server without People. */
   createPerson: (input: CreatePersonInput) => Promise<Person>;
+  /** Renaming also renames their history rows (server side). Adding or changing their email sends nothing. */
+  updatePerson: (id: string, input: UpdatePersonInput) => Promise<Person>;
   /**
-   * Renaming also renames their history rows (server side). Adding an email to someone who had none also emails
-   * them the full statement (when their email updates are on): the result says so with `statementQueued`.
-   */
-  updatePerson: (id: string, input: UpdatePersonInput) => Promise<UpdatedPerson>;
-  /**
-   * Emails a saved person now: their complete statement with a PDF, or one entry (by id). Rejects with friendly
+   * Emails a saved person their complete statement with a PDF, only when the owner taps Send. Rejects with friendly
    * copy: no email, a statement already sent in the last 5 minutes, nothing to send, or a server without email.
    */
-  emailPerson: (id: string, kind: "statement" | "entry", transactionId?: string) => Promise<{ queuedAt: string }>;
+  emailPerson: (id: string) => Promise<{ queuedAt: string }>;
   /** Their entries stay in Activity, unlinked. */
   deletePerson: (id: string) => Promise<void>;
   /**
@@ -93,7 +81,6 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   const { configured, ready, session } = useAuth();
   const [plan, setPlan] = useState<Plan>(configured ? emptyPlan : demoPlan);
   const [connection, setConnection] = useState<ConnectionState>("loading");
-  const [entryEmailPrompt, setEntryEmailPrompt] = useState<EntryEmailPrompt | null>(null);
   const userId = session?.user.id;
   const activeUserId = useRef(userId);
 
@@ -103,7 +90,6 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     if (!configured) return;
     setPlan(emptyPlan);
     setConnection("loading");
-    setEntryEmailPrompt(null);
   }, [configured, userId]);
 
   const refresh = useCallback(async () => {
@@ -169,25 +155,9 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       throw friendlyPeopleError(error, { name: input.counterparty });
     }
-    // They had nothing open before: offer to email them (they may have just met this person, so it is the user's call).
-    const decision = created.email;
-    if (decision?.action === "ask" && decision.personId && decision.email) {
-      setEntryEmailPrompt({
-        personId: decision.personId,
-        personName: decision.personName ?? input.counterparty,
-        email: decision.email,
-        transactionId: created.id,
-        title: input.title,
-        amountMinor: input.amountMinor,
-        currency: input.currency,
-        direction: input.direction,
-      });
-    }
     await refresh();
     return created;
   }, [refresh]);
-
-  const dismissEntryEmailPrompt = useCallback(() => setEntryEmailPrompt(null), []);
 
   const settlePersonalTransaction = useCallback(async (id: string, amountMinor?: number) => {
     await apiRequest(`/v1/personal-transactions/${id}/settle`, {
@@ -227,16 +197,15 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const updatePerson = useCallback(async (id: string, input: UpdatePersonInput) => {
-    const body: { name?: string; email?: string | null; avatarPath?: string | null; emailUpdates?: boolean; reminderFrequency?: string } = {};
+    const body: { name?: string; email?: string | null; avatarPath?: string | null; reminderFrequency?: string } = {};
     if (input.name !== undefined) body.name = input.name.trim();
     if (Object.hasOwn(input, "email")) body.email = input.email?.trim() || null;
-    if (input.emailUpdates !== undefined) body.emailUpdates = input.emailUpdates;
     if (input.reminderFrequency !== undefined) body.reminderFrequency = input.reminderFrequency;
     try {
       if (Object.hasOwn(input, "avatarUri")) {
         body.avatarPath = input.avatarUri ? await uploadPrivateImage("avatar", input.avatarUri) : null;
       }
-      const person = await apiRequest<UpdatedPerson>(`/v1/people/${encodeURIComponent(id)}`, { method: "PATCH", body });
+      const person = await apiRequest<Person>(`/v1/people/${encodeURIComponent(id)}`, { method: "PATCH", body });
       await refresh();
       return person;
     } catch (error) {
@@ -267,14 +236,14 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     }
   }, [plan.people]);
 
-  const emailPerson = useCallback(async (id: string, kind: "statement" | "entry", transactionId?: string) => {
+  const emailPerson = useCallback(async (id: string) => {
     const person = plan.people.find((item) => item.id === id);
     // A name remembered only from past entries isn't saved yet, so the API can't know their email.
     if (isHistoryPersonId(id)) throw new Error("Save this person with their email first.");
     try {
       return await apiRequest<{ queuedAt: string }>(`/v1/people/${encodeURIComponent(id)}/email`, {
         method: "POST",
-        body: kind === "entry" ? { kind, transactionId } : { kind },
+        body: { kind: "statement" },
       });
     } catch (error) {
       throw friendlyPeopleError(error, { name: person?.name, peopleRoute: true });
@@ -341,8 +310,6 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       createGroup,
       createExpense,
       createPersonalTransaction,
-      entryEmailPrompt,
-      dismissEntryEmailPrompt,
       settlePersonalTransaction,
       settlePersonalTransactions,
       createPerson,
@@ -357,7 +324,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       createInvite,
       acceptInvite,
     }),
-    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, entryEmailPrompt, dismissEntryEmailPrompt, settlePersonalTransaction, settlePersonalTransactions, createPerson, updatePerson, emailPerson, deletePerson, invitePerson, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite],
+    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, settlePersonalTransaction, settlePersonalTransactions, createPerson, updatePerson, emailPerson, deletePerson, invitePerson, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite],
   );
 
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;

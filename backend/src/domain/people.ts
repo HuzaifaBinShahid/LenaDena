@@ -106,17 +106,12 @@ export function resolveInviteDownloadUrl(configured: string | undefined, suggest
   return url && DOWNLOAD_LINK_HOSTS.has(url.hostname.toLowerCase()) ? url.href : null;
 }
 
-/** An email asked for by id must name a transaction (an entry email) or none (a statement). */
-export const transactionRequired = () => new DomainError("Choose the entry to email.", 400, "transaction_required");
-export const transactionNotFound = () => new DomainError("This entry is not in your history with this person.", 404, "transaction_not_found");
 export const invalidReminderFrequency = () => new DomainError("Reminders can be off, weekly or monthly.", 400, "invalid_reminder_frequency");
 
 export const REMINDER_FREQUENCIES: readonly ReminderFrequency[] = ["off", "weekly", "monthly"];
 
 /** Statement cooldown per person, matching app_queue_person_email. */
 export const STATEMENT_COOLDOWN_MS = 5 * 60 * 1000;
-/** Entries added this close together go out as one email (private.queue_person_email waits 90 seconds). */
-export const ENTRY_EMAIL_DELAY_MS = 90 * 1000;
 /** Emails an owner can queue to people per rolling day. */
 export const DAILY_PERSON_EMAIL_LIMIT = 100;
 

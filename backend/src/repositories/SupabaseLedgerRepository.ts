@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../domain/errors.js";
-import { cleanNewPerson, cleanPersonChanges, EmailLimitReachedError, EmailRecentlySentError, EmailUnavailableError, invalidAvatarPath, invalidPersonEmail, invalidPersonName, invalidReminderFrequency, InviteRecentlySentError, isUuid, PeopleUnavailableError, PersonExistsError, PersonHasNoEmailError, PersonHasNoEntriesError, PersonNotFoundError, transactionNotFound, transactionRequired } from "../domain/people.js";
-import type { CreatedPersonalTransaction, CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, EntryEmailDecision, Group, InviteLink, Member, Person, PersonEmailKind, PersonUpdate, Plan, SettlementStatus, TransactionItem, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
+import { cleanNewPerson, cleanPersonChanges, EmailLimitReachedError, EmailRecentlySentError, EmailUnavailableError, invalidAvatarPath, invalidPersonEmail, invalidPersonName, invalidReminderFrequency, InviteRecentlySentError, isUuid, PeopleUnavailableError, PersonExistsError, PersonHasNoEmailError, PersonHasNoEntriesError, PersonNotFoundError } from "../domain/people.js";
+import type { CreatedPersonalTransaction, CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, Group, InviteLink, Member, Person, PersonUpdate, Plan, SettlementStatus, TransactionItem, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
 import type { LedgerRepository } from "./LedgerRepository.js";
 
 type RepositoryLogger = { warn: (message: string) => void };
@@ -40,8 +40,6 @@ function toEmailError(error: RpcError): DomainError {
   if (error.message.includes("email_recently_sent")) return new EmailRecentlySentError();
   if (error.message.includes("email_limit_reached")) return new EmailLimitReachedError();
   if (error.message.includes("no_entries")) return new PersonHasNoEntriesError();
-  if (error.message.includes("transaction_not_found")) return transactionNotFound();
-  if (error.message.includes("invalid_email_kind")) return transactionRequired();
   return toPeopleError(error);
 }
 
@@ -162,26 +160,8 @@ export class SupabaseLedgerRepository implements LedgerRepository {
       if (error.message.includes("person_not_found")) throw new PersonNotFoundError();
       throw new DomainError(error.message, 400, "database_error");
     }
-    const id = String(data);
-    // The entry is saved either way: a failing email step only means the app gets no decision (and asks nothing).
-    const email = await this.decideEntryEmail(userId, id);
-    return { id, ...(email ? { email } : {}) };
-  }
-
-  /** app_notify_new_entry: email now (they already had something open), ask, or nothing. Undefined when it can't say. */
-  private async decideEntryEmail(userId: string, transactionId: string): Promise<EntryEmailDecision | undefined> {
-    try {
-      const { data, error } = await this.client.rpc("app_notify_new_entry", { p_actor: userId, p_transaction: transactionId });
-      if (error) {
-        if (!isMissingFunction(error)) this.log.warn(`app_notify_new_entry failed: ${error.message}`);
-        return undefined;
-      }
-      const decision = data as EntryEmailDecision | null;
-      return decision && (decision.action === "sent" || decision.action === "ask" || decision.action === "none") ? decision : undefined;
-    } catch (cause) {
-      this.log.warn(`app_notify_new_entry failed: ${cause instanceof Error ? cause.message : String(cause)}`);
-      return undefined;
-    }
+    // Saving an entry sends no email. (The database function app_notify_new_entry is no longer called.)
+    return { id: String(data) };
   }
 
   async settlePersonalTransaction(userId: string, transactionId: string, amountMinor: number | undefined, idempotencyKey: string): Promise<void> {
@@ -215,7 +195,7 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     const changes = cleanPersonChanges(userId, input);
     const changesPhoto = changes.avatarPath !== undefined;
     // Read before the update only when something below needs the old values.
-    const before = changesPhoto || changes.email ? await this.findPerson(userId, personId) : undefined;
+    const before = changesPhoto ? await this.findPerson(userId, personId) : undefined;
     const previousPhoto = changesPhoto ? before?.avatarPath : undefined;
     const { error } = await this.client.rpc("app_update_person", {
       p_actor: userId,
@@ -237,29 +217,17 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     if (error) throw toPeopleError(error);
     const people = await this.listPeople(userId);
     if (previousPhoto && !people.some((person) => person.avatarPath === previousPhoto)) await this.removeAvatar(previousPhoto);
-    const person = await this.getPerson(userId, personId, people);
-    // An email added to someone who had none sends them the complete statement, unless they opted out of emails.
-    const statementQueued = Boolean(changes.email) && !before?.email && person.emailUpdates && await this.queueStatementQuietly(userId, personId);
-    return { ...person, ...(statementQueued ? { statementQueued: true } : {}) };
+    // Adding or changing an address sends nothing: the owner sends a statement by hand.
+    return this.getPerson(userId, personId, people);
   }
 
-  /** The edit already succeeded, so a statement that can't be queued (no entries, cooldown, old schema) is just skipped. */
-  private async queueStatementQuietly(userId: string, personId: string): Promise<boolean> {
-    const { error } = await this.client.rpc("app_queue_person_email", { p_actor: userId, p_person: personId, p_kind: "statement", p_transaction: null });
-    if (!error) return true;
-    const expected = isMissingFunction(error) || /no_entries|email_recently_sent|email_limit_reached|person_has_no_email/.test(error.message);
-    if (!expected) this.log.warn(`Statement email for a new address failed: ${error.message}`);
-    return false;
-  }
-
-  async emailPerson(userId: string, personId: string, kind: PersonEmailKind, transactionId: string | undefined): Promise<{ queuedAt: string }> {
+  async emailPerson(userId: string, personId: string): Promise<{ queuedAt: string }> {
     if (!isUuid(personId)) throw new PersonNotFoundError();
-    if (kind === "entry" && !transactionId) throw transactionRequired();
     const { data, error } = await this.client.rpc("app_queue_person_email", {
       p_actor: userId,
       p_person: personId,
-      p_kind: kind,
-      p_transaction: kind === "entry" ? transactionId : null,
+      p_kind: "statement",
+      p_transaction: null,
     });
     if (error) throw toEmailError(error);
     const queued = new Date(String(data));

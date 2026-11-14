@@ -373,67 +373,30 @@ describe("Person emails", () => {
     app.inject({ method: "POST", url: `/v1/people/${id}/email`, headers: as(user), payload });
 
   describe("when an entry is added", () => {
-    it("emails someone who already has something open with you, and says so", async () => {
+    it("sends nothing, whoever the person is and whatever their settings say", async () => {
       const { app, repository } = await emailApp();
-      // The seeded Ali still has an open entry (Coffee money).
-      const response = await entryFor(app, ALI);
-      expect(response.statusCode).toBe(201);
-      expect(response.json()).toEqual({ id: expect.any(String), email: { action: "sent", personId: ALI, personName: "Ali", email: "ali@example.com" } });
-      expect(repository.queuedEmails()).toHaveLength(1);
-      expect(repository.queuedEmails()[0]).toMatchObject({ kind: "entry", personId: ALI, email: "ali@example.com", transactionIds: [response.json().id] });
-    });
-
-    it("asks instead of emailing when they had nothing open (a new contact, or an old one all settled)", async () => {
-      const { app, repository } = await emailApp();
+      // The seeded Ali has an open entry and an email address: the case that used to email him on its own.
+      const withOpen = await entryFor(app, ALI);
+      expect(withOpen.statusCode).toBe(201);
+      expect(withOpen.json()).toEqual({ id: expect.any(String) });
+      // A new contact with nothing open used to raise the "Email them?" question; now nothing is asked either.
       const fresh = await person(app, "Zara Khan", "zara@example.com");
-      const first = await entryFor(app, fresh);
-      expect(first.json().email).toEqual({ action: "ask", personId: fresh, personName: "Zara Khan", email: "zara@example.com" });
-      expect(repository.queuedEmails()).toHaveLength(0);
-
-      // Everything with Ali settled, so a new entry asks too.
-      const plan = await getPlan(app);
-      for (const item of plan.transactions.filter((entry) => entry.personId === ALI && (entry as { status?: string }).status !== "settled")) {
-        const settled = await app.inject({ method: "POST", url: `/v1/personal-transactions/${item.id}/settle`, headers: { ...as("demo-user"), "idempotency-key": `settle-${++keyCounter}` }, payload: {} });
-        expect(settled.statusCode).toBe(204);
-      }
-      expect((await entryFor(app, ALI)).json().email).toMatchObject({ action: "ask", personId: ALI });
-    });
-
-    it("does nothing for someone without an email, or whose updates are off", async () => {
-      const { app, repository } = await emailApp();
+      expect((await entryFor(app, fresh)).json()).toEqual({ id: expect.any(String) });
+      // Someone without an address, and someone whose old "entry emails" switch is still on, are the same.
       const quiet = await person(app, "Quiet");
-      expect((await entryFor(app, quiet)).json().email).toEqual({ action: "none", reason: "no_email" });
-      const off = await app.inject({ method: "PATCH", url: `/v1/people/${ALI}`, headers: as("demo-user"), payload: { emailUpdates: false } });
-      expect(off.json()).toMatchObject({ emailUpdates: false });
-      expect((await entryFor(app, ALI)).json().email).toEqual({ action: "none", reason: "disabled" });
+      expect((await entryFor(app, quiet)).json()).toEqual({ id: expect.any(String) });
+      await entryFor(app, ALI);
       expect(repository.queuedEmails()).toHaveLength(0);
     });
 
-    it("sends one email for entries added together, and answers a retried request the same way", async () => {
+    it("answers a retried request the same way", async () => {
       const { app, repository } = await emailApp();
-      const first = await entryFor(app, ALI);
-      const second = await entryFor(app, ALI);
-      expect(repository.queuedEmails()).toHaveLength(1);
-      expect(repository.queuedEmails()[0]?.transactionIds).toEqual([first.json().id, second.json().id]);
-      // The email waits a moment so those entries go out as one.
-      const queued = repository.queuedEmails()[0]!;
-      expect(Date.parse(queued.availableAt) - Date.parse(queued.queuedAt)).toBe(90_000);
-
       const key = "retry-key-0001";
       const payload = { title: "Tea", eventDate: "2026-11-10", amountMinor: 1000, currency: "PKR", kind: "expense", direction: "outgoing", counterparty: "x", personId: ALI };
       const one = await app.inject({ method: "POST", url: "/v1/personal-transactions", headers: { ...as("demo-user"), "idempotency-key": key }, payload });
       const again = await app.inject({ method: "POST", url: "/v1/personal-transactions", headers: { ...as("demo-user"), "idempotency-key": key }, payload });
       expect(again.json()).toEqual(one.json());
-      expect(repository.queuedEmails()[0]?.transactionIds).toHaveLength(3);
-    });
-
-    it("starts a separate email once the wait is over", async () => {
-      let now = new Date("2026-11-10T09:00:00.000Z");
-      const { app, repository } = await emailApp({ now: () => now });
-      await entryFor(app, ALI);
-      now = new Date(now.getTime() + 2 * 60 * 1000);
-      await entryFor(app, ALI);
-      expect(repository.queuedEmails()).toHaveLength(2);
+      expect(repository.queuedEmails()).toHaveLength(0);
     });
   });
 
@@ -457,27 +420,16 @@ describe("Person emails", () => {
   });
 
   describe("an email added later", () => {
-    it("sends the complete statement, once, to someone who had no email", async () => {
+    it("sends nothing: not when it is added, and not when it is changed", async () => {
       const { app, repository } = await emailApp();
       const bilal = await person(app, "Bilal");
       await entryFor(app, bilal);
       const added = await app.inject({ method: "PATCH", url: `/v1/people/${bilal}`, headers: as("demo-user"), payload: { email: "bilal@example.com" } });
-      expect(added.json()).toMatchObject({ email: "bilal@example.com", statementQueued: true });
-      expect(repository.queuedEmails()).toMatchObject([{ kind: "statement", personId: bilal, email: "bilal@example.com" }]);
-      // Changing it afterwards is not "added later".
+      expect(added.statusCode).toBe(200);
+      expect(added.json()).toMatchObject({ email: "bilal@example.com" });
+      expect(added.json().statementQueued).toBeUndefined();
       const changed = await app.inject({ method: "PATCH", url: `/v1/people/${bilal}`, headers: as("demo-user"), payload: { email: "other@example.com" } });
-      expect(changed.json().statementQueued).toBeUndefined();
-      expect(repository.queuedEmails()).toHaveLength(1);
-    });
-
-    it("sends nothing when they have no entries yet, or their updates are off", async () => {
-      const { app, repository } = await emailApp();
-      const empty = await person(app, "Empty");
-      expect((await app.inject({ method: "PATCH", url: `/v1/people/${empty}`, headers: as("demo-user"), payload: { email: "empty@example.com" } })).json().statementQueued).toBeUndefined();
-      const muted = await person(app, "Muted");
-      await entryFor(app, muted);
-      const response = await app.inject({ method: "PATCH", url: `/v1/people/${muted}`, headers: as("demo-user"), payload: { email: "muted@example.com", emailUpdates: false } });
-      expect(response.json().statementQueued).toBeUndefined();
+      expect(changed.json()).toMatchObject({ email: "other@example.com" });
       expect(repository.queuedEmails()).toHaveLength(0);
     });
   });
@@ -504,14 +456,14 @@ describe("Person emails", () => {
       expect(repository.queuedEmails()).toHaveLength(2);
     });
 
-    it("emails one entry (the answer to the app's question)", async () => {
+    it("no longer emails a single entry: only the statement can be asked for", async () => {
       const { app, repository } = await emailApp();
       const fresh = await person(app, "Zara", "zara@example.com");
       const entry = await entryFor(app, fresh);
-      expect(entry.json().email.action).toBe("ask");
       const response = await email(app, fresh, { kind: "entry", transactionId: entry.json().id });
-      expect(response.statusCode).toBe(202);
-      expect(repository.queuedEmails()).toMatchObject([{ kind: "entry", personId: fresh, transactionIds: [entry.json().id] }]);
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ code: "validation_error" });
+      expect(repository.queuedEmails()).toHaveLength(0);
     });
 
     it("explains what is missing", async () => {
@@ -522,10 +474,6 @@ describe("Person emails", () => {
       const none = await email(app, empty, { kind: "statement" });
       expect(none.statusCode).toBe(400);
       expect(none.json()).toMatchObject({ code: "no_entries" });
-      expect((await email(app, ALI, { kind: "entry" })).json()).toMatchObject({ code: "transaction_required" });
-      const unknown = await email(app, ALI, { kind: "entry", transactionId: "0f0e0d0c-0b0a-4908-8706-050403020100" });
-      expect(unknown.statusCode).toBe(404);
-      expect(unknown.json()).toMatchObject({ code: "transaction_not_found" });
       expect((await email(app, UNKNOWN_PERSON, { kind: "statement" })).json()).toMatchObject({ code: "person_not_found" });
       expect((await email(app, ALI, { kind: "newsletter" })).statusCode).toBe(400);
     });
@@ -542,16 +490,13 @@ describe("Person emails", () => {
       let now = new Date("2026-11-10T09:00:00.000Z");
       const repository = new MemoryLedgerRepository({ now: () => now });
       for (let index = 0; index < 100; index += 1) {
-        await expect(repository.emailPerson("demo-user", ALI, "statement", undefined)).resolves.toBeDefined();
+        await expect(repository.emailPerson("demo-user", ALI)).resolves.toBeDefined();
         now = new Date(now.getTime() + 6 * 60 * 1000);
       }
-      await expect(repository.emailPerson("demo-user", ALI, "statement", undefined)).rejects.toMatchObject({ statusCode: 429, code: "email_limit_reached" });
-      // New entries also stop emailing (the entry itself is still saved).
-      const created = await repository.createPersonalTransaction("demo-user", { title: "Tea", eventDate: "2026-11-10", amountMinor: 1000, currency: "PKR", kind: "expense", direction: "outgoing", counterparty: "Ali", personId: ALI }, "limit-key-0001");
-      expect(created.email).toEqual({ action: "none", reason: "limited" });
+      await expect(repository.emailPerson("demo-user", ALI)).rejects.toMatchObject({ statusCode: 429, code: "email_limit_reached" });
       // A day after the first email the allowance comes back.
       now = new Date("2026-11-11T20:00:00.000Z");
-      await expect(repository.emailPerson("demo-user", ALI, "statement", undefined)).resolves.toBeDefined();
+      await expect(repository.emailPerson("demo-user", ALI)).resolves.toBeDefined();
     });
   });
 });

@@ -121,31 +121,16 @@ export type Person = {
 
 export type ReminderFrequency = "off" | "weekly" | "monthly";
 
-/**
- * What the API did about email when an entry was created:
- * - `sent`: they already had something open, so an email about the new entry was queued;
- * - `ask`: they had nothing open before, so the app asks whether to email them (`POST /v1/people/:id/email`);
- * - `none`: no email address, updates are off for them, or the daily limit was reached.
- */
-export type EntryEmailDecision = {
-  action: "sent" | "ask" | "none";
-  personId?: string;
-  personName?: string;
-  email?: string;
-  reason?: string;
-};
-
+/** An entry is saved with no email side effect: LenaDena only emails a person when the owner asks it to. */
 export type CreatedPersonalTransaction = {
   id: string;
-  /** Absent when the database could not decide (older schema) or the entry has no saved person. */
-  email?: EntryEmailDecision;
 };
 
 /** What a client can ask to have emailed to a saved person right now. */
-export type PersonEmailKind = "statement" | "entry";
+export type PersonEmailKind = "statement";
 
-/** A saved person after an edit; `statementQueued` is true when adding their email sent them the full statement. */
-export type PersonUpdate = Person & { statementQueued?: boolean };
+/** A saved person after an edit. Adding or changing their email address sends nothing. */
+export type PersonUpdate = Person;
 
 export type Plan = {
   user: Member;

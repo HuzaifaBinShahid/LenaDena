@@ -2,7 +2,6 @@ import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { InviteCard, InviteRow } from "@/components/people/InviteCard";
 import { Button } from "@/components/ui/Button";
-import { Switch } from "@/components/ui/Switch";
 import { useToast } from "@/components/ui/Toast";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import type { Person, ReminderFrequency, TransactionItem } from "@/features/ledger/types";
@@ -19,8 +18,9 @@ const CHOICES: ReadonlyArray<{ value: ReminderFrequency; label: string }> = [
 
 /**
  * Everything about sending one person their account: share it from any app, email the complete statement with a PDF
- * on demand, and choose how LenaDena emails them by itself (a note when you add an entry, weekly or monthly
- * reminders). Each choice is per person. Names remembered only from past entries can share but not email.
+ * when you tap Send, and optionally choose weekly or monthly reminders. LenaDena sends nothing else on its own:
+ * not when you add an entry and not when you add their address. Names remembered only from past entries can share
+ * but not email.
  */
 export function StatementCard({ person, entries }: { person: Person; entries: readonly TransactionItem[] }) {
   const { emailPerson, updatePerson } = useLedger();
@@ -28,12 +28,11 @@ export function StatementCard({ person, entries }: { person: Person; entries: re
   const toast = useToast();
   const [sentKey, setSentKey] = useState<string | null>(null);
   const [emailing, setEmailing] = useState(false);
-  const [saving, setSaving] = useState<"updates" | "reminders" | null>(null);
+  const [saving, setSaving] = useState(false);
   const first = personFirstName(person.name);
   const remembered = isHistoryPersonId(person.id);
   const address = person.email?.trim();
   const hasEntries = entries.length > 0;
-  const updatesOn = person.emailUpdates !== false;
   const frequency: ReminderFrequency = person.reminderFrequency ?? "off";
   const key = `${person.id}:${address ?? ""}`;
   const sent = sentKey === key;
@@ -42,7 +41,7 @@ export function StatementCard({ person, entries }: { person: Person; entries: re
     if (emailing) return;
     setEmailing(true);
     try {
-      await emailPerson(person.id, "statement");
+      await emailPerson(person.id);
       setSentKey(key);
       toast.success(`Statement on its way to ${first}`, `${address ?? "They"} will get every entry with a PDF attached.`);
     } catch (error) {
@@ -52,16 +51,16 @@ export function StatementCard({ person, entries }: { person: Person; entries: re
     }
   };
 
-  const save = async (which: "updates" | "reminders", change: { emailUpdates: boolean } | { reminderFrequency: ReminderFrequency }, done: string) => {
+  const saveReminders = async (reminderFrequency: ReminderFrequency, done: string) => {
     if (saving) return;
-    setSaving(which);
+    setSaving(true);
     try {
-      await updatePerson(person.id, change);
+      await updatePerson(person.id, { reminderFrequency });
       toast.success(done, `${first}'s settings are saved.`);
     } catch (error) {
       toast.error("Couldn't save that", errorMessage(error));
     } finally {
-      setSaving(null);
+      setSaving(false);
     }
   };
 
@@ -117,27 +116,6 @@ export function StatementCard({ person, entries }: { person: Person; entries: re
         )}
         {remembered ? null : (
           <InviteRow
-            key="updates"
-            icon="mail"
-            muted={!address}
-            title="Email on new entries"
-            detail={!address
-              ? "Applies once you add their email."
-              : updatesOn
-                ? `${first} gets an email when you add an entry. If they had nothing open, LenaDena asks you first.`
-                : `${first} isn't emailed about new entries.`}
-            trailing={(
-              <Switch
-                value={updatesOn}
-                busy={saving === "updates"}
-                accessibilityLabel={`Email ${first} when you add an entry`}
-                onValueChange={(next) => void save("updates", { emailUpdates: next }, next ? "Entry emails on" : "Entry emails off")}
-              />
-            )}
-          />
-        )}
-        {remembered ? null : (
-          <InviteRow
             key="reminders"
             icon="clock"
             muted={!address}
@@ -154,10 +132,10 @@ export function StatementCard({ person, entries }: { person: Person; entries: re
                       fullWidth
                       variant={frequency === choice.value ? "primary" : "secondary"}
                       selected={frequency === choice.value}
-                      disabled={!address || saving === "reminders"}
+                      disabled={!address || saving}
                       accessibilityHint={`Reminds ${first} ${choice.value === "off" ? "never" : choice.value}`}
                       onPress={() => {
-                        if (choice.value !== frequency) void save("reminders", { reminderFrequency: choice.value }, choice.value === "off" ? "Reminders off" : `${choice.label} reminders on`);
+                        if (choice.value !== frequency) void saveReminders(choice.value, choice.value === "off" ? "Reminders off" : `${choice.label} reminders on`);
                       }}
                     />
                   </View>

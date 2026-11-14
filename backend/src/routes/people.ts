@@ -53,10 +53,10 @@ export const peopleRoutes: FastifyPluginAsyncTypebox<PeopleRoutesOptions> = asyn
     return reply.code(204).send(null);
   });
 
-  // Emails a saved person now: their complete statement with a PDF, or one entry. Entry emails after adding an entry
-  // are decided by the entry route itself (POST /v1/personal-transactions answers `email: { action: "ask" }` when the
-  // app should offer this). The limits below sit on top of the database's own 5-minute statement cooldown and its
-  // 100-emails-a-day ceiling, which stop anyone using LenaDena to mail a stranger repeatedly.
+  // Emails a saved person their complete statement with a PDF, only when the owner taps send. Nothing else mails a
+  // person on its own account: saving an entry or adding an address sends nothing, and reminders only go out when the
+  // owner chose a schedule for that person. The limits below sit on top of the database's own 5-minute statement
+  // cooldown and its 100-emails-a-day ceiling, which stop anyone using LenaDena to mail a stranger repeatedly.
   fastify.post("/people/:id/email", {
     config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
     schema: {
@@ -67,7 +67,7 @@ export const peopleRoutes: FastifyPluginAsyncTypebox<PeopleRoutesOptions> = asyn
       response: { 202: PersonInviteSchema, ...errorResponses, 429: ErrorSchema },
     },
   }, async (request, reply) => {
-    const queued = await fastify.ledger.emailPerson(request.authUser.id, request.params.id, request.body.kind, request.body.transactionId);
+    const queued = await fastify.ledger.emailPerson(request.authUser.id, request.params.id);
     return reply.code(202).send(queued);
   });
 

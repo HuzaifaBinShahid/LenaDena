@@ -27,7 +27,7 @@ export type Person = {
   avatarUrl?: string;
   /** Storage path of their photo, kept so an edit can leave it unchanged. */
   avatarPath?: string;
-  /** Email them when an entry is added. On unless turned off (absent on an API without migration 202611100010). */
+  /** Left over from when LenaDena emailed on new entries. It no longer does anything. */
   emailUpdates?: boolean;
   /** Weekly or monthly emails of what is still open; off unless chosen. */
   reminderFrequency?: ReminderFrequency;
@@ -36,33 +36,9 @@ export type Person = {
 
 export type ReminderFrequency = "off" | "weekly" | "monthly";
 
-/**
- * What the API did about email when an entry was created: `sent` (queued: they already had something open), `ask`
- * (they had nothing open, so offer it), or `none` (no email address, updates off, or a limit).
- */
-export type EntryEmailDecision = {
-  action: "sent" | "ask" | "none";
-  personId?: string;
-  personName?: string;
-  email?: string;
-  reason?: string;
-};
-
-/** The "email them about this?" question shown after an entry with someone who had nothing open before. */
-export type EntryEmailPrompt = {
-  personId: string;
-  personName: string;
-  email: string;
-  transactionId: string;
-  title: string;
-  amountMinor: number;
-  currency: string;
-  direction: TransactionDirection;
-};
-
+/** Saving an entry never sends an email: LenaDena only emails a person when you tap Send. */
 export type CreatedPersonalTransaction = {
   id: string;
-  email?: EntryEmailDecision;
 };
 
 export type Group = {
@@ -196,12 +172,8 @@ export type UpdatePersonInput = {
   name?: string;
   email?: string | null;
   avatarUri?: string | null;
-  emailUpdates?: boolean;
   reminderFrequency?: ReminderFrequency;
 };
-
-/** A saved person after an edit. `statementQueued` means adding their email sent them the full statement. */
-export type UpdatedPerson = Person & { statementQueued?: boolean };
 
 export type CreateGroupInput = {
   name: string;

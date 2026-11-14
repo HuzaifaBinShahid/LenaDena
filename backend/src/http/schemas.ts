@@ -177,26 +177,16 @@ export const UpdatePersonSchema = Type.Object({
   reminderFrequency: Type.Optional(ReminderFrequencySchema),
 }, { additionalProperties: false });
 
-/** An edited person; `statementQueued` is true when adding their email sent them the full statement. */
-export const PersonUpdatedSchema = Type.Composite([PersonSchema, Type.Object({ statementQueued: Type.Optional(Type.Boolean()) })]);
+/** An edited person. Adding or changing their email address sends nothing. */
+export const PersonUpdatedSchema = PersonSchema;
 
-// A statement needs no entry id; an entry email needs the id of the entry it is about.
+// The one email an owner can ask for by hand: the complete statement with a PDF.
 export const EmailPersonSchema = Type.Object({
-  kind: Type.Union([Type.Literal("statement"), Type.Literal("entry")]),
-  transactionId: Type.Optional(Type.String({ format: "uuid" })),
+  kind: Type.Literal("statement"),
 }, { additionalProperties: false });
-
-export const EntryEmailDecisionSchema = Type.Object({
-  action: Type.Union([Type.Literal("sent"), Type.Literal("ask"), Type.Literal("none")]),
-  personId: Type.Optional(Type.String()),
-  personName: Type.Optional(Type.String()),
-  email: Type.Optional(Type.String()),
-  reason: Type.Optional(Type.String()),
-});
 
 export const CreatedPersonalTransactionSchema = Type.Object({
   id: Type.String(),
-  email: Type.Optional(EntryEmailDecisionSchema),
 });
 
 // The link is only a suggestion: the API keeps it only when it is https on an allowlisted host (see

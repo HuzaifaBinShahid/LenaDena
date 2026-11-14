@@ -143,7 +143,8 @@ describe("monotone curve", () => {
       const d = `M${points[0]?.x ?? 0} ${points[0]?.y ?? 0}${monotoneSegments(points)}`;
       expectWithin(samplePath(d), Math.min(...ys), Math.max(...ys));
     }
-  });
+    // 200 rounds of sampling take about 5 seconds, the default limit, so a busy machine made it flaky.
+  }, 30_000);
 
   it("passes through every input point", () => {
     const points = scaleSeries([0, 30, 10, 80, 0], box);
