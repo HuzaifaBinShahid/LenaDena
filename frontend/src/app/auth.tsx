@@ -146,7 +146,7 @@ function CheckEmailPanel({ form, headingSize }: { form: AuthForm; headingSize: n
       <Text className="text-[13px] font-extrabold text-white">{notice.email}</Text>
       {confirm ? ". Open it on this phone to finish creating your account, then sign in." : ", we sent a link to choose a new password. Open it on this phone."}
     </Text>,
-    <Text className="mt-3 text-[11.5px] leading-[17px] text-white/55">It can take a minute to arrive. Look in your spam folder too, and if you asked for more than one email, open the newest.</Text>,
+    <Text className="mt-3 text-[11.5px] leading-[17px] text-white/55">It can take a minute to arrive. Look in your spam folder too, and if you asked for more than one email, open the newest.{confirm ? " If you already have an account with this address, no new email is sent: reset your password instead." : ""}</Text>,
     <View style={styles.fields}>
       <Button
         label={form.resendIn > 0 ? `Send again in ${form.resendIn}s` : "Send the email again"}
@@ -157,6 +157,20 @@ function CheckEmailPanel({ form, headingSize }: { form: AuthForm; headingSize: n
         disabled={form.resendIn > 0 || form.busy}
         onPress={form.resend}
       />
+      {confirm ? (
+        // An address that already has an account gets no confirmation email (so the form can't be used to find out who
+        // has one), and this screen looks the same either way. This is the way out for someone who already signed up.
+        <Touch
+          onPress={() => form.switchMode("forgot")}
+          disabled={form.busy}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Already have an account? Reset your password"
+          pressableStyle={styles.backLink}
+        >
+          <Text className="text-center text-[12.5px] font-semibold text-lavender">Already have an account? Reset your password</Text>
+        </Touch>
+      ) : null}
       <Touch
         onPress={() => form.switchMode("signin")}
         disabled={form.busy}
