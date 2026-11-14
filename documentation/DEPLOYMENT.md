@@ -42,6 +42,8 @@ Emails to people (statements, reminders, invites) are queued in the database and
    Stop it any time with `select cron.unschedule('lenadena-notifications');`. See what happened with `select * from net._http_response order by created desc limit 5;`.
 4. **Check the first real email**: tap Send on a person's page, wait a minute or two, and look at Brevo's transactional log.
 
+**If the scheduler gets 401** (`select status_code from net._http_response order by created desc limit 5;`), the secret in Vault and the one in Vercel differ. Two checks that never show the secret: Vercel → Logs, search `scheduler secret rejected`, which prints `providedLength` (what the scheduler sent) and `configuredLength` (what Vercel holds); and in Supabase `select length(decrypted_secret) from vault.decrypted_secrets where name = 'notifications_cron_secret';` (64 for `openssl rand -hex 32`). Pitfalls met on 2026-11-14: copying a command out of a chat or page overwrites the clipboard, so the secret was gone before the next paste; and pasting into the Vault box once dropped a character (63 instead of 64). Keep the secret in a file (`umask 077; openssl rand -hex 32 | tr -d '\n' > ~/.lenadena-cron-secret`), copy it with `pbcopy < ~/.lenadena-cron-secret` right before each paste, test with `curl -H "Authorization: Bearer $(cat ~/.lenadena-cron-secret)" …`, check the Vault length, and `rm` the file when it works.
+
 Each call sends at most 3 emails, so a minute-by-minute schedule is about 180 an hour: plenty for statements and the reminders owners switch on. A failed email is retried every five minutes. If you would rather run a machine that stays on, `pnpm worker` runs the same code as a loop.
 
 ### Branded Auth emails
