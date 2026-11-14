@@ -42,7 +42,10 @@ export const notificationRoutes: FastifyPluginAsyncTypebox<{ config: AppConfig; 
     },
   }, async (request, reply) => {
     const header = request.headers.authorization;
-    if (!header?.startsWith("Bearer ") || !sameSecret(header.slice("Bearer ".length), secret)) {
+    const given = header?.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : undefined;
+    if (given === undefined || !sameSecret(given, secret)) {
+      // Lengths only, never a secret: enough to tell a value pasted twice or with stray characters from a different one.
+      request.log.warn({ providedLength: given?.length ?? null, configuredLength: secret.length }, "scheduler secret rejected");
       throw new DomainError("A valid scheduler secret is required", 401, "unauthorized");
     }
     if (!runner) {
