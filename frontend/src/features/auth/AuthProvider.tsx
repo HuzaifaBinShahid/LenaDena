@@ -5,6 +5,7 @@ import * as Linking from "expo-linking";
 import { useToast } from "@/components/ui/Toast";
 import { describeAuthError } from "@/features/auth/authErrors";
 import { parseAuthLink } from "@/features/auth/authLinks";
+import { apiRequest } from "@/lib/api";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
 /**
@@ -64,6 +65,12 @@ type AuthContextValue = {
   changePassword: (input: { email: string; currentPassword: string; newPassword: string }) => Promise<void>;
   /** For someone who opened a reset link. */
   setNewPassword: (newPassword: string) => Promise<void>;
+  /**
+   * Permanently deletes the signed-in account. The password is typed again and used to sign in once more first: that
+   * fresh password sign-in is the proof the API asks for. Rejects with the Supabase error for a wrong password, or the
+   * API's error; on success the local session is ended and the account no longer exists.
+   */
+  deleteAccount: (password: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -227,6 +234,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await endOtherSessions(client);
   }, []);
 
+  const deleteAccount = useCallback(async (password: string) => {
+    const client = requireClient();
+    const email = session?.user.email;
+    if (!email) throw new Error("Sign in first.");
+    const reauthenticated = await client.auth.signInWithPassword({ email: normalize(email), password });
+    if (reauthenticated.error) throw reauthenticated.error;
+    await apiRequest("/v1/me/delete", { method: "POST", body: { confirm: "DELETE" } });
+    // The account is gone on the server, so ending the session there would only answer "unauthorized": end it here.
+    await client.auth.signOut({ scope: "local" });
+    recoveringRef.current = false;
+    setRecovering(false);
+    writeRecoveryPending(null);
+  }, [session?.user.email]);
+
   const signOut = useCallback(async () => {
     const client = supabase;
     if (!client) return;
@@ -253,8 +274,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     confirmPassword,
     changePassword,
     setNewPassword,
+    deleteAccount,
     signOut,
-  }), [changePassword, confirmPassword, ready, recovering, requestPasswordReset, resendConfirmation, session, setNewPassword, signIn, signOut, signUp, verifyingLink]);
+  }), [changePassword, deleteAccount, confirmPassword, ready, recovering, requestPasswordReset, resendConfirmation, session, setNewPassword, signIn, signOut, signUp, verifyingLink]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

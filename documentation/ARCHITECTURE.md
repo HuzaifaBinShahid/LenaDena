@@ -116,6 +116,7 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 6. The Account screen updates the display name and may upload a square image to the private `avatars` bucket.
 7. Plan responses receive short-lived signed avatar URLs; changing identity presentation never rewrites financial ownership or history.
 8. Opening the authenticated plan updates `last_seen_at`, which is used only to choose the fallback review window.
+9. **Deleting an account** (Settings → Delete account, `/delete-account`): the app asks for the password and the word DELETE, signs in again with that password, then calls `POST /v1/me/delete`. The API checks the token's `amr` claim for a password sign-in in the last 10 minutes (the claim survives token refreshes, so a stolen unlocked phone with an old session cannot do it; demo mode has no sign-in to check). `SupabaseLedgerRepository.deleteAccount` then runs four steps in an order that stays retryable: (a) `app_account_storage_paths` lists the person's own files (profile photo, saved people's photos, receipts on individual balances; group receipts and payment proofs stay with the group record), (b) those files are removed from storage and any failure stops here with nothing else changed, (c) `app_delete_account` does the data in one transaction, (d) the Supabase Auth user is deleted last. Migration `202611160012` drops the `profiles.id -> auth.users` cascade, because expenses, shares, settlements and activity reference profiles without cascade (deleting the sign-in would fail for anyone who used a group, or erase other people's records), and adds `profiles.deleted_at`. **Deleted:** sign-in, profile name/email/photo, individual balances, saved people, their receipts and photos, idempotency keys, queued emails to or about them, unaccepted invites. **Kept without their identity:** group expenses, shares, settlements and activity, pointing at a profile renamed "Deleted user" with a placeholder email; their name is replaced in the groups' activity text; a group they owned with others passes to the member who joined first; a group they were the only member of is deleted whole. Idempotent: a repeat finds nothing to do and still closes the sign-in.
 
 ### App lock
 
@@ -141,6 +142,7 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 | GET | `/health` | Liveness and version |
 | GET | `/v1/me/plan` | Private member dashboard |
 | PATCH | `/v1/me/profile` | Update display name and optional profile photo |
+| POST | `/v1/me/delete` | Permanently delete the account. Body `{ "confirm": "DELETE" }`; needs a password sign-in from the last 10 minutes (403 `recent_sign_in_required`); 204 |
 | GET | `/v1/groups/:id` | Authorized group summary |
 | POST | `/v1/groups` | Create a group and email invites |
 | POST | `/v1/groups/:id/invites` | Generate an optional email-bound invite |

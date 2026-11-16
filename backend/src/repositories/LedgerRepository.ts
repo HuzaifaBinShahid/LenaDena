@@ -8,6 +8,11 @@ export interface LedgerRepository {
   createExpense(userId: string, input: CreateExpenseInput, idempotencyKey: string): Promise<{ id: string }>;
   /** Saving an entry never sends an email: the owner emails a statement by hand. */
   createPersonalTransaction(userId: string, input: CreatePersonalTransactionInput, idempotencyKey: string): Promise<CreatedPersonalTransaction>;
+  /**
+   * Deletes the account: its storage files, its individual data and sign-in, and anonymises what shared groups keep.
+   * Safe to retry after a partial failure. The caller must already have checked that the person just signed in.
+   */
+  deleteAccount(userId: string): Promise<void>;
   settlePersonalTransaction(userId: string, transactionId: string, amountMinor: number | undefined, idempotencyKey: string): Promise<void>;
   settlePersonalTransactions(userId: string, transactionIds: string[], idempotencyKey: string): Promise<void>;
   createPerson(userId: string, input: CreatePersonInput): Promise<Person>;

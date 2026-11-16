@@ -159,7 +159,15 @@ export default function SettingsScreen() {
           />
         ) : null}
         <Button label="Export my data" icon="download" variant="secondary" fullWidth onPress={() => toast.info("Export isn't available yet", "Data export arrives with the production email worker.")} />
-        <Button label="Delete account" icon="trash-2" variant="danger" fullWidth onPress={() => toast.info("Deletion isn't available yet", "Account deletion needs a confirmed production backend first.")} />
+        <Button
+          label="Delete account"
+          icon="trash-2"
+          variant="danger"
+          fullWidth
+          onPress={() => (configured && session
+            ? router.push("/delete-account" as Href)
+            : toast.info("There's no account to delete", "You're using the local demo, which has no account."))}
+        />
       </View>
     </Screen>
   );

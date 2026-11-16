@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../domain/errors.js";
+import { AccountDeletionFailedError, AccountDeletionUnavailableError, ownStoragePaths } from "../domain/account.js";
 import { cleanNewPerson, cleanPersonChanges, EmailLimitReachedError, EmailRecentlySentError, EmailUnavailableError, invalidAvatarPath, invalidPersonEmail, invalidPersonName, invalidReminderFrequency, InviteRecentlySentError, isUuid, PeopleUnavailableError, PersonExistsError, PersonHasNoEmailError, PersonHasNoEntriesError, PersonNotFoundError } from "../domain/people.js";
 import type { CreatedPersonalTransaction, CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, Group, InviteLink, Member, Person, PersonUpdate, Plan, SettlementStatus, TransactionItem, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
 import type { LedgerRepository } from "./LedgerRepository.js";
@@ -162,6 +163,34 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     }
     // Saving an entry sends no email. (The database function app_notify_new_entry is no longer called.)
     return { id: String(data) };
+  }
+
+  async deleteAccount(userId: string): Promise<void> {
+    // 1. What to remove from storage, read before any row goes. Nothing is changed yet, so a failure here is a clean retry.
+    const listed = await this.client.rpc("app_account_storage_paths", { p_actor: userId });
+    if (listed.error) throw isMissingFunction(listed.error) ? new AccountDeletionUnavailableError() : new AccountDeletionFailedError();
+    const found = (listed.data ?? {}) as { avatars?: unknown; receipts?: unknown };
+    // 2. Their files. If any cannot be removed, stop here: deleting the rows first would leave the files orphaned for good.
+    for (const [bucket, paths] of [["avatars", ownStoragePaths(found.avatars, userId)], ["receipts", ownStoragePaths(found.receipts, userId)]] as const) {
+      if (!paths.length) continue;
+      const removed = await this.client.storage.from(bucket).remove(paths);
+      if (removed.error) {
+        this.log.warn(`Could not remove ${bucket} files while deleting an account: ${removed.error.message}`);
+        throw new AccountDeletionFailedError("We couldn't remove your photos and receipts. Nothing was deleted; please try again.");
+      }
+    }
+    // 3. Their data, and the anonymised placeholder that shared groups keep pointing at. One transaction.
+    const deleted = await this.client.rpc("app_delete_account", { p_actor: userId });
+    if (deleted.error) {
+      this.log.warn(`app_delete_account failed: ${deleted.error.message}`);
+      throw isMissingFunction(deleted.error) ? new AccountDeletionUnavailableError() : new AccountDeletionFailedError();
+    }
+    // 4. The sign-in itself, last: until now they could still sign in and retry. Already gone counts as done.
+    const signIn = await this.client.auth.admin.deleteUser(userId);
+    if (signIn.error && signIn.error.status !== 404 && signIn.error.code !== "user_not_found") {
+      this.log.warn(`Could not delete the sign-in while deleting an account: ${signIn.error.message}`);
+      throw new AccountDeletionFailedError("Your data is deleted but we couldn't close your sign-in. Please try again.");
+    }
   }
 
   async settlePersonalTransaction(userId: string, transactionId: string, amountMinor: number | undefined, idempotencyKey: string): Promise<void> {

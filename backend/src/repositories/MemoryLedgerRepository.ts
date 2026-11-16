@@ -412,6 +412,27 @@ export class MemoryLedgerRepository implements LedgerRepository {
     return this.toPerson(person);
   }
 
+  async deleteAccount(userId: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (!user) return;
+    // Demo mode keeps shared groups in memory, so this only does the private half: their entries, saved people and
+    // queued emails go, and what other records point at becomes "Deleted user".
+    for (let index = this.personalTransactions.length - 1; index >= 0; index -= 1) {
+      if (this.personalTransactions[index]?.userId === userId) this.personalTransactions.splice(index, 1);
+    }
+    for (let index = this.people.length - 1; index >= 0; index -= 1) {
+      if (this.people[index]?.ownerId === userId) this.people.splice(index, 1);
+    }
+    for (let index = this.personEmails.length - 1; index >= 0; index -= 1) {
+      if (this.personEmails[index]?.ownerId === userId) this.personEmails.splice(index, 1);
+    }
+    for (let index = this.personInvites.length - 1; index >= 0; index -= 1) {
+      if (this.personInvites[index]?.ownerId === userId) this.personInvites.splice(index, 1);
+    }
+    this.users.set(userId, { id: userId, name: "Deleted user", email: "" });
+    this.lastSeenAt.delete(userId);
+  }
+
   async deletePerson(userId: string, personId: string): Promise<void> {
     const index = this.people.findIndex((item) => item.id === personId && item.ownerId === userId);
     if (index < 0) throw new PersonNotFoundError();

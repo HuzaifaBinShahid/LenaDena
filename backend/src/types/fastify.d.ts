@@ -6,6 +6,11 @@ declare module "fastify" {
     authUser: {
       id: string;
       email?: string;
+      /**
+       * Unix seconds of the last time this session was opened with a password, read from the verified token's `amr`
+       * claim. It survives token refreshes, so it says when the password was typed, not when the token was issued.
+       */
+      passwordSignInAt?: number;
     };
   }
 

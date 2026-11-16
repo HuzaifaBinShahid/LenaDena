@@ -185,6 +185,11 @@ export const EmailPersonSchema = Type.Object({
   kind: Type.Literal("statement"),
 }, { additionalProperties: false });
 
+/** Deleting an account asks for the word as well as a recent password sign-in, so it cannot happen by accident. */
+export const DeleteAccountSchema = Type.Object({
+  confirm: Type.Literal("DELETE"),
+}, { additionalProperties: false });
+
 export const CreatedPersonalTransactionSchema = Type.Object({
   id: Type.String(),
 });

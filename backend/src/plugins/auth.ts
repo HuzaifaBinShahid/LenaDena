@@ -5,6 +5,24 @@ import type { AppConfig } from "../config.js";
 import { DomainError } from "../domain/errors.js";
 
 /**
+ * When the session behind a verified access token was opened with a password (unix seconds), from its `amr` claim.
+ * The token was already verified with Supabase; this only reads a claim from it, and anything unexpected gives undefined.
+ */
+function passwordSignInAt(token: string): number | undefined {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")) as { amr?: unknown };
+    if (!Array.isArray(payload.amr)) return undefined;
+    const times = payload.amr.flatMap((entry: unknown) => {
+      const { method, timestamp } = (entry ?? {}) as { method?: unknown; timestamp?: unknown };
+      return method === "password" && typeof timestamp === "number" && Number.isFinite(timestamp) ? [timestamp] : [];
+    });
+    return times.length ? Math.max(...times) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Turns `Authorization: Bearer <Supabase access token>` into `request.authUser` for every /v1 route. Accounts sign
  * up and sign in directly with Supabase Auth (email and password), so the API has no public sign-in routes: every
  * /v1 request needs a token Supabase vouches for.
@@ -48,6 +66,11 @@ export const authPlugin = fp(async function authPlugin(fastify, config: AppConfi
     if (!data.user.email_confirmed_at) {
       throw new DomainError("Confirm your email address first: open the link we sent to your inbox.", 403, "email_not_confirmed");
     }
-    request.authUser = data.user.email ? { id: data.user.id, email: data.user.email } : { id: data.user.id };
+    const signedInAt = passwordSignInAt(token);
+    request.authUser = {
+      id: data.user.id,
+      ...(data.user.email ? { email: data.user.email } : {}),
+      ...(signedInAt !== undefined ? { passwordSignInAt: signedInAt } : {}),
+    };
   });
 } as FastifyPluginAsync<AppConfig>);

@@ -14,6 +14,7 @@ import { loadConfig } from "./config.js";
 import { DomainError } from "./domain/errors.js";
 import { authPlugin } from "./plugins/auth.js";
 import { repositoryPlugin } from "./plugins/repository.js";
+import { accountRoutes } from "./routes/account.js";
 import { healthRoutes } from "./routes/health.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import type { NotificationRunner } from "./notifications/runner.js";
@@ -79,6 +80,7 @@ export async function buildApp(options: BuildOptions = {}) {
   await app.register(healthRoutes);
   await app.register(notificationRoutes, { config, ...(options.notificationRunner ? { runner: options.notificationRunner } : {}) });
   await app.register(ledgerRoutes, { prefix: "/v1" });
+  await app.register(accountRoutes, { prefix: "/v1", config });
   await app.register(peopleRoutes, { prefix: "/v1", config });
   await app.register(voiceRoutes, { prefix: "/v1", config, ...(options.voiceTranscriber ? { transcriber: options.voiceTranscriber } : {}) });
 

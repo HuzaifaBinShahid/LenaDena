@@ -21,6 +21,12 @@ class FakeSupabase {
   readonly rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
   readonly signRequests: string[][] = [];
   readonly removed: string[][] = [];
+  /** Every storage removal by bucket, and every call in the order it arrived (for the account-deletion order). */
+  readonly removedByBucket: Record<string, string[][]> = {};
+  readonly events: string[] = [];
+  /** Buckets whose removals fail, and what deleting a sign-in answers. */
+  failStorageFor: string | undefined;
+  adminDeleteReply: Reply = { status: 200, body: {} };
   url = "";
   private readonly server: Server;
 
@@ -57,6 +63,7 @@ class FakeSupabase {
   private route(method: string, path: string, body: JsonBody): Reply {
     const rpc = /^\/rest\/v1\/rpc\/(\w+)$/.exec(path)?.[1];
     if (method === "POST" && rpc) {
+      this.events.push(`rpc:${rpc}`);
       this.rpcCalls.push({ name: rpc, args: body });
       const handler = this.handlers[rpc];
       if (handler) return handler(body);
@@ -67,9 +74,18 @@ class FakeSupabase {
       this.signRequests.push(paths);
       return { status: 200, body: paths.map((item) => ({ error: null, path: item, signedURL: `/object/sign/avatars/${item}?token=signed` })) };
     }
-    if (method === "DELETE" && path === "/storage/v1/object/avatars") {
-      this.removed.push(body.prefixes ?? []);
+    const bucket = /^\/storage\/v1\/object\/(avatars|receipts)$/.exec(path)?.[1];
+    if (method === "DELETE" && bucket) {
+      this.events.push(`storage:${bucket}`);
+      (this.removedByBucket[bucket] ??= []).push(body.prefixes ?? []);
+      if (bucket === "avatars") this.removed.push(body.prefixes ?? []);
+      if (this.failStorageFor === bucket) return { status: 500, body: { message: "storage is down" } };
       return { status: 200, body: [] };
+    }
+    const adminUser = /^\/auth\/v1\/admin\/users\/([\w-]+)$/.exec(path)?.[1];
+    if (method === "DELETE" && adminUser) {
+      this.events.push(`auth:delete:${adminUser}`);
+      return this.adminDeleteReply;
     }
     return { status: 500, body: { message: `unexpected ${method} ${path}` } };
   }
@@ -290,5 +306,71 @@ describe("SupabaseLedgerRepository person emails", () => {
     }
     const missing = await setup({});
     await expect(missing.repository.emailPerson(USER, ALI)).rejects.toMatchObject({ statusCode: 503, code: "email_unavailable" });
+  });
+});
+
+describe("SupabaseLedgerRepository account deletion", () => {
+  const paths = { avatars: [`${USER}/me.jpg`, `${USER}/ali.jpg`], receipts: [`${USER}/receipt-1.jpg`] };
+  const handlers = (): Record<string, RpcHandler> => ({
+    app_account_storage_paths: () => ({ status: 200, body: paths }),
+    app_delete_account: () => ({ status: 204 }),
+  });
+
+  it("removes the files, then the data, then the sign-in, in that order", async () => {
+    const { fake, repository } = await setup(handlers());
+    await expect(repository.deleteAccount(USER)).resolves.toBeUndefined();
+    expect(fake.events).toEqual([
+      "rpc:app_account_storage_paths", "storage:avatars", "storage:receipts", "rpc:app_delete_account", `auth:delete:${USER}`,
+    ]);
+    expect(fake.removedByBucket.avatars).toEqual([paths.avatars]);
+    expect(fake.removedByBucket.receipts).toEqual([paths.receipts]);
+    expect(fake.rpcCalls.find((call) => call.name === "app_delete_account")?.args).toEqual({ p_actor: USER });
+  });
+
+  it("never asks storage to remove a file outside the person's own folder", async () => {
+    const sneaky = { avatars: [`${USER}/me.jpg`, `${BILAL}/theirs.jpg`, `${USER}/../${BILAL}/theirs.jpg`], receipts: [`${BILAL}/theirs.jpg`] };
+    const { fake, repository } = await setup({ ...handlers(), app_account_storage_paths: () => ({ status: 200, body: sneaky }) });
+    await repository.deleteAccount(USER);
+    expect(fake.removedByBucket.avatars).toEqual([[`${USER}/me.jpg`]]);
+    expect(fake.removedByBucket.receipts).toBeUndefined();
+  });
+
+  it("skips storage entirely when there is nothing to remove", async () => {
+    const { fake, repository } = await setup({ ...handlers(), app_account_storage_paths: () => ({ status: 200, body: { avatars: [], receipts: [] } }) });
+    await repository.deleteAccount(USER);
+    expect(fake.events).toEqual(["rpc:app_account_storage_paths", "rpc:app_delete_account", `auth:delete:${USER}`]);
+  });
+
+  it("stops before changing any data when a file cannot be removed", async () => {
+    const { fake, repository, warnings } = await setup(handlers());
+    fake.failStorageFor = "receipts";
+    await expect(repository.deleteAccount(USER)).rejects.toMatchObject({ statusCode: 500, code: "account_deletion_failed" });
+    expect(fake.events).not.toContain("rpc:app_delete_account");
+    expect(fake.events.some((event) => event.startsWith("auth:delete"))).toBe(false);
+    expect(warnings.some((message) => message.includes("receipts"))).toBe(true);
+  });
+
+  it("keeps the sign-in until the data is deleted, so a failed attempt can be retried", async () => {
+    const { fake, repository } = await setup({ ...handlers(), app_delete_account: () => raised("boom") });
+    await expect(repository.deleteAccount(USER)).rejects.toMatchObject({ statusCode: 500, code: "account_deletion_failed" });
+    expect(fake.events.some((event) => event.startsWith("auth:delete"))).toBe(false);
+  });
+
+  it("says the database needs the update when the functions are missing", async () => {
+    const { repository } = await setup({});
+    await expect(repository.deleteAccount(USER)).rejects.toMatchObject({ statusCode: 503, code: "account_deletion_unavailable" });
+    const half = await setup({ app_account_storage_paths: () => ({ status: 200, body: { avatars: [], receipts: [] } }) });
+    await expect(half.repository.deleteAccount(USER)).rejects.toMatchObject({ statusCode: 503, code: "account_deletion_unavailable" });
+  });
+
+  it("counts a sign-in that is already gone as done, but reports any other failure", async () => {
+    const gone = await setup(handlers());
+    gone.fake.adminDeleteReply = { status: 404, body: { code: 404, error_code: "user_not_found", msg: "User not found" } };
+    await expect(gone.repository.deleteAccount(USER)).resolves.toBeUndefined();
+
+    const broken = await setup(handlers());
+    broken.fake.adminDeleteReply = { status: 500, body: { code: 500, error_code: "unexpected_failure", msg: "boom" } };
+    await expect(broken.repository.deleteAccount(USER)).rejects.toMatchObject({ statusCode: 500, code: "account_deletion_failed" });
+    expect(broken.fake.events).toContain("rpc:app_delete_account");
   });
 });
