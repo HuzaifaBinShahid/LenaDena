@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../domain/errors.js";
 import { AccountDeletionFailedError, AccountDeletionUnavailableError, ownStoragePaths } from "../domain/account.js";
+import { amountBelowPaid, EditUnavailableError, entryHasPayments, entryNotFound, entrySettled, expenseNotFound, invalidAmount, invalidReceipt, notAllowedToDeleteExpense, notAllowedToEditExpense, participantLeft } from "../domain/edit.js";
 import { cleanNewPerson, cleanPersonChanges, EmailLimitReachedError, EmailRecentlySentError, EmailUnavailableError, invalidAvatarPath, invalidPersonEmail, invalidPersonName, invalidReminderFrequency, InviteRecentlySentError, isUuid, PeopleUnavailableError, PersonExistsError, PersonHasNoEmailError, PersonHasNoEntriesError, PersonNotFoundError } from "../domain/people.js";
-import type { CreatedPersonalTransaction, CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, Group, InviteLink, Member, Person, PersonUpdate, Plan, SettlementStatus, TransactionItem, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
+import type { CreatedPersonalTransaction, CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, ExpenseDetail, Group, InviteLink, Member, Person, PersonUpdate, Plan, SettlementStatus, TransactionItem, UpdateExpenseInput, UpdatePersonalTransactionInput, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
 import type { LedgerRepository } from "./LedgerRepository.js";
 
 type RepositoryLogger = { warn: (message: string) => void };
@@ -14,6 +15,29 @@ const AVATAR_URL_TTL_SECONDS = 3600;
 /** PostgREST answers PGRST202 for an RPC missing from its schema cache; Postgres itself raises 42883. */
 function isMissingFunction(error: RpcError) {
   return error.code === "PGRST202" || error.code === "42883";
+}
+
+/** The edit and delete RPCs raise these identifiers (supabase/migrations/202611170013_edit_delete_entries.sql). */
+function toEditError(error: RpcError, action: "edit" | "delete" = "edit"): DomainError {
+  if (isMissingFunction(error)) return new EditUnavailableError();
+  const text = error.message;
+  if (text.includes("expense_not_found")) return expenseNotFound();
+  if (text.includes("entry_not_found")) return entryNotFound();
+  if (text.includes("not_allowed")) return action === "delete" ? notAllowedToDeleteExpense() : notAllowedToEditExpense();
+  if (text.includes("participant_left")) return participantLeft();
+  if (text.includes("entry_has_payments")) return entryHasPayments();
+  if (text.includes("entry_settled")) return entrySettled();
+  if (text.includes("amount_below_paid")) return amountBelowPaid();
+  if (text.includes("invalid_receipt_path")) return invalidReceipt();
+  if (text.includes("invalid_amount")) return invalidAmount();
+  if (text.includes("person_not_found")) return new PersonNotFoundError();
+  return new DomainError(text, 400, "database_error");
+}
+
+/** A receipt change travels as a payload key only when the caller sent one: absent keeps the photo, null removes it. */
+function withReceiptChange<T extends { receiptUri?: string | null }>(input: T): Omit<T, "receiptUri"> & { receiptUri?: string | null } {
+  const { receiptUri, ...rest } = input;
+  return receiptUri === undefined ? rest : { ...rest, receiptUri: receiptUri || null };
 }
 
 /** The People RPCs raise these identifiers (supabase/migrations/202609180007_people.sql). */
@@ -163,6 +187,57 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     }
     // Saving an entry sends no email. (The database function app_notify_new_entry is no longer called.)
     return { id: String(data) };
+  }
+
+  async getExpense(userId: string, expenseId: string): Promise<ExpenseDetail> {
+    if (!isUuid(expenseId)) throw expenseNotFound();
+    const { data, error } = await this.client.rpc("app_get_expense", { p_actor: userId, p_expense: expenseId });
+    if (error) throw toEditError(error);
+    const detail = data as ExpenseDetail;
+    if (!detail.receiptPath) return detail;
+    const { data: signed } = await this.client.storage.from("receipts").createSignedUrl(detail.receiptPath, 300);
+    return signed?.signedUrl ? { ...detail, receiptUrl: signed.signedUrl } : detail;
+  }
+
+  async updateExpense(userId: string, expenseId: string, input: UpdateExpenseInput, idempotencyKey: string): Promise<{ id: string }> {
+    if (!isUuid(expenseId)) throw expenseNotFound();
+    const { data, error } = await this.client.rpc("app_update_expense", {
+      p_actor: userId,
+      p_expense: expenseId,
+      p_payload: withReceiptChange(input),
+      p_idempotency_key: idempotencyKey,
+    });
+    if (error) throw toEditError(error);
+    const result = data as { id: string; previousReceiptPath?: string | null };
+    await this.removeReceipt(result.previousReceiptPath);
+    return { id: result.id };
+  }
+
+  async deleteExpense(userId: string, expenseId: string): Promise<void> {
+    if (!isUuid(expenseId)) throw expenseNotFound();
+    const { data, error } = await this.client.rpc("app_delete_expense", { p_actor: userId, p_expense: expenseId });
+    if (error) throw toEditError(error, "delete");
+    await this.removeReceipt((data as { receiptPath?: string | null } | null)?.receiptPath);
+  }
+
+  async updatePersonalTransaction(userId: string, transactionId: string, input: UpdatePersonalTransactionInput): Promise<{ id: string }> {
+    if (!isUuid(transactionId)) throw entryNotFound();
+    const { data, error } = await this.client.rpc("app_update_personal_transaction", {
+      p_actor: userId,
+      p_id: transactionId,
+      p_payload: withReceiptChange(input),
+    });
+    if (error) throw toEditError(error);
+    const result = data as { id: string; previousReceiptPath?: string | null };
+    await this.removeReceipt(result.previousReceiptPath);
+    return { id: result.id };
+  }
+
+  async deletePersonalTransaction(userId: string, transactionId: string): Promise<void> {
+    if (!isUuid(transactionId)) throw entryNotFound();
+    const { data, error } = await this.client.rpc("app_delete_personal_transaction", { p_actor: userId, p_id: transactionId });
+    if (error) throw toEditError(error, "delete");
+    await this.removeReceipt((data as { receiptPath?: string | null } | null)?.receiptPath);
   }
 
   async deleteAccount(userId: string): Promise<void> {
@@ -388,6 +463,20 @@ export class SupabaseLedgerRepository implements LedgerRepository {
   }
 
   /** Best effort, like replaced profile photos: a leftover file never fails the request. */
+  /**
+   * Removes a receipt photo the database says is no longer used. The records are already changed, so a failure here
+   * only leaves an unused file behind: it is logged, never thrown.
+   */
+  private async removeReceipt(path: string | null | undefined) {
+    if (!path) return;
+    try {
+      const { error } = await this.client.storage.from("receipts").remove([path]);
+      if (error) this.log.warn(`Could not remove a replaced receipt photo: ${error.message}`);
+    } catch (error) {
+      this.log.warn(`Could not remove a replaced receipt photo: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   private async removeAvatar(path: string) {
     try {
       await this.client.storage.from("avatars").remove([path]);

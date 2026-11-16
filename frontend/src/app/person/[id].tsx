@@ -319,6 +319,16 @@ function EntryList({ items, today, settlingId, sharingId, onSettle, onCustom, on
                     onCustom={() => onCustom(item)}
                   />
                 ) : null}
+                {item.canEdit ? (
+                  <Button
+                    label="Edit"
+                    icon="edit"
+                    size="sm"
+                    variant="ghost"
+                    onPress={() => router.push({ pathname: "/transaction/new", params: { id: item.id } })}
+                    accessibilityHint={`Change or delete ${copy.title}`}
+                  />
+                ) : null}
                 <Button
                   label="Share"
                   icon="share"

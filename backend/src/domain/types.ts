@@ -98,6 +98,11 @@ export type TransactionItem = {
   /** How much of `amountMinor` has been paid so far. Only personal entries use it; group rows leave it unset. */
   settledAmountMinor?: number;
   settledAt?: string;
+  /** Whether the caller may edit or delete this row. Payments never can; individual balances always can. */
+  canEdit?: boolean;
+  canDelete?: boolean;
+  /** When a group expense was last edited. */
+  editedAt?: string;
   createdAt: string;
 };
 
@@ -175,6 +180,30 @@ export type CreatePersonalTransactionInput = {
   personId?: string;
   note?: string;
   receiptUri?: string;
+};
+
+/**
+ * Editing an expense replaces its name, date, note, amount, split method and shares. The group and the payer never
+ * change. `receiptUri`: leave it out to keep the photo, `null` to remove it, or a storage path from an upload.
+ */
+export type UpdateExpenseInput = Omit<CreateExpenseInput, "groupId" | "paidByMemberId" | "receiptUri"> & {
+  receiptUri?: string | null;
+};
+
+/** Same fields as creating an entry; `receiptUri` works as in {@link UpdateExpenseInput}. */
+export type UpdatePersonalTransactionInput = Omit<CreatePersonalTransactionInput, "receiptUri"> & {
+  receiptUri?: string | null;
+};
+
+/** One expense in full, for the edit screen, with what the caller may do to it. */
+export type ExpenseDetail = Expense & {
+  /** Short-lived signed link to the photo, for the preview. `receiptPath` is what an edit keeps. */
+  receiptUrl?: string;
+  editedAt?: string;
+  canEdit: boolean;
+  /** Why `canEdit` is false: someone else's expense, or someone in it has since left the group. */
+  editBlockedReason?: "not_yours" | "member_left";
+  canDelete: boolean;
 };
 
 export type CreateSettlementInput = {

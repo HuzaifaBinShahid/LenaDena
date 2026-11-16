@@ -89,6 +89,17 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 7. Fastify validates membership and the split contract.
 8. PostgreSQL inserts the expense, shares, activity event, idempotency result, and email outbox rows in one transaction.
 
+### Editing and deleting (2026-11-17)
+
+Migration `202611170013_edit_delete_entries.sql` adds the rules; the API (`GET|PATCH|DELETE /v1/expenses/:id`, `PATCH|DELETE /v1/personal-transactions/:id`) and the app only carry them.
+
+- **Group expense, edit:** only the person who added or paid it, and only while everyone in it is still in the group (`participant_left` otherwise: delete and re-add). It replaces the name, date, note, amount, split method and shares; the group and the payer never change. It sets `expenses.updated_at` (shown as "Edited"), writes an `expense_updated` event to the group's activity ("Sara edited this expense. It is now 1200 PKR") and sends **no email**. A repeated request with the same idempotency key does nothing twice.
+- **Group expense, delete:** the same people, or the group's owner or admin. The row and its shares are removed for good (the unused `reversed_at` column stays unused), balances recompute, settlements stay, an `expense_deleted` event keeps only the name and amount, and the receipt photo is removed from storage.
+- **Individual balance:** private to its owner, who can change everything, except that once a payment is recorded the amount must stay above what has been paid and who owes whom and the currency are locked (`entry_has_payments`, `amount_below_paid`), and a fully paid balance keeps its amount (`entry_settled`). Deleting removes the recorded payments with it.
+- **Receipt photos:** `receiptUri` is three-way on update: absent keeps the photo, `null` removes it, a storage path in the caller's own folder replaces it (anything else is `invalid_receipt_path`). The database function returns the path of a photo that may now be deleted (in its owner's folder and referenced by nothing else), and the API removes it from the `receipts` bucket afterwards, best effort: a failure is logged, never fails the request.
+- **Who sees what:** each transaction row carries `canEdit`, `canDelete` and (expenses) `editedAt`; payments are never editable. The app shows edit and delete only when the flags are true, so a database without the migration simply shows neither, and the routes answer 503 `edit_unavailable`.
+- **Where in the app:** group expense rows (group screen, Groups tab, Activity) open `/expense/new?expenseId=`; the Edit button on an individual balance (person screen, Activity) opens `/transaction/new?id=`. Both are the add forms in edit mode, with Delete at the end.
+
 ### Voice balance draft
 
 1. The user selects English or Urdu, records a short private-balance command, and stops recording.
@@ -152,7 +163,12 @@ Interaction targets are at least 44 points. Top-level tabs use four equal 54-poi
 | POST | `/v1/uploads/:kind` | Store a private receipt, proof, or profile image |
 | POST | `/v1/voice/transcribe` | Transcribe one authenticated short command via the server-only Deepgram key; returns text only and never writes a ledger record |
 | POST | `/v1/expenses` | Create an expense and shares |
+| GET | `/v1/expenses/:id` | One expense in full (shares, split, photo link) with `canEdit`, `editBlockedReason` (`not_yours` / `member_left`) and `canDelete` |
+| PATCH | `/v1/expenses/:id` | Edit an expense (idempotency key; `receiptUri` absent keeps, `null` removes, a path replaces); 403 not yours, 409 `participant_left`, 503 `edit_unavailable` |
+| DELETE | `/v1/expenses/:id` | Delete an expense (whoever added or paid it, or a group owner or admin); 204 |
 | POST | `/v1/personal-transactions` | Create a private individual expense or loan; links it to a saved person (`personId`, or find-or-create by `counterparty`, case-insensitive) |
+| PATCH | `/v1/personal-transactions/:id` | Edit an individual balance; 409 `entry_has_payments`, `entry_settled` or `amount_below_paid` when payments lock the change |
+| DELETE | `/v1/personal-transactions/:id` | Delete an individual balance with its recorded payments; 204 |
 | POST | `/v1/personal-transactions/:id/settle` | Mark the owner's private individual obligation as settled |
 | POST | `/v1/people` | Save a person (name required; email and photo optional); 409 `person_exists` on a case-insensitive duplicate |
 | PATCH | `/v1/people/:id` | Rename (also renames their history rows), change/clear email and photo, or set `emailUpdates` and `reminderFrequency` (`off` / `weekly` / `monthly`). The answer carries `statementQueued: true` when adding an email to someone who had none sent them the full statement |

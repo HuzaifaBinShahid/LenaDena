@@ -7,6 +7,7 @@ import {
   CreatePersonalTransactionSchema,
   CreateSettlementSchema,
   ErrorSchema,
+  ExpenseDetailSchema,
   GroupSchema,
   IdempotencyHeaderSchema,
   IdParamsSchema,
@@ -18,6 +19,8 @@ import {
   SettlePersonalTransactionSchema,
   SettlePersonalTransactionsSchema,
   MemberSchema,
+  UpdateExpenseSchema,
+  UpdatePersonalTransactionSchema,
   UpdateProfileSchema,
   UploadParamsSchema,
   UploadResponseSchema,
@@ -165,6 +168,64 @@ export const ledgerRoutes: FastifyPluginAsyncTypebox = async (fastify) => {
     },
   }, async (request, reply) => {
     await fastify.ledger.settlePersonalTransactions(request.authUser.id, request.body.transactionIds, request.headers["idempotency-key"]);
+    return reply.code(204).send(null);
+  });
+
+  // Editing and deleting. The rules (who may, what is locked once payments exist) live in the database functions of
+  // supabase/migrations/202611170013_edit_delete_entries.sql; a database without them answers 503 edit_unavailable.
+  const editResponses = { ...mutationResponses, 503: ErrorSchema };
+
+  fastify.get("/expenses/:id", {
+    schema: {
+      tags: ["expenses"],
+      security: [{ bearerAuth: [] }],
+      params: IdParamsSchema,
+      response: { 200: ExpenseDetailSchema, ...editResponses },
+    },
+  }, async (request) => fastify.ledger.getExpense(request.authUser.id, request.params.id));
+
+  fastify.patch("/expenses/:id", {
+    schema: {
+      tags: ["expenses"],
+      security: [{ bearerAuth: [] }],
+      params: IdParamsSchema,
+      headers: IdempotencyHeaderSchema,
+      body: UpdateExpenseSchema,
+      response: { 200: IdResponseSchema, ...editResponses },
+    },
+  }, async (request) => fastify.ledger.updateExpense(request.authUser.id, request.params.id, request.body, request.headers["idempotency-key"]));
+
+  fastify.delete("/expenses/:id", {
+    schema: {
+      tags: ["expenses"],
+      security: [{ bearerAuth: [] }],
+      params: IdParamsSchema,
+      response: { 204: Type.Null(), ...editResponses },
+    },
+  }, async (request, reply) => {
+    await fastify.ledger.deleteExpense(request.authUser.id, request.params.id);
+    return reply.code(204).send(null);
+  });
+
+  fastify.patch("/personal-transactions/:id", {
+    schema: {
+      tags: ["transactions"],
+      security: [{ bearerAuth: [] }],
+      params: IdParamsSchema,
+      body: UpdatePersonalTransactionSchema,
+      response: { 200: IdResponseSchema, ...editResponses },
+    },
+  }, async (request) => fastify.ledger.updatePersonalTransaction(request.authUser.id, request.params.id, request.body));
+
+  fastify.delete("/personal-transactions/:id", {
+    schema: {
+      tags: ["transactions"],
+      security: [{ bearerAuth: [] }],
+      params: IdParamsSchema,
+      response: { 204: Type.Null(), ...editResponses },
+    },
+  }, async (request, reply) => {
+    await fastify.ledger.deletePersonalTransaction(request.authUser.id, request.params.id);
     return reply.code(204).send(null);
   });
 

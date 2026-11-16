@@ -74,6 +74,11 @@ class FakeSupabase {
       this.signRequests.push(paths);
       return { status: 200, body: paths.map((item) => ({ error: null, path: item, signedURL: `/object/sign/avatars/${item}?token=signed` })) };
     }
+    const receiptToSign = /^\/storage\/v1\/object\/sign\/receipts\/(.+)$/.exec(path)?.[1];
+    if (method === "POST" && receiptToSign) {
+      this.events.push(`sign:receipts:${decodeURIComponent(receiptToSign)}`);
+      return { status: 200, body: { signedURL: `/object/sign/receipts/${receiptToSign}?token=signed` } };
+    }
     const bucket = /^\/storage\/v1\/object\/(avatars|receipts)$/.exec(path)?.[1];
     if (method === "DELETE" && bucket) {
       this.events.push(`storage:${bucket}`);
@@ -372,5 +377,134 @@ describe("SupabaseLedgerRepository account deletion", () => {
     broken.fake.adminDeleteReply = { status: 500, body: { code: 500, error_code: "unexpected_failure", msg: "boom" } };
     await expect(broken.repository.deleteAccount(USER)).rejects.toMatchObject({ statusCode: 500, code: "account_deletion_failed" });
     expect(broken.fake.events).toContain("rpc:app_delete_account");
+  });
+});
+
+describe("SupabaseLedgerRepository editing and deleting", () => {
+  const EXPENSE = "7c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f";
+  const ENTRY = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+  const OLD_PHOTO = `${USER}/old-receipt.jpg`;
+  const NEW_PHOTO = `${USER}/new-receipt.jpg`;
+  const body = { eventName: "Dinner", eventDate: "2026-11-04", amountMinor: 1000, splitMethod: "equal" as const, shares: [{ memberId: USER, amountMinor: 1000 }] };
+  const entryBody = { title: "Lunch", eventDate: "2026-11-04", amountMinor: 1000, currency: "PKR", kind: "expense" as const, direction: "outgoing" as const, counterparty: "Ali" };
+  const payloadOf = (fake: FakeSupabase) => fake.rpcCalls.at(-1)!.args.p_payload as Record<string, unknown>;
+
+  it("reads one expense and signs its photo for the preview, only when it has one", async () => {
+    const withPhoto = await setup({ app_get_expense: () => ({ status: 200, body: { id: EXPENSE, receiptPath: OLD_PHOTO, canEdit: true, canDelete: true } }) });
+    const detail = await withPhoto.repository.getExpense(USER, EXPENSE);
+    expect(withPhoto.fake.rpcCalls.at(-1)).toEqual({ name: "app_get_expense", args: { p_actor: USER, p_expense: EXPENSE } });
+    expect(detail.receiptUrl).toContain(`/object/sign/receipts/${OLD_PHOTO}`);
+    expect(detail.receiptPath).toBe(OLD_PHOTO);
+
+    const without = await setup({ app_get_expense: () => ({ status: 200, body: { id: EXPENSE, canEdit: false, editBlockedReason: "not_yours", canDelete: false } }) });
+    expect(await without.repository.getExpense(USER, EXPENSE)).toMatchObject({ canEdit: false, editBlockedReason: "not_yours" });
+    expect(without.fake.events.filter((event) => event.startsWith("sign:"))).toEqual([]);
+  });
+
+  it("treats a malformed id as 'not found' without asking the database", async () => {
+    const { fake, repository } = await setup({});
+    await expect(repository.getExpense(USER, "not-a-uuid")).rejects.toMatchObject({ statusCode: 404, code: "not_found" });
+    await expect(repository.updateExpense(USER, "../x", body, "edit-key-0001")).rejects.toMatchObject({ statusCode: 404 });
+    await expect(repository.deleteExpense(USER, "1; drop table")).rejects.toMatchObject({ statusCode: 404 });
+    await expect(repository.updatePersonalTransaction(USER, "nope", entryBody)).rejects.toMatchObject({ statusCode: 404 });
+    await expect(repository.deletePersonalTransaction(USER, "nope")).rejects.toMatchObject({ statusCode: 404 });
+    expect(fake.rpcCalls).toEqual([]);
+  });
+
+  it("sends the receipt change exactly as chosen: absent keeps, null or empty removes, a path replaces", async () => {
+    const { fake, repository } = await setup({ app_update_expense: () => ({ status: 200, body: { id: EXPENSE, previousReceiptPath: null } }) });
+    await repository.updateExpense(USER, EXPENSE, body, "edit-key-0001");
+    expect(Object.hasOwn(payloadOf(fake), "receiptUri")).toBe(false);
+    expect(fake.rpcCalls.at(-1)!.args).toMatchObject({ p_actor: USER, p_expense: EXPENSE, p_idempotency_key: "edit-key-0001" });
+    await repository.updateExpense(USER, EXPENSE, { ...body, receiptUri: null }, "edit-key-0002");
+    expect(payloadOf(fake).receiptUri).toBeNull();
+    await repository.updateExpense(USER, EXPENSE, { ...body, receiptUri: "" }, "edit-key-0003");
+    expect(payloadOf(fake).receiptUri).toBeNull();
+    await repository.updateExpense(USER, EXPENSE, { ...body, receiptUri: NEW_PHOTO }, "edit-key-0004");
+    expect(payloadOf(fake).receiptUri).toBe(NEW_PHOTO);
+    expect(fake.removedByBucket.receipts).toBeUndefined();
+  });
+
+  it("removes the replaced photo from storage after the edit, and only the one the database names", async () => {
+    const { fake, repository } = await setup({ app_update_expense: () => ({ status: 200, body: { id: EXPENSE, previousReceiptPath: OLD_PHOTO } }) });
+    expect(await repository.updateExpense(USER, EXPENSE, { ...body, receiptUri: NEW_PHOTO }, "edit-key-0005")).toEqual({ id: EXPENSE });
+    expect(fake.removedByBucket.receipts).toEqual([[OLD_PHOTO]]);
+    expect(fake.events.indexOf("rpc:app_update_expense")).toBeLessThan(fake.events.indexOf("storage:receipts"));
+  });
+
+  it("never fails an edit that already succeeded because an old photo could not be removed", async () => {
+    const { fake, repository, warnings } = await setup({ app_update_expense: () => ({ status: 200, body: { id: EXPENSE, previousReceiptPath: OLD_PHOTO } }) });
+    fake.failStorageFor = "receipts";
+    await expect(repository.updateExpense(USER, EXPENSE, { ...body, receiptUri: null }, "edit-key-0006")).resolves.toEqual({ id: EXPENSE });
+    expect(warnings.some((message) => message.includes("replaced receipt photo"))).toBe(true);
+  });
+
+  it("deleting removes the photo the database hands back, for expenses and for individual balances", async () => {
+    const expense = await setup({ app_delete_expense: () => ({ status: 200, body: { receiptPath: OLD_PHOTO } }) });
+    await expense.repository.deleteExpense(USER, EXPENSE);
+    expect(expense.fake.rpcCalls.at(-1)).toEqual({ name: "app_delete_expense", args: { p_actor: USER, p_expense: EXPENSE } });
+    expect(expense.fake.removedByBucket.receipts).toEqual([[OLD_PHOTO]]);
+
+    const entry = await setup({ app_delete_personal_transaction: () => ({ status: 200, body: { receiptPath: null } }) });
+    await entry.repository.deletePersonalTransaction(USER, ENTRY);
+    expect(entry.fake.rpcCalls.at(-1)).toEqual({ name: "app_delete_personal_transaction", args: { p_actor: USER, p_id: ENTRY } });
+    expect(entry.fake.removedByBucket.receipts).toBeUndefined();
+  });
+
+  it("changes an individual balance and removes its replaced photo", async () => {
+    const { fake, repository } = await setup({ app_update_personal_transaction: () => ({ status: 200, body: { id: ENTRY, previousReceiptPath: OLD_PHOTO } }) });
+    expect(await repository.updatePersonalTransaction(USER, ENTRY, { ...entryBody, personId: ALI, receiptUri: null })).toEqual({ id: ENTRY });
+    expect(fake.rpcCalls.at(-1)!.args).toMatchObject({ p_actor: USER, p_id: ENTRY, p_payload: { ...entryBody, personId: ALI, receiptUri: null } });
+    expect(fake.removedByBucket.receipts).toEqual([[OLD_PHOTO]]);
+  });
+
+  it("maps what the database raises to clear errors", async () => {
+    const raiseOn = (rpc: string, message: string) => ({ [rpc]: () => raised(message) });
+    const cases: Array<[string, string, (repository: SupabaseLedgerRepository) => Promise<unknown>, Record<string, unknown>]> = [
+      ["app_get_expense", "expense_not_found", (r) => r.getExpense(USER, EXPENSE), { statusCode: 404, code: "not_found" }],
+      ["app_update_expense", "not_allowed", (r) => r.updateExpense(USER, EXPENSE, body, "edit-key-0007"), { statusCode: 403, code: "forbidden" }],
+      ["app_delete_expense", "not_allowed", (r) => r.deleteExpense(USER, EXPENSE), { statusCode: 403, code: "forbidden" }],
+      ["app_update_expense", "participant_left", (r) => r.updateExpense(USER, EXPENSE, body, "edit-key-0008"), { statusCode: 409, code: "participant_left" }],
+      ["app_update_expense", "shares must equal amount", (r) => r.updateExpense(USER, EXPENSE, body, "edit-key-0009"), { statusCode: 400, code: "database_error", message: "shares must equal amount" }],
+      ["app_update_expense", "invalid_receipt_path", (r) => r.updateExpense(USER, EXPENSE, body, "edit-key-0010"), { statusCode: 400, code: "invalid_receipt" }],
+      ["app_update_personal_transaction", "entry_not_found", (r) => r.updatePersonalTransaction(USER, ENTRY, entryBody), { statusCode: 404, code: "not_found" }],
+      ["app_update_personal_transaction", "entry_has_payments", (r) => r.updatePersonalTransaction(USER, ENTRY, entryBody), { statusCode: 409, code: "entry_has_payments" }],
+      ["app_update_personal_transaction", "entry_settled", (r) => r.updatePersonalTransaction(USER, ENTRY, entryBody), { statusCode: 409, code: "entry_settled" }],
+      ["app_update_personal_transaction", "amount_below_paid", (r) => r.updatePersonalTransaction(USER, ENTRY, entryBody), { statusCode: 409, code: "amount_below_paid" }],
+      ["app_update_personal_transaction", "invalid_amount", (r) => r.updatePersonalTransaction(USER, ENTRY, entryBody), { statusCode: 400, code: "invalid_amount" }],
+      ["app_update_personal_transaction", "person_not_found", (r) => r.updatePersonalTransaction(USER, ENTRY, entryBody), { code: "person_not_found" }],
+      ["app_delete_personal_transaction", "entry_not_found", (r) => r.deletePersonalTransaction(USER, ENTRY), { statusCode: 404 }],
+    ];
+    for (const [rpc, message, call, expected] of cases) {
+      const { repository } = await setup(raiseOn(rpc, message));
+      await expect(call(repository)).rejects.toMatchObject(expected);
+    }
+  });
+
+  it("says editing is not switched on yet when the database has not been updated", async () => {
+    const { repository } = await setup({});
+    const unavailable = { statusCode: 503, code: "edit_unavailable" };
+    await expect(repository.getExpense(USER, EXPENSE)).rejects.toMatchObject(unavailable);
+    await expect(repository.updateExpense(USER, EXPENSE, body, "edit-key-0011")).rejects.toMatchObject(unavailable);
+    await expect(repository.deleteExpense(USER, EXPENSE)).rejects.toMatchObject(unavailable);
+    await expect(repository.updatePersonalTransaction(USER, ENTRY, entryBody)).rejects.toMatchObject(unavailable);
+    await expect(repository.deletePersonalTransaction(USER, ENTRY)).rejects.toMatchObject(unavailable);
+  });
+
+  it("keeps canEdit, canDelete and editedAt on the plan the app receives (the response schema must not strip them)", async () => {
+    const rows = [
+      { id: "a", source: "personal", title: "Lunch", eventDate: "2026-09-18", amountMinor: 1000, currency: "PKR", direction: "outgoing", kind: "expense", canEdit: true, canDelete: true, createdAt: "2026-09-18T10:00:00+00:00" },
+      { id: "b", source: "group", groupId: "g", groupName: "Crew", title: "Dinner", eventDate: "2026-09-18", amountMinor: 1000, currency: "PKR", direction: "incoming", kind: "expense", canEdit: true, canDelete: true, editedAt: "2026-09-19T10:00:00+00:00", createdAt: "2026-09-18T09:00:00+00:00" },
+      { id: "c", source: "group", groupId: "g", groupName: "Crew", title: "Payment completed", eventDate: "2026-09-18", amountMinor: 500, currency: "PKR", direction: "incoming", kind: "payment", canEdit: false, canDelete: false, createdAt: "2026-09-18T08:00:00+00:00" },
+    ];
+    const { repository } = await setup({ ...planHandlers, app_get_transactions: () => ({ status: 200, body: rows }), app_get_people: () => ({ status: 200, body: [] }) });
+    const { app } = await buildApp({ config: { nodeEnv: "test", authMode: "demo" }, repository });
+    running.push({ stop: () => app.close() });
+    const response = await app.inject({ method: "GET", url: "/v1/me/plan", headers: { "x-user-id": USER } });
+    expect(response.statusCode).toBe(200);
+    const byId = Object.fromEntries((response.json().transactions as Array<Record<string, unknown>>).map((row) => [row.id, row]));
+    expect(byId.a).toMatchObject({ canEdit: true, canDelete: true });
+    expect(byId.b).toMatchObject({ canEdit: true, canDelete: true, editedAt: "2026-09-19T10:00:00+00:00" });
+    expect(byId.c).toMatchObject({ canEdit: false, canDelete: false });
   });
 });

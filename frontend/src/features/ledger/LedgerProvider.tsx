@@ -10,11 +10,14 @@ import type {
   CreateGroupInput,
   CreatePersonalTransactionInput,
   CreatePersonInput,
+  ExpenseDetail,
   Group,
   InviteLink,
   Person,
   Plan,
   SettlementStatus,
+  UpdateExpenseInput,
+  UpdatePersonalTransactionInput,
   UpdatePersonInput,
 } from "@/features/ledger/types";
 import { useAuth } from "@/features/auth/AuthProvider";
@@ -42,6 +45,14 @@ type LedgerContextValue = {
   createExpense: (input: CreateExpenseInput) => Promise<void>;
   /** Saves an individual entry. This never sends an email: the owner emails a statement by hand. */
   createPersonalTransaction: (input: CreatePersonalTransactionInput) => Promise<CreatedPersonalTransaction>;
+  /** One expense in full, to fill the edit form. Rejects with the server's message (not found, no longer available). */
+  getExpense: (id: string) => Promise<ExpenseDetail>;
+  /** Replaces an expense's details and split. Rejects with a plain message when the caller may not, or someone in it has left. */
+  updateExpense: (id: string, input: UpdateExpenseInput) => Promise<void>;
+  deleteExpense: (id: string) => Promise<void>;
+  /** Changes an individual balance. Rejects with a plain message when payments lock the change. */
+  updatePersonalTransaction: (id: string, input: UpdatePersonalTransactionInput) => Promise<void>;
+  deletePersonalTransaction: (id: string) => Promise<void>;
   settlePersonalTransaction: (id: string, amountMinor?: number) => Promise<void>;
   settlePersonalTransactions: (ids: string[]) => Promise<void>;
   /** Saves someone to People. Rejects with a friendly message for a duplicate name or a server without People. */
@@ -157,6 +168,41 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     }
     await refresh();
     return created;
+  }, [refresh]);
+
+  const getExpense = useCallback((id: string) => apiRequest<ExpenseDetail>(`/v1/expenses/${encodeURIComponent(id)}`), []);
+
+  // Photos: `undefined` keeps, `null` removes, a local image is uploaded first and its storage path replaces the old one.
+  const updateExpense = useCallback(async (id: string, input: UpdateExpenseInput) => {
+    const { receiptUri, ...rest } = input;
+    const change = receiptUri ? { receiptUri: await uploadPrivateImage("receipt", receiptUri) } : receiptUri === null ? { receiptUri: null } : {};
+    await apiRequest(`/v1/expenses/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: { ...rest, ...change },
+      idempotencyKey: newIdempotencyKey(),
+    });
+    await refresh();
+  }, [refresh]);
+
+  const deleteExpense = useCallback(async (id: string) => {
+    await apiRequest(`/v1/expenses/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await refresh();
+  }, [refresh]);
+
+  const updatePersonalTransaction = useCallback(async (id: string, input: UpdatePersonalTransactionInput) => {
+    const { receiptUri, ...rest } = input;
+    const change = receiptUri ? { receiptUri: await uploadPrivateImage("receipt", receiptUri) } : receiptUri === null ? { receiptUri: null } : {};
+    try {
+      await apiRequest(`/v1/personal-transactions/${encodeURIComponent(id)}`, { method: "PATCH", body: { ...rest, ...change } });
+    } catch (error) {
+      throw friendlyPeopleError(error, { name: input.counterparty });
+    }
+    await refresh();
+  }, [refresh]);
+
+  const deletePersonalTransaction = useCallback(async (id: string) => {
+    await apiRequest(`/v1/personal-transactions/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await refresh();
   }, [refresh]);
 
   const settlePersonalTransaction = useCallback(async (id: string, amountMinor?: number) => {
@@ -310,6 +356,11 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       createGroup,
       createExpense,
       createPersonalTransaction,
+      getExpense,
+      updateExpense,
+      deleteExpense,
+      updatePersonalTransaction,
+      deletePersonalTransaction,
       settlePersonalTransaction,
       settlePersonalTransactions,
       createPerson,
@@ -324,7 +375,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       createInvite,
       acceptInvite,
     }),
-    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, settlePersonalTransaction, settlePersonalTransactions, createPerson, updatePerson, emailPerson, deletePerson, invitePerson, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite],
+    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, getExpense, updateExpense, deleteExpense, updatePersonalTransaction, deletePersonalTransaction, settlePersonalTransaction, settlePersonalTransactions, createPerson, updatePerson, emailPerson, deletePerson, invitePerson, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite],
   );
 
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;

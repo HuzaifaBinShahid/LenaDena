@@ -34,6 +34,7 @@ import {
   type GroupExpenseView,
 } from "@/features/ledger/groupLedger";
 import { useLedger } from "@/features/ledger/LedgerProvider";
+import { canChange } from "@/features/ledger/editRules";
 import { getPlanState, type PlanState } from "@/features/ledger/planState";
 import { describeTransaction } from "@/features/ledger/rowCopy";
 import type { Group, TransactionItem } from "@/features/ledger/types";
@@ -458,18 +459,22 @@ export function GroupExpenses({ group, planState, rows, currentUserId, mode, onI
         <LedgerList>
           {shown.map((item, index) => {
             const copy = describeTransaction(item, { context: "group", today });
-            return (
-              <LedgerRow
-                key={item.id}
-                divider={index > 0}
-                leading={<EntryTile icon={copy.tile.icon} tone={copy.tile.tone} badge={copy.tile.badge} ringColor={c.raised} />}
-                title={copy.title}
-                subtitle={copy.subtitle}
-                amount={copy.amount}
-                status={copy.status}
-                accessibilityLabel={copy.accessibilityLabel}
-              />
-            );
+            // An expense the person may change opens its edit screen; payments and other people's expenses stay static.
+            const open = item.kind === "expense" && canChange(item)
+              ? () => router.push({ pathname: "/expense/new", params: { expenseId: item.id } })
+              : undefined;
+            const row = {
+              leading: <EntryTile icon={copy.tile.icon} tone={copy.tile.tone} badge={copy.tile.badge} ringColor={c.raised} />,
+              title: copy.title,
+              subtitle: item.editedAt ? `${copy.subtitle} · Edited` : copy.subtitle,
+              amount: copy.amount,
+              status: copy.status,
+              divider: index > 0,
+              accessibilityLabel: copy.accessibilityLabel,
+            };
+            return open
+              ? <LedgerRow key={item.id} {...row} onPress={open} chevron accessibilityHint="Change or delete this expense" />
+              : <LedgerRow key={item.id} {...row} />;
           })}
         </LedgerList>
         {remaining > 0 ? (

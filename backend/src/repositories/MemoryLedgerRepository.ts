@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../domain/errors.js";
+import { amountBelowPaid, entryHasPayments, entryNotFound, entrySettled, expenseNotFound, invalidAmount, notAllowedToDeleteExpense, notAllowedToEditExpense } from "../domain/edit.js";
 import { pairKey, validateShares } from "../domain/money.js";
 import { cleanNewPerson, cleanPersonChanges, cleanPersonName, DAILY_PERSON_EMAIL_LIMIT, EmailLimitReachedError, EmailRecentlySentError, InviteRecentlySentError, PERSON_INVITE_COOLDOWN_MS, PersonExistsError, PersonHasNoEntriesError, PersonHasNoEmailError, PersonNotFoundError, personNameKey, STATEMENT_COOLDOWN_MS } from "../domain/people.js";
 import type {
@@ -11,6 +12,7 @@ import type {
   CreatePersonInput,
   CreateSettlementInput,
   Expense,
+  ExpenseDetail,
   Group,
   InviteLink,
   Member,
@@ -20,6 +22,8 @@ import type {
   Settlement,
   SettlementStatus,
   TransactionItem,
+  UpdateExpenseInput,
+  UpdatePersonalTransactionInput,
   UpdatePersonInput,
   UpdateProfileInput,
   UploadKind,
@@ -27,6 +31,8 @@ import type {
 import type { LedgerRepository } from "./LedgerRepository.js";
 
 type StoredGroup = Omit<Group, "balanceMinor">;
+/** Who added an expense and when it was last edited; the seeded expenses were added by their payer. */
+type StoredExpense = Expense & { createdByMemberId?: string; editedAt?: string };
 type StoredPersonalTransaction = TransactionItem & { userId: string };
 type StoredPerson = Omit<Person, "avatarUrl"> & { ownerId: string };
 /** An invite email the demo "outbox" would send (mirrors the person_invite rows of app_invite_person). */
@@ -86,7 +92,7 @@ export class MemoryLedgerRepository implements LedgerRepository {
     ["weekend-crew", { id: "weekend-crew", name: "Weekend crew", currency: "PKR", accent: "#35C4A5", role: "owner", members: [demoUser, sara, hamza] }],
     ["flat-bills", { id: "flat-bills", name: "Flat bills", currency: "PKR", accent: "#D79A31", role: "member", members: [demoUser, hamza] }],
   ]);
-  private readonly expenses: Expense[] = [
+  private readonly expenses: StoredExpense[] = [
     {
       id: "expense-1",
       groupId: "weekend-crew",
@@ -192,6 +198,8 @@ export class MemoryLedgerRepository implements LedgerRepository {
           kind: "expense" as const,
           ...(!paidByUser && payer ? { counterparty: payer.name } : {}),
           ...(expense.note ? { note: expense.note } : {}),
+          ...(group ? this.expenseAccess(userId, expense, group) : { canEdit: false, canDelete: false }),
+          ...(expense.editedAt ? { editedAt: expense.editedAt } : {}),
           createdAt: expense.createdAt,
         };
       })
@@ -210,11 +218,13 @@ export class MemoryLedgerRepository implements LedgerRepository {
         direction: settlement.recipient.id === userId ? "incoming" as const : "outgoing" as const,
         kind: "payment" as const,
         counterparty: settlement.recipient.id === userId ? settlement.debtor.name : settlement.recipient.name,
+        canEdit: false,
+        canDelete: false,
         createdAt: settlement.createdAt,
       }));
     const personalTransactions = this.personalTransactions
       .filter((transaction) => transaction.userId === userId)
-      .map(({ userId: _userId, ...transaction }) => transaction);
+      .map(({ userId: _userId, ...transaction }) => ({ ...transaction, canEdit: true, canDelete: true }));
     const transactions = [...personalTransactions, ...expenseTransactions, ...settlementTransactions]
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     const totals = Array.from(new Set(groups.map((group) => group.currency))).map((currency) => ({
@@ -273,8 +283,9 @@ export class MemoryLedgerRepository implements LedgerRepository {
       throw new ForbiddenError("Every expense participant must be a group member");
     }
     validateShares(input.amountMinor, input.splitMethod, input.shares);
-    const expense: Expense = {
+    const expense: StoredExpense = {
       id: randomUUID(),
+      createdByMemberId: userId,
       groupId: input.groupId,
       eventName: input.eventName,
       eventDate: input.eventDate,
@@ -410,6 +421,92 @@ export class MemoryLedgerRepository implements LedgerRepository {
     if (changes.reminderFrequency !== undefined) person.reminderFrequency = changes.reminderFrequency;
     // Adding or changing an address sends nothing: the owner sends a statement by hand.
     return this.toPerson(person);
+  }
+
+  async getExpense(userId: string, expenseId: string): Promise<ExpenseDetail> {
+    const { expense, group } = this.requireExpense(userId, expenseId);
+    const { createdByMemberId: _createdBy, ...detail } = expense;
+    return { ...detail, ...this.expenseAccess(userId, expense, group) };
+  }
+
+  async updateExpense(userId: string, expenseId: string, input: UpdateExpenseInput, idempotencyKey: string): Promise<{ id: string }> {
+    const key = `${userId}:${idempotencyKey}`;
+    const cached = this.idempotency.get(key) as { id: string } | undefined;
+    if (cached) return cached;
+    const { expense, group } = this.requireExpense(userId, expenseId);
+    if (!this.expenseAccess(userId, expense, group).canEdit) throw notAllowedToEditExpense();
+    if (input.shares.some((share) => !group.members.some((member) => member.id === share.memberId))) {
+      throw new ForbiddenError("Every expense participant must be a group member");
+    }
+    validateShares(input.amountMinor, input.splitMethod, input.shares);
+    expense.eventName = input.eventName;
+    expense.eventDate = input.eventDate;
+    if (input.note) expense.note = input.note;
+    else delete expense.note;
+    expense.amountMinor = input.amountMinor;
+    expense.splitMethod = input.splitMethod;
+    expense.shares = input.shares;
+    if (input.receiptUri !== undefined) {
+      if (input.receiptUri) expense.receiptPath = input.receiptUri;
+      else delete expense.receiptPath;
+    }
+    expense.editedAt = new Date().toISOString();
+    const actor = this.users.get(userId)?.name ?? "Someone";
+    this.activity.unshift({ id: randomUUID(), groupId: group.id, icon: "file-text", title: expense.eventName, detail: `${actor} edited this expense. It is now ${expense.amountMinor / 100} ${expense.currency}`, createdAt: expense.editedAt, tone: "neutral" });
+    const result = { id: expense.id };
+    this.idempotency.set(key, result);
+    return result;
+  }
+
+  async deleteExpense(userId: string, expenseId: string): Promise<void> {
+    const { expense, group } = this.requireExpense(userId, expenseId);
+    if (!this.expenseAccess(userId, expense, group).canDelete) throw notAllowedToDeleteExpense();
+    this.expenses.splice(this.expenses.indexOf(expense), 1);
+    const actor = this.users.get(userId)?.name ?? "Someone";
+    this.activity.unshift({ id: randomUUID(), groupId: group.id, icon: "file-text", title: expense.eventName, detail: `${actor} deleted this expense. It was ${expense.amountMinor / 100} ${expense.currency}`, createdAt: new Date().toISOString(), tone: "warning" });
+  }
+
+  async updatePersonalTransaction(userId: string, transactionId: string, input: UpdatePersonalTransactionInput): Promise<{ id: string }> {
+    const entry = this.personalTransactions.find((item) => item.id === transactionId && item.userId === userId);
+    if (!entry) throw entryNotFound();
+    if (input.amountMinor <= 0) throw invalidAmount();
+    const currency = input.currency.toUpperCase();
+    const paid = entry.settledAmountMinor ?? 0;
+    if (paid > 0) {
+      if (input.direction !== entry.direction || currency !== entry.currency) throw entryHasPayments();
+      if (entry.status === "settled" && input.amountMinor !== entry.amountMinor) throw entrySettled();
+      if (entry.status !== "settled" && input.amountMinor <= paid) throw amountBelowPaid();
+    }
+    let person: StoredPerson;
+    if (input.personId) {
+      const owned = this.people.find((item) => item.id === input.personId && item.ownerId === userId);
+      if (!owned) throw new PersonNotFoundError();
+      person = owned;
+    } else {
+      if (!input.counterparty.trim()) throw new DomainError("Choose who this amount is with");
+      person = this.findPersonByName(userId, input.counterparty) ?? this.addPerson(userId, { name: cleanPersonName(input.counterparty), email: null, avatarPath: null });
+    }
+    entry.title = input.title.trim();
+    entry.eventDate = input.eventDate;
+    entry.amountMinor = input.amountMinor;
+    entry.currency = currency;
+    entry.kind = input.kind;
+    entry.direction = input.direction;
+    entry.counterparty = person.name;
+    entry.personId = person.id;
+    if (input.note?.trim()) entry.note = input.note.trim();
+    else delete entry.note;
+    if (input.receiptUri !== undefined) {
+      if (input.receiptUri) entry.receiptUri = input.receiptUri;
+      else delete entry.receiptUri;
+    }
+    return { id: entry.id };
+  }
+
+  async deletePersonalTransaction(userId: string, transactionId: string): Promise<void> {
+    const index = this.personalTransactions.findIndex((item) => item.id === transactionId && item.userId === userId);
+    if (index < 0) throw entryNotFound();
+    this.personalTransactions.splice(index, 1);
   }
 
   async deleteAccount(userId: string): Promise<void> {
@@ -666,6 +763,21 @@ export class MemoryLedgerRepository implements LedgerRepository {
   /** Demo mode has no storage to sign from, so the photo URL is the stored local URI, as for profile photos. */
   private toPerson({ ownerId: _ownerId, ...person }: StoredPerson): Person {
     return person.avatarPath ? { ...person, avatarUrl: person.avatarPath } : { ...person };
+  }
+
+  /** Whoever added or paid an expense may edit it; they and the group's owner may delete it. */
+  private expenseAccess(userId: string, expense: StoredExpense, group: StoredGroup) {
+    const mine = expense.paidByMemberId === userId || (expense.createdByMemberId ?? expense.paidByMemberId) === userId;
+    const owner = group.members[0]?.id === userId;
+    return { canEdit: mine, canDelete: mine || owner };
+  }
+
+  /** An expense the caller can see; one in a group they are not in is "not found", like the database. */
+  private requireExpense(userId: string, expenseId: string) {
+    const expense = this.expenses.find((item) => item.id === expenseId);
+    const group = expense ? this.groups.get(expense.groupId) : undefined;
+    if (!expense || !group || !group.members.some((member) => member.id === userId)) throw expenseNotFound();
+    return { expense, group };
   }
 
   private requireMembership(userId: string, groupId: string) {

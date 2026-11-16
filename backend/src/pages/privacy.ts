@@ -44,7 +44,7 @@ export function privacyPage(contact: PageContact): string {
 <li>Group names and who is in each group.</li>
 <li>Expenses: title, amount, date, who paid, how it is split and any note, plus a receipt photo if you add one.</li>
 <li>Payment claims, confirmations and notes, plus a payment-proof photo if you add one. A payment proof is visible only to the two people in that payment.</li>
-<li>The activity feed of each group.</li>
+<li>The activity feed of each group. When an expense is edited or deleted, the feed notes it with the expense's name and its new or old amount.</li>
 <li>Invitations, including the email address that was invited.</li>
 </ul>
 
@@ -102,6 +102,7 @@ export function privacyPage(contact: PageContact): string {
 <h2 id="choices">6. Your choices</h2>
 <ul>
 <li>Change your name, photo and settings in the app, and change your password there too.</li>
+<li>Edit or delete the expenses and balances you add. An individual balance can always be changed, with one limit: once a payment is recorded on it, who owes whom and the currency stay as they are. A shared expense can be changed by the person who added or paid it, and deleted by them or by the group's owner or admin.</li>
 <li>Switch email reminders off for any person you saved, and switch the app lock off.</li>
 <li><strong>Delete your account</strong> in the app, or ask us to do it: see <a href="/delete-account">how to delete your account</a>.</li>
 <li>To get a copy of your information, to correct it or to ask a question about it, write to ${write}. The app has no download button for your data yet, so we send it to you by email. We aim to answer within 30 days.</li>

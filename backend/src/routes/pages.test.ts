@@ -122,4 +122,13 @@ describe("what the pages promise", () => {
     expect(body).not.toMatch(/automatically (delete|remove|purge)/i);
     expect(body).toContain("The app has no download button for your data yet");
   });
+
+  it("says what editing and deleting do, and what they leave in the group's activity", async () => {
+    const privacy = (await get(await appWith({ supportEmail: "help@example.com" }), "/privacy")).body;
+    expect(privacy).toContain("Edit or delete the expenses and balances you add");
+    expect(privacy).toContain("once a payment is recorded on it, who owes whom and the currency stay as they are");
+    expect(privacy).toContain("When an expense is edited or deleted, the feed notes it with the expense's name and its new or old amount");
+    const deletion = (await get(await appWith({ supportEmail: "help@example.com" }), "/delete-account")).body;
+    expect(deletion).toContain("short notes about expenses that were edited or deleted");
+  });
 });

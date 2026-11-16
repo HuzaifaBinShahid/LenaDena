@@ -1,4 +1,4 @@
-import type { CreatedPersonalTransaction, CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, Group, InviteLink, Member, Person, PersonUpdate, Plan, SettlementStatus, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
+import type { CreatedPersonalTransaction, CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, ExpenseDetail, Group, InviteLink, Member, Person, PersonUpdate, Plan, SettlementStatus, UpdateExpenseInput, UpdatePersonalTransactionInput, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
 
 export interface LedgerRepository {
   getPlan(userId: string): Promise<Plan>;
@@ -8,6 +8,16 @@ export interface LedgerRepository {
   createExpense(userId: string, input: CreateExpenseInput, idempotencyKey: string): Promise<{ id: string }>;
   /** Saving an entry never sends an email: the owner emails a statement by hand. */
   createPersonalTransaction(userId: string, input: CreatePersonalTransactionInput, idempotencyKey: string): Promise<CreatedPersonalTransaction>;
+  /** One expense in full, with what the caller may do to it. */
+  getExpense(userId: string, expenseId: string): Promise<ExpenseDetail>;
+  /** Replaces an expense's details and split. Only whoever added or paid it, while everyone in it is still in the group. */
+  updateExpense(userId: string, expenseId: string, input: UpdateExpenseInput, idempotencyKey: string): Promise<{ id: string }>;
+  /** Whoever added or paid it, or a group owner or admin. Removes it for good, with its receipt photo. */
+  deleteExpense(userId: string, expenseId: string): Promise<void>;
+  /** Changes an individual balance. Once payments are recorded the amount must stay above them and the direction and currency are locked. */
+  updatePersonalTransaction(userId: string, transactionId: string, input: UpdatePersonalTransactionInput): Promise<{ id: string }>;
+  /** Removes an individual balance, its recorded payments and its receipt photo. */
+  deletePersonalTransaction(userId: string, transactionId: string): Promise<void>;
   /**
    * Deletes the account: its storage files, its individual data and sign-in, and anonymises what shared groups keep.
    * Safe to retry after a partial failure. The caller must already have checked that the person just signed in.

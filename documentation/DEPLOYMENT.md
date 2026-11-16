@@ -46,6 +46,10 @@ Emails to people (statements, reminders, invites) are queued in the database and
 
 Each call sends at most 3 emails, so a minute-by-minute schedule is about 180 an hour: plenty for statements and the reminders owners switch on. A failed email is retried every five minutes. If you would rather run a machine that stays on, `pnpm worker` runs the same code as a loop.
 
+### Edit and delete
+
+Apply `supabase/migrations/202611170013_edit_delete_entries.sql` (SQL editor or Supabase CLI) to switch on editing and deleting of expenses and individual balances. It is safe to re-run. Until it is applied the app shows no Edit or Delete and the API answers 503 `edit_unavailable` for those routes. Deploy the API first, then apply the migration, then release the app; or apply the migration first, since the older API simply ignores the new fields.
+
 ### Privacy policy and account deletion pages
 
 Both stores ask for two public web addresses. The API serves them, with no sign-in and no script:

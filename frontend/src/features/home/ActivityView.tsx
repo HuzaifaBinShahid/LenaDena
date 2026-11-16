@@ -45,6 +45,7 @@ import {
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import { remainingAmountOf, settledAmountOf } from "@/features/ledger/amounts";
 import { getPlanState } from "@/features/ledger/planState";
+import { canChange } from "@/features/ledger/editRules";
 import { describeTransaction, personLink } from "@/features/ledger/rowCopy";
 import { useShare } from "@/features/share/useShare";
 import type { TransactionDirection, TransactionItem, TransactionKind, TransactionStatus } from "@/features/ledger/types";
@@ -601,7 +602,7 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
                   // The ring cuts the corner badge into the list surface (LedgerList paints `raised`).
                   leading: <EntryTile icon={copy.tile.icon} tone={copy.tile.tone} badge={copy.tile.badge} ringColor={c.raised} />,
                   title: copy.title,
-                  subtitle: copy.subtitle,
+                  subtitle: item.editedAt ? `${copy.subtitle} · Edited` : copy.subtitle,
                   amount: copy.amount,
                   status: copy.status,
                   divider: index > 0,
@@ -609,9 +610,12 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
                 };
                 if (!copy.canSettle) {
                   // A row is either pressable or carries footer buttons, so only rows without "Mark settled" open the person.
-                  return person
-                    ? <LedgerRow key={key} {...row} onPress={() => openPerson(person.id)} chevron accessibilityHint={person.hint} />
-                    : <LedgerRow key={key} {...row} />;
+                  if (person) return <LedgerRow key={key} {...row} onPress={() => openPerson(person.id)} chevron accessibilityHint={person.hint} />;
+                  // A group expense the person may change opens its edit screen.
+                  if (item.source === "group" && item.kind === "expense" && canChange(item)) {
+                    return <LedgerRow key={key} {...row} onPress={() => router.push({ pathname: "/expense/new", params: { expenseId: item.id } })} chevron accessibilityHint="Change or delete this expense" />;
+                  }
+                  return <LedgerRow key={key} {...row} />;
                 }
                 return (
                   <LedgerRow
@@ -634,6 +638,16 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
                             variant="ghost"
                             onPress={() => openPerson(person.id)}
                             accessibilityHint={person.hint}
+                          />
+                        ) : null}
+                        {item.canEdit ? (
+                          <Button
+                            label="Edit"
+                            icon="edit"
+                            size="md"
+                            variant="ghost"
+                            onPress={() => router.push({ pathname: "/transaction/new", params: { id: item.id } })}
+                            accessibilityHint={`Change or delete ${copy.title}`}
                           />
                         ) : null}
                         <Button

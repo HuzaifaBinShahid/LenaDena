@@ -71,6 +71,9 @@ export const TransactionSchema = Type.Object({
   status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("settled")])),
   settledAmountMinor: Type.Optional(Type.Integer({ minimum: 0 })),
   settledAt: Type.Optional(Type.String()),
+  canEdit: Type.Optional(Type.Boolean()),
+  canDelete: Type.Optional(Type.Boolean()),
+  editedAt: Type.Optional(Type.String()),
   createdAt: Type.String(),
 });
 
@@ -142,6 +145,52 @@ export const CreatePersonalTransactionSchema = Type.Object({
   note: Type.Optional(Type.String({ maxLength: 500 })),
   receiptUri: Type.Optional(Type.String({ maxLength: 2048 })),
 }, { additionalProperties: false });
+
+/** `receiptUri`: absent keeps the photo, null (or an empty string) removes it, a storage path replaces it. */
+const ReceiptChangeSchema = Type.Optional(Type.Union([Type.String({ maxLength: 2048 }), Type.Null()]));
+
+export const UpdateExpenseSchema = Type.Object({
+  eventName: Type.String({ minLength: 1, maxLength: 80 }),
+  eventDate: Type.String({ format: "date" }),
+  note: Type.Optional(Type.String({ maxLength: 500 })),
+  amountMinor: Type.Integer({ minimum: 1, maximum: 100000000000 }),
+  splitMethod: Type.Union([Type.Literal("equal"), Type.Literal("exact"), Type.Literal("percentage")]),
+  shares: Type.Array(ExpenseShareSchema, { minItems: 1, maxItems: 200 }),
+  receiptUri: ReceiptChangeSchema,
+}, { additionalProperties: false });
+
+export const UpdatePersonalTransactionSchema = Type.Object({
+  title: Type.String({ minLength: 1, maxLength: 80 }),
+  eventDate: Type.String({ format: "date" }),
+  amountMinor: Type.Integer({ minimum: 1, maximum: 100000000000 }),
+  currency: Type.String({ minLength: 3, maxLength: 3 }),
+  kind: Type.Union([Type.Literal("expense"), Type.Literal("loan")]),
+  direction: Type.Union([Type.Literal("incoming"), Type.Literal("outgoing")]),
+  counterparty: Type.String({ minLength: 1, maxLength: 80 }),
+  personId: Type.Optional(Type.String({ format: "uuid" })),
+  note: Type.Optional(Type.String({ maxLength: 500 })),
+  receiptUri: ReceiptChangeSchema,
+}, { additionalProperties: false });
+
+export const ExpenseDetailSchema = Type.Object({
+  id: Type.String(),
+  groupId: Type.String(),
+  eventName: Type.String(),
+  eventDate: Type.String({ format: "date" }),
+  note: Type.Optional(Type.String()),
+  amountMinor: Type.Integer(),
+  currency: Type.String(),
+  paidByMemberId: Type.String(),
+  splitMethod: Type.Union([Type.Literal("equal"), Type.Literal("exact"), Type.Literal("percentage")]),
+  shares: Type.Array(ExpenseShareSchema),
+  receiptPath: Type.Optional(Type.String()),
+  receiptUrl: Type.Optional(Type.String()),
+  createdAt: Type.String(),
+  editedAt: Type.Optional(Type.String()),
+  canEdit: Type.Boolean(),
+  editBlockedReason: Type.Optional(Type.Union([Type.Literal("not_yours"), Type.Literal("member_left")])),
+  canDelete: Type.Boolean(),
+});
 
 export const CreateSettlementSchema = Type.Object({
   groupId: Type.String({ minLength: 1 }),

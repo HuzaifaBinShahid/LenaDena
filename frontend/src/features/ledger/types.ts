@@ -120,6 +120,14 @@ export type TransactionItem = {
   /** How much of `amountMinor` has been paid so far. Only personal entries use it. */
   settledAmountMinor?: number;
   settledAt?: string;
+  /**
+   * Whether the signed-in person may edit or delete this row. Payments never can. A server without editing leaves
+   * both unset, which the app reads as "no".
+   */
+  canEdit?: boolean;
+  canDelete?: boolean;
+  /** When a group expense was last edited. */
+  editedAt?: string;
   createdAt: string;
 };
 
@@ -144,6 +152,31 @@ export type CreateExpenseInput = {
   splitMethod: SplitMethod;
   shares: ExpenseShare[];
   receiptUri?: string;
+};
+
+/** One expense in full, for the edit screen, with what the signed-in person may do to it. */
+export type ExpenseDetail = Omit<Expense, "receiptUri"> & {
+  /** The photo's storage path, and a short-lived link to show it. */
+  receiptPath?: string;
+  receiptUrl?: string;
+  editedAt?: string;
+  canEdit: boolean;
+  /** Why `canEdit` is false: someone else's expense, or someone in it has since left the group. */
+  editBlockedReason?: "not_yours" | "member_left";
+  canDelete: boolean;
+};
+
+/**
+ * Editing an expense replaces its name, date, note, amount, split method and shares; the group and the payer never
+ * change. `receiptUri`: leave it out to keep the photo, `null` to remove it, or a local image to upload and replace it.
+ */
+export type UpdateExpenseInput = Omit<CreateExpenseInput, "groupId" | "paidByMemberId" | "receiptUri"> & {
+  receiptUri?: string | null;
+};
+
+/** Same fields as creating an entry; `receiptUri` works as in {@link UpdateExpenseInput}. */
+export type UpdatePersonalTransactionInput = Omit<CreatePersonalTransactionInput, "receiptUri"> & {
+  receiptUri?: string | null;
 };
 
 export type CreatePersonalTransactionInput = {

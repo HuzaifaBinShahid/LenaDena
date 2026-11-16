@@ -4,6 +4,8 @@ import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import { CHIP_MUTED, COMPACT_CARD, FormNoGroup, LayeredGroupCard } from "@/components/groups/LayeredGroupCard";
 import { MemberRow } from "@/components/groups/MemberRow";
+import { EmptyState } from "@/components/layout/EmptyState";
+import { ConfirmDelete } from "@/components/ledger/ConfirmDelete";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { EntryTile } from "@/components/ui/EntryTile";
@@ -21,10 +23,11 @@ import { recognizeReceipt } from "@/features/capture/ocr";
 import { speechUnavailableMessage, startOnDeviceSpeech, type SpeechSession } from "@/features/capture/speech";
 import { VOICE_ENABLED } from "@/lib/features";
 import { groupSkin } from "@/features/groups/groupSkin";
+import { allocationsFromShares, deleteExpenseWarning, expenseBlockedText, minorToInput, receiptChange, receiptDraft, shownReceipt, withNewReceipt, withoutReceipt, type ReceiptDraft } from "@/features/ledger/editRules";
 import { getPlanState } from "@/features/ledger/planState";
 import { calculateShares } from "@/features/ledger/split";
 import { useLedger } from "@/features/ledger/LedgerProvider";
-import type { SplitMethod } from "@/features/ledger/types";
+import type { ExpenseDetail, SplitMethod } from "@/features/ledger/types";
 import { useAppLock } from "@/features/security/AppLockProvider";
 import { errorMessage } from "@/lib/api";
 import { dateFromIso, dateToIso, formatLongDate, formatMoney, toMinorUnits, todayDate } from "@/lib/format";
@@ -45,9 +48,15 @@ const stepRank: Record<FormStep, number> = { details: 0, split: 1, finish: 2 };
 /** Screen padding (px-[18px] on each side). */
 const SCREEN_GUTTERS = 36;
 
+/**
+ * Add a group expense in three steps. `?expenseId=` edits an existing one instead: the same steps, filled in from the
+ * saved expense, with Delete at the end. Only whoever added or paid it may edit, and not once someone in it has left
+ * the group (the server decides; `canEdit` says); the group and the payer never change.
+ */
 export default function NewExpenseScreen() {
-  const params = useLocalSearchParams<{ groupId?: string; receiptUri?: string }>();
-  const { plan, connection, createExpense } = useLedger();
+  const params = useLocalSearchParams<{ groupId?: string; receiptUri?: string; expenseId?: string }>();
+  const editingId = typeof params.expenseId === "string" && params.expenseId ? params.expenseId : undefined;
+  const { plan, connection, createExpense, getExpense, updateExpense, deleteExpense } = useLedger();
   const { speechLocale } = usePreferences();
   const { colors: c, isDark } = useTheme();
   const { width: windowWidth } = useWindowDimensions();
@@ -55,13 +64,19 @@ export default function NewExpenseScreen() {
   const toast = useToast();
   const [step, setStep] = useState<FormStep>("details");
   const [groupId, setGroupId] = useState(params.groupId ?? plan.groups[0]?.id ?? "");
-  const group = plan.groups.find((item) => item.id === groupId) ?? plan.groups[0];
+  // Editing never falls back to another group: the expense belongs to exactly one.
+  const group = plan.groups.find((item) => item.id === groupId) ?? (editingId ? undefined : plan.groups[0]);
   const [eventName, setEventName] = useState("");
   const [eventDate, setEventDate] = useState(todayDate());
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [method, setMethod] = useState<SplitMethod>("equal");
-  const [receiptUri, setReceiptUri] = useState(params.receiptUri);
+  const [receipt, setReceipt] = useState<ReceiptDraft>(() => (params.receiptUri ? withNewReceipt(receiptDraft(), params.receiptUri) : receiptDraft()));
+  const [detail, setDetail] = useState<ExpenseDetail>();
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+  const [loadError, setLoadError] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>(group?.members.map((member) => member.id) ?? []);
   const [allocations, setAllocations] = useState<Record<string, string>>({});
   const [listeningField, setListeningField] = useState<"event" | "note" | null>(null);
@@ -70,6 +85,7 @@ export default function NewExpenseScreen() {
   const [submitted, setSubmitted] = useState(false);
   const speech = useRef<SpeechSession | null>(null);
   const amountMinor = toMinorUnits(amount);
+  const shownPhoto = shownReceipt(receipt);
   const participants = group?.members.filter((member) => selectedIds.includes(member.id)) ?? [];
   const pickerDate = dateFromIso(eventDate);
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(eventDate) && !Number.isNaN(pickerDate.getTime());
@@ -143,13 +159,43 @@ export default function NewExpenseScreen() {
     if (params.receiptUri) void scan(params.receiptUri);
   }, [params.receiptUri]);
 
+  // Editing: fetch the expense in full and fill every step from it.
+  useEffect(() => {
+    if (!editingId) return;
+    let cancelled = false;
+    setLoadState("loading");
+    getExpense(editingId)
+      .then((saved) => {
+        if (cancelled) return;
+        setDetail(saved);
+        setGroupId(saved.groupId);
+        setEventName(saved.eventName);
+        setEventDate(saved.eventDate);
+        setAmount(minorToInput(saved.amountMinor));
+        setNote(saved.note ?? "");
+        setMethod(saved.splitMethod);
+        setSelectedIds(saved.shares.map((share) => share.memberId));
+        setAllocations(allocationsFromShares(saved.splitMethod, saved.shares));
+        setReceipt(receiptDraft(saved.receiptUrl));
+        setLoadState("ready");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setLoadError(errorMessage(error));
+        setLoadState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editingId, getExpense]);
+
   useEffect(() => () => speech.current?.cancel(), []);
 
   const chooseReceipt = async () => {
     const result = await runWithoutLocking(() => ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8, allowsEditing: true }));
     if (!result.canceled && result.assets[0]?.uri) {
       const uri = result.assets[0].uri;
-      setReceiptUri(uri);
+      setReceipt((current) => withNewReceipt(current, uri));
       await scan(uri);
     }
   };
@@ -171,6 +217,23 @@ export default function NewExpenseScreen() {
     setStep(next);
   };
 
+  const goBack = () => (router.canGoBack() ? router.back() : router.replace("/"));
+
+  const removeExpense = async () => {
+    if (!editingId) return;
+    setDeleting(true);
+    try {
+      await deleteExpense(editingId);
+      goBack();
+      toast.success("Expense deleted", `${detail?.eventName ?? "The expense"} is gone and everyone's balances are updated.`);
+    } catch (error) {
+      setConfirmingDelete(false);
+      toast.error("Couldn't delete it", errorMessage(error));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const save = async () => {
     setSubmitted(true);
     if (!detailsValid) {
@@ -182,6 +245,27 @@ export default function NewExpenseScreen() {
       return;
     }
     setSaving(true);
+    if (editingId) {
+      const photo = receiptChange(receipt);
+      try {
+        await updateExpense(editingId, {
+          eventName: eventName.trim(),
+          eventDate,
+          ...(note.trim() ? { note: note.trim() } : {}),
+          amountMinor,
+          splitMethod: method,
+          shares,
+          ...(photo !== undefined ? { receiptUri: photo } : {}),
+        });
+        goBack();
+        toast.success("Expense updated", `${eventName.trim()} · ${formatMoney(amountMinor, group.currency)} split with ${participants.length} ${participants.length === 1 ? "person" : "people"}.`);
+      } catch (error) {
+        toast.error("Couldn't save the changes", errorMessage(error));
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     try {
       await createExpense({
         groupId: group.id,
@@ -192,7 +276,7 @@ export default function NewExpenseScreen() {
         paidByMemberId: plan.user.id,
         splitMethod: method,
         shares,
-        receiptUri,
+        receiptUri: receipt.local,
       });
       router.replace("/");
       toast.success("Expense saved", `${eventName.trim()} · ${formatMoney(amountMinor, group.currency)} split with ${participants.length} ${participants.length === 1 ? "person" : "people"}.`);
@@ -202,6 +286,58 @@ export default function NewExpenseScreen() {
       setSaving(false);
     }
   };
+
+  if (editingId) {
+    const title = "Edit expense";
+    const subtitle = "Change the details or the split";
+    if (loadState === "error") {
+      return (
+        <Screen>
+          <PageHeader title={title} subtitle={subtitle} />
+          <EmptyState icon="alert-circle" title="This expense isn't available" detail={loadError || "It may have been deleted, or it belongs to a group you're not in."} action={{ label: "Go back", onPress: goBack }} />
+        </Screen>
+      );
+    }
+    if (loadState === "loading" || !detail || (!group && planState === "loading")) {
+      return (
+        <Screen>
+          <PageHeader title={title} subtitle={subtitle} />
+          <View style={styles.loading}>
+            <Spinner />
+            <Text className="text-[13px] font-semibold text-slate">Loading this expense</Text>
+          </View>
+        </Screen>
+      );
+    }
+    if (!group) {
+      return (
+        <Screen>
+          <PageHeader title={title} subtitle={subtitle} />
+          <EmptyState icon="alert-circle" title="This group isn't available" detail="You may have left it." action={{ label: "Go back", onPress: goBack }} />
+        </Screen>
+      );
+    }
+    if (!detail.canEdit) {
+      return (
+        <Screen>
+          <PageHeader title={title} subtitle={`${detail.eventName} · ${group.name}`} />
+          <View className="gap-4">
+            <View className="gap-2 rounded-[24px] border border-line bg-raised p-4">
+              <Text className="text-lg font-bold text-ink">You can't edit this expense</Text>
+              <Text className="text-sm leading-5 text-slate">{expenseBlockedText(detail.editBlockedReason)}</Text>
+            </View>
+            {detail.canDelete ? (
+              confirmingDelete ? (
+                <ConfirmDelete title="Delete this expense?" message={deleteExpenseWarning(detail.eventName, group.name)} confirmLabel="Delete expense" busy={deleting} onConfirm={() => void removeExpense()} onCancel={() => setConfirmingDelete(false)} />
+              ) : (
+                <Button label="Delete expense" icon="trash-2" variant="danger" size="lg" fullWidth onPress={() => setConfirmingDelete(true)} />
+              )
+            ) : null}
+          </View>
+        </Screen>
+      );
+    }
+  }
 
   if (!plan.groups.length) {
     return (
@@ -225,7 +361,7 @@ export default function NewExpenseScreen() {
 
   return (
     <Screen>
-      <PageHeader title="Add expense" subtitle="Three short steps, one clear split" />
+      <PageHeader title={editingId ? "Edit expense" : "Add expense"} subtitle={editingId ? "Change the details or the split" : "Three short steps, one clear split"} />
       <View className="mb-5 gap-3">
         <View className="flex-row items-center justify-between px-1">
           <Text className="text-[11px] font-bold uppercase tracking-[1.2px] text-violet dark:text-lavender">Step {stepRank[step] + 1} of 3</Text>
@@ -258,23 +394,30 @@ export default function NewExpenseScreen() {
               <Text className="text-lg font-bold text-ink">What was paid?</Text>
               <Text className="mt-1 text-xs leading-5 text-slate">Start with the essentials. Everything else comes next.</Text>
             </View>
-            <Field label="Group" required>
-              <TopTabs
-                tabs={plan.groups.map((item) => ({ key: item.id, label: item.name }))}
-                value={groupId}
-                onChange={(value) => {
-                  setGroupId(value);
-                  const next = plan.groups.find((item) => item.id === value);
-                  setSelectedIds(next?.members.map((member) => member.id) ?? []);
-                }}
-              />
-            </Field>
+            {editingId ? (
+              <Field label="Group" hint="An expense stays in the group it was added to.">
+                <Text className="text-[15px] font-bold text-ink">{group?.name}</Text>
+              </Field>
+            ) : (
+              <Field label="Group" required>
+                <TopTabs
+                  tabs={plan.groups.map((item) => ({ key: item.id, label: item.name }))}
+                  value={groupId}
+                  onChange={(value) => {
+                    setGroupId(value);
+                    const next = plan.groups.find((item) => item.id === value);
+                    setSelectedIds(next?.members.map((member) => member.id) ?? []);
+                  }}
+                />
+              </Field>
+            )}
             <Field label="Receipt" hint="Optional. We read it on your device and you review every suggestion.">
               {/* In dark the photo gets a hairline ring so it doesn't float on the card. */}
-              {receiptUri ? <Image source={{ uri: receiptUri }} className={`h-40 w-full rounded-[18px] bg-surface${isDark ? " border border-line" : ""}`} resizeMode="cover" /> : null}
-              <View className="mt-1 flex-row gap-2">
-                <Button label={receiptUri ? "Replace" : "Choose photo"} icon="image" variant="secondary" loading={scanning} onPress={chooseReceipt} />
-                {receiptUri ? <Button label="Scan again" icon="maximize" variant="ghost" loading={scanning} onPress={() => void scan(receiptUri)} /> : null}
+              {shownPhoto ? <Image source={{ uri: shownPhoto }} className={`h-40 w-full rounded-[18px] bg-surface${isDark ? " border border-line" : ""}`} resizeMode="cover" /> : null}
+              <View className="mt-1 flex-row flex-wrap gap-2">
+                <Button label={shownPhoto ? "Replace" : "Choose photo"} icon="image" variant="secondary" loading={scanning} onPress={chooseReceipt} />
+                {receipt.local ? <Button label="Scan again" icon="maximize" variant="ghost" loading={scanning} onPress={() => void scan(receipt.local!)} /> : null}
+                {editingId && shownPhoto ? <Button label="Remove" icon="trash-2" variant="ghost" onPress={() => setReceipt((current) => withoutReceipt(current))} /> : null}
               </View>
             </Field>
             <Field label="Amount" required error={amountError}>
@@ -389,8 +532,15 @@ export default function NewExpenseScreen() {
           </View>
           <View className="flex-row gap-3">
             <View className="flex-1"><Button label="Back" variant="secondary" size="lg" fullWidth onPress={() => setStep("split")} /></View>
-            <View className="flex-[1.5]"><Button label="Save expense" icon="check" fullWidth size="lg" loading={saving} disabled={!group} onPress={save} /></View>
+            <View className="flex-[1.5]"><Button label={editingId ? "Save changes" : "Save expense"} icon="check" fullWidth size="lg" loading={saving} disabled={!group || deleting} onPress={save} /></View>
           </View>
+          {editingId && detail?.canDelete ? (
+            confirmingDelete ? (
+              <ConfirmDelete title="Delete this expense?" message={deleteExpenseWarning(detail.eventName, group?.name ?? "the group")} confirmLabel="Delete expense" busy={deleting} onConfirm={() => void removeExpense()} onCancel={() => setConfirmingDelete(false)} />
+            ) : (
+              <Button label="Delete expense" icon="trash-2" variant="danger" size="lg" fullWidth disabled={saving} onPress={() => setConfirmingDelete(true)} />
+            )
+          ) : null}
         </View>
       ) : null}
     </Screen>

@@ -50,6 +50,7 @@ ${byEmail}
 <li>Records in groups you share with other people (expenses, payments and balances) stay, so that everyone else's totals stay correct. They show you as "Deleted user", and your name is replaced in the group's activity feed.</li>
 <li>Receipt and payment-proof photos you attached to a shared expense or payment stay with that group, for the same reason.</li>
 <li>If you owned a group that has other members, it passes to the member who joined earliest.</li>
+<li>The group's activity feed keeps its short notes about expenses that were edited or deleted (the name and the amount).</li>
 </ul>
 
 <h3>Outside our control</h3>

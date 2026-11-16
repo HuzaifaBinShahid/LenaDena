@@ -14,7 +14,7 @@ export type PageContact = {
 };
 
 /** Shown on both pages. Change it whenever the policy text changes in a way people should know about. */
-export const POLICY_UPDATED = "16 November 2026";
+export const POLICY_UPDATED = "17 November 2026";
 
 export type PagePath = "/privacy" | "/delete-account";
 
