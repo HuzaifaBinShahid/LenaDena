@@ -6,6 +6,7 @@ import { Text } from "@/components/ui/Text";
 import { Touch } from "@/components/ui/Touch";
 import { makeStyles, useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
+import { VOICE_ENABLED } from "@/lib/features";
 
 type ExpenseScopeModalProps = {
   visible: boolean;
@@ -40,7 +41,7 @@ export function ExpenseScopeModal({ visible, onClose, onIndividual, onGroup, onV
       <View className="gap-3">
         <ScopeChoice primary label="Individual" description="Track what you owe or what someone owes you" icon="user" onPress={onIndividual} />
         <ScopeChoice label="Group" description="Split a cost and track what each person owes" icon="users" onPress={onGroup} />
-        <ScopeChoice label="Speak it" description="Say a private balance, then review every detail" icon="mic" onPress={onVoice} />
+        {VOICE_ENABLED ? <ScopeChoice label="Speak it" description="Say a private balance, then review every detail" icon="mic" onPress={onVoice} /> : null}
       </View>
       <View className="mt-3 items-center">
         <Button label="Not now" variant="ghost" onPress={onClose} />

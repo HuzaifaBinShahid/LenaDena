@@ -22,6 +22,7 @@ import { usePeopleList, usePeopleSummaries } from "@/features/people/usePeople";
 import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { useAppLock } from "@/features/security/AppLockProvider";
 import { VoiceEntrySheet } from "@/features/voice/VoiceEntrySheet";
+import { VOICE_ENABLED } from "@/lib/features";
 import type { VoiceDraft } from "@/features/voice/grammar";
 import { errorMessage } from "@/lib/api";
 import { dateFromIso, dateToIso, formatLongDate, formatMoney, toMinorUnits, todayDate } from "@/lib/format";
@@ -90,7 +91,7 @@ export default function NewPersonalTransactionScreen() {
   useEffect(() => () => speech.current?.cancel(), []);
 
   useEffect(() => {
-    if (openedVoice.current || params.voice !== "1") return;
+    if (!VOICE_ENABLED || openedVoice.current || params.voice !== "1") return;
     openedVoice.current = true;
     setVoiceVisible(true);
   }, [params.voice]);
@@ -231,9 +232,11 @@ export default function NewPersonalTransactionScreen() {
   return (
     <Screen>
       <PageHeader title="Add individual balance" subtitle="No group or invite needed" />
-      <View className="mb-4">
-        <Button label="Fill by voice" icon="mic" variant="secondary" fullWidth onPress={() => setVoiceVisible(true)} />
-      </View>
+      {VOICE_ENABLED ? (
+        <View className="mb-4">
+          <Button label="Fill by voice" icon="mic" variant="secondary" fullWidth onPress={() => setVoiceVisible(true)} />
+        </View>
+      ) : null}
       <View style={shape.card}>
         <LayeredGroupCard
           variant="compact"
@@ -293,9 +296,7 @@ export default function NewPersonalTransactionScreen() {
               onChangeText={setTitle}
               placeholder={kind === "loan" ? "Emergency cash" : "Dinner or tickets"}
               leadingIcon={kind === "loan" ? "cash" : "file-text"}
-              trailingIcon="mic"
-              listening={listeningField === "title"}
-              onTrailingPress={() => void listen("title")}
+              {...(VOICE_ENABLED ? { trailingIcon: "mic" as const, listening: listeningField === "title", onTrailingPress: () => void listen("title") } : {})}
               invalid={submitted && !title.trim()}
             />
           </Field>
@@ -329,25 +330,25 @@ export default function NewPersonalTransactionScreen() {
               onChangeText={setNote}
               placeholder="Add a final detail"
               multiline
-              trailingIcon="mic"
-              listening={listeningField === "note"}
-              onTrailingPress={() => void listen("note")}
+              {...(VOICE_ENABLED ? { trailingIcon: "mic" as const, listening: listeningField === "note", onTrailingPress: () => void listen("note") } : {})}
             />
           </Field>
         </View>
         <Button label={direction === "outgoing" ? "Track what I owe" : "Track what is owed to me"} icon="check" size="lg" fullWidth loading={saving} onPress={save} />
       </View>
-      <VoiceEntrySheet
-        visible={voiceVisible}
-        onClose={() => setVoiceVisible(false)}
-        people={people}
-        currency={currency}
-        defaultLanguage={speechLocale.toLowerCase().startsWith("ur") ? "ur" : "en"}
-        runWithoutLocking={runWithoutLocking}
-        saving={saving}
-        onEdit={applyVoiceDraft}
-        onSave={saveVoiceDraft}
-      />
+      {VOICE_ENABLED ? (
+        <VoiceEntrySheet
+          visible={voiceVisible}
+          onClose={() => setVoiceVisible(false)}
+          people={people}
+          currency={currency}
+          defaultLanguage={speechLocale.toLowerCase().startsWith("ur") ? "ur" : "en"}
+          runWithoutLocking={runWithoutLocking}
+          saving={saving}
+          onEdit={applyVoiceDraft}
+          onSave={saveVoiceDraft}
+        />
+      ) : null}
     </Screen>
   );
 }

@@ -124,6 +124,7 @@ Supabase Auth creates one profile per account. Financial rows continue to refere
 
 ## Device features
 
+- **Voice is switched off (2026-11-16).** Everything that uses the microphone is hidden and the Android build asks for no microphone permission: "Speak it", "Fill by voice", the mic icons inside fields, and the "Voice language" setting. Set `EXPO_PUBLIC_VOICE_ENTRY=true` in `frontend/.env.local` and rebuild to bring it back (`frontend/src/lib/features.ts`, `frontend/app.config.ts`). The notes below describe it for when it returns.
 - The small microphone controls inside text fields use an on-device speech model. Set `system` or any installed BCP-47 locale such as `ur-PK`, `ar-SA`, `hi-IN`, or `fr-FR` under Settings.
 - **Add entry → Speak it** records a short individual-balance command and uses a server-side Deepgram key to create a reviewable English or Urdu draft. It never saves a balance without confirmation. Setup, privacy boundaries, test phrases, and troubleshooting are in [Deepgram voice entry](documentation/DEEPGRAM_VOICE.md).
 - Expo Go does not include the speech-recognition native module. The microphone control displays a development-build prompt there without loading the unavailable package or interrupting the form.

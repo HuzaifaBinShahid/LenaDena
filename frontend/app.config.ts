@@ -1,5 +1,22 @@
 import type { ExpoConfig } from "expo/config";
 
+// Voice entry is off (see src/lib/features.ts). Turning it on (EXPO_PUBLIC_VOICE_ENTRY=true) restores the microphone.
+const voiceEnabled = process.env.EXPO_PUBLIC_VOICE_ENTRY === "true";
+
+// Permissions that libraries add to the Android manifest on their own. With voice off nothing here is used, and each one
+// would otherwise be shown on the store page and need an explanation: the microphone (expo-audio and
+// expo-speech-recognition), audio settings and foreground playback (expo-audio), and drawing over other apps (React
+// Native's debug overlay, not needed in a release build).
+const blockedAndroidPermissions = [
+  "android.permission.SYSTEM_ALERT_WINDOW",
+  ...(voiceEnabled ? [] : [
+    "android.permission.RECORD_AUDIO",
+    "android.permission.MODIFY_AUDIO_SETTINGS",
+    "android.permission.FOREGROUND_SERVICE",
+    "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+  ]),
+];
+
 const config: ExpoConfig = {
   name: "LenaDena",
   slug: "lenadena",
@@ -23,7 +40,8 @@ const config: ExpoConfig = {
     package: "com.lenadena.app",
     // Resize the activity, then let KeyboardAwareScrollView move only the focused form field.
     softwareKeyboardLayoutMode: "resize",
-    permissions: ["RECORD_AUDIO"],
+    permissions: voiceEnabled ? ["RECORD_AUDIO"] : [],
+    blockedPermissions: blockedAndroidPermissions,
     adaptiveIcon: {
       // Split gold coin on a transparent layer, kept inside the 66dp safe zone so every launcher
       // mask (circle, squircle, rounded square) shows the whole coin over the violet gradient layer.

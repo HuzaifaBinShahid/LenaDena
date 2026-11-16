@@ -22,6 +22,7 @@ import { useAppLock } from "@/features/security/AppLockProvider";
 import { authenticationFailureMessage, LOCK_DELAYS, lockDelayLabel, isLockDelay } from "@/features/security/lock-policy";
 import { AppearancePicker } from "@/features/settings/AppearancePicker";
 import { errorMessage } from "@/lib/api";
+import { VOICE_ENABLED } from "@/lib/features";
 import { formatLongDate } from "@/lib/format";
 import { useTheme } from "@/theme/ThemeProvider";
 
@@ -129,9 +130,11 @@ export default function SettingsScreen() {
           />
         </Field>
 
-        <Field label="Voice language" hint="Use system or a BCP-47 locale installed on your phone, such as ur-PK, ar-SA, hi-IN or fr-FR.">
-          <Input value={voiceLocale} onChangeText={setVoiceLocale} placeholder="system" leadingIcon="mic" autoCapitalize="none" autoCorrect={false} />
-        </Field>
+        {VOICE_ENABLED ? (
+          <Field label="Voice language" hint="Use system or a BCP-47 locale installed on your phone, such as ur-PK, ar-SA, hi-IN or fr-FR.">
+            <Input value={voiceLocale} onChangeText={setVoiceLocale} placeholder="system" leadingIcon="mic" autoCapitalize="none" autoCorrect={false} />
+          </Field>
+        ) : null}
 
         <View className="rounded-card border border-line bg-raised p-5">
           <Text className="font-bold text-ink">Account records</Text>

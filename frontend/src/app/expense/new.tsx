@@ -19,6 +19,7 @@ import { TopTabs } from "@/components/ui/TopTabs";
 import { useToast } from "@/components/ui/Toast";
 import { recognizeReceipt } from "@/features/capture/ocr";
 import { speechUnavailableMessage, startOnDeviceSpeech, type SpeechSession } from "@/features/capture/speech";
+import { VOICE_ENABLED } from "@/lib/features";
 import { groupSkin } from "@/features/groups/groupSkin";
 import { getPlanState } from "@/features/ledger/planState";
 import { calculateShares } from "@/features/ledger/split";
@@ -280,7 +281,7 @@ export default function NewExpenseScreen() {
               <Input value={amount} onChangeText={setAmount} placeholder="6,000" keyboardType="decimal-pad" leadingIcon="credit-card" invalid={Boolean(amountError)} />
             </Field>
             <Field label="Event name" required error={eventError}>
-              <Input value={eventName} onChangeText={setEventName} placeholder="Dinner at Monal" trailingIcon="mic" listening={listeningField === "event"} onTrailingPress={() => void listen("event")} invalid={Boolean(eventError)} />
+              <Input value={eventName} onChangeText={setEventName} placeholder="Dinner at Monal" {...(VOICE_ENABLED ? { trailingIcon: "mic" as const, listening: listeningField === "event", onTrailingPress: () => void listen("event") } : {})} invalid={Boolean(eventError)} />
             </Field>
             <Field label="Event date" required error={dateError} hint="Shown as day, month name, and year.">
               <Input
@@ -383,7 +384,7 @@ export default function NewExpenseScreen() {
               </View>
             </View>
             <Field label="Note" hint="Optional and visible to the group.">
-              <Input value={note} onChangeText={setNote} placeholder="Add a final detail" multiline trailingIcon="mic" listening={listeningField === "note"} onTrailingPress={() => void listen("note")} />
+              <Input value={note} onChangeText={setNote} placeholder="Add a final detail" multiline {...(VOICE_ENABLED ? { trailingIcon: "mic" as const, listening: listeningField === "note", onTrailingPress: () => void listen("note") } : {})} />
             </Field>
           </View>
           <View className="flex-row gap-3">
