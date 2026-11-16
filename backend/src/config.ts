@@ -18,7 +18,14 @@ export type AppConfig = {
    * minute. Unset means the endpoint does not exist. At least 32 characters; never exposed to the app.
    */
   notificationsCronSecret?: string;
+  /** Public contact address on the privacy policy and account deletion pages (SUPPORT_EMAIL). Unset shows no address. */
+  supportEmail?: string;
+  /** Who runs the app, as named on those pages (OPERATOR_NAME). Unset reads "the LenaDena team". */
+  operatorName?: string;
 };
+
+/** The same loose shape the app uses for typed addresses: no spaces or markup characters, one @, a dot in the domain. */
+const emailAddress = /^[^\s@<>"'`]+@[^\s@<>"'`]+\.[^\s@<>"'`]+$/;
 
 export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const nodeEnv = overrides.nodeEnv ?? (process.env.NODE_ENV === "production" ? "production" : process.env.NODE_ENV === "test" ? "test" : "development");
@@ -32,6 +39,11 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   if (rawDownloadUrl && !appDownloadUrl) throw new Error("APP_DOWNLOAD_URL must be an https URL");
   const notificationsCronSecret = (overrides.notificationsCronSecret ?? process.env.NOTIFICATIONS_CRON_SECRET)?.trim();
   if (notificationsCronSecret && notificationsCronSecret.length < 32) throw new Error("NOTIFICATIONS_CRON_SECRET must be at least 32 characters");
+  // These two only decorate public pages, so a typo must never stop the API from starting: an address that is not
+  // one counts as unset (app.ts logs a warning in production) and an over-long name is cut.
+  const rawSupportEmail = (overrides.supportEmail ?? process.env.SUPPORT_EMAIL)?.trim();
+  const supportEmail = rawSupportEmail && rawSupportEmail.length <= 254 && emailAddress.test(rawSupportEmail) ? rawSupportEmail : undefined;
+  const operatorName = (overrides.operatorName ?? process.env.OPERATOR_NAME)?.trim().slice(0, 80);
   const config: AppConfig = {
     nodeEnv,
     host: overrides.host ?? process.env.HOST ?? "0.0.0.0",
@@ -44,6 +56,8 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     ...(deepgramApiKey ? { deepgramApiKey } : {}),
     ...(appDownloadUrl ? { appDownloadUrl } : {}),
     ...(notificationsCronSecret ? { notificationsCronSecret } : {}),
+    ...(supportEmail ? { supportEmail } : {}),
+    ...(operatorName ? { operatorName } : {}),
   };
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
     throw new Error("PORT must be an integer between 1 and 65535");

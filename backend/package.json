@@ -12,7 +12,8 @@
     "build": "tsc -p tsconfig.json && node -e \"process.getBuiltinModule('node:fs').cpSync('src/notifications/assets', 'dist/notifications/assets', { recursive: true })\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run src",
-    "preview:emails": "node --import tsx src/notifications/preview.ts"
+    "preview:emails": "node --import tsx src/notifications/preview.ts",
+    "delete-account": "node --env-file-if-exists=.env --import tsx src/admin/delete-account.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",

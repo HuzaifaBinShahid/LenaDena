@@ -17,6 +17,7 @@ import { repositoryPlugin } from "./plugins/repository.js";
 import { accountRoutes } from "./routes/account.js";
 import { healthRoutes } from "./routes/health.js";
 import { notificationRoutes } from "./routes/notifications.js";
+import { pageRoutes } from "./routes/pages.js";
 import type { NotificationRunner } from "./notifications/runner.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { peopleRoutes } from "./routes/people.js";
@@ -78,6 +79,10 @@ export async function buildApp(options: BuildOptions = {}) {
   await app.register(repositoryPlugin, options.repository ? { config, repository: options.repository } : { config });
   await app.register(authPlugin, config);
   await app.register(healthRoutes);
+  await app.register(pageRoutes, { config });
+  if (config.nodeEnv === "production" && !config.supportEmail) {
+    app.log.warn("SUPPORT_EMAIL is not set (or is not an email address): the privacy and account deletion pages show no contact address");
+  }
   await app.register(notificationRoutes, { config, ...(options.notificationRunner ? { runner: options.notificationRunner } : {}) });
   await app.register(ledgerRoutes, { prefix: "/v1" });
   await app.register(accountRoutes, { prefix: "/v1", config });

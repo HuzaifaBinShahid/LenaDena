@@ -46,6 +46,36 @@ Emails to people (statements, reminders, invites) are queued in the database and
 
 Each call sends at most 3 emails, so a minute-by-minute schedule is about 180 an hour: plenty for statements and the reminders owners switch on. A failed email is retried every five minutes. If you would rather run a machine that stays on, `pnpm worker` runs the same code as a loop.
 
+### Privacy policy and account deletion pages
+
+Both stores ask for two public web addresses. The API serves them, with no sign-in and no script:
+
+- `https://<your-api-host>/privacy` (today `https://lena-dena-backend.vercel.app/privacy`)
+- `https://<your-api-host>/delete-account`
+
+Set these in Vercel (Project → Settings → Environment Variables), then redeploy:
+
+- `SUPPORT_EMAIL`: the address people write to. It is shown to everyone, so use one you are happy to publish and will read. Without it the pages say no address is published yet and deletion by email is not offered. An invalid value is ignored (the API logs a warning at start) instead of stopping the API.
+- `OPERATOR_NAME` (optional): the person or company that runs the app, named on both pages. Make it match the developer name on your store listing. Without it the pages say "the LenaDena team".
+
+Then check them in a browser (they should show your address, as a mail link) and enter the two links in the store forms:
+
+- Google Play Console: the privacy policy link (App content) and the account deletion link in the Data safety form.
+- App Store Connect: the Privacy Policy URL (App Information). The app also links to it from Settings → Privacy policy, which Apple wants.
+
+The text lives in `backend/src/pages/privacy.ts` and `deleteAccount.ts` and describes what the app does today. When the app collects something new, or stops, change the text and `POLICY_UPDATED` (in `layout.ts`) in the same commit. It is written in good faith from the code but it is not legal advice: have someone who knows the rules where you operate read it before launch.
+
+#### Deletion requests by email
+
+The deletion page tells people who cannot open the app to email you from the address on their account. To carry out a request (the page promises 30 days):
+
+1. Check it really is the account owner: the email must come from the address on the account. If in doubt, reply and ask a question only they could answer (for example the name of a group they are in).
+2. See what would be removed, changing nothing (needs `SUPABASE_URL` and `SUPABASE_SECRET_KEY` in `backend/.env`):
+   `pnpm --filter @lenadena/backend delete-account -- person@example.com`
+3. Delete for good, with the same steps as the in-app deletion (files first, then the records, then the sign-in):
+   `pnpm --filter @lenadena/backend delete-account -- person@example.com --yes`
+4. Reply to the person that it is done. If the command stops with an error, run it again: it is safe to repeat.
+
 ### Branded Auth emails
 
 `supabase/templates/` holds branded templates for all six Supabase Auth emails (sign-in link, confirm signup, invite, reset password, change email, reauthentication) and `subjects.json`.

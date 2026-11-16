@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View } from "react-native";
+import { Linking, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { router, type Href } from "expo-router";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -24,6 +24,7 @@ import { AppearancePicker } from "@/features/settings/AppearancePicker";
 import { errorMessage } from "@/lib/api";
 import { VOICE_ENABLED } from "@/lib/features";
 import { formatLongDate } from "@/lib/format";
+import { legalPageUrl } from "@/lib/legal";
 import { useTheme } from "@/theme/ThemeProvider";
 
 /** Where the dark account card meets the dark canvas (dark mode only). */
@@ -77,6 +78,14 @@ export default function SettingsScreen() {
       toast.error("Couldn't update profile", errorMessage(error));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openPrivacyPolicy = async () => {
+    try {
+      await Linking.openURL(legalPageUrl("privacy"));
+    } catch {
+      toast.error("Couldn't open the privacy policy", "Check your connection and try again.");
     }
   };
 
@@ -159,6 +168,7 @@ export default function SettingsScreen() {
           />
         ) : null}
         <Button label="Export my data" icon="download" variant="secondary" fullWidth onPress={() => toast.info("Export isn't available yet", "Data export arrives with the production email worker.")} />
+        <Button label="Privacy policy" icon="shield-check" variant="secondary" fullWidth onPress={openPrivacyPolicy} />
         <Button
           label="Delete account"
           icon="trash-2"

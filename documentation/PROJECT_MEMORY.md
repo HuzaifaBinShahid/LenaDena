@@ -74,6 +74,7 @@ Last updated: 2026-09-14
 - Invite tokens are random, hashed at rest, expire after seven days, and are single-use.
 - Notification claims use an expiring worker lock so parallel workers cannot deliver the same row.
 - A person can delete their own account in the app (`POST /v1/me/delete`, password re-entered, recent password sign-in required). It deletes their sign-in, identity and private data, and keeps shared group records pointing at an anonymised "Deleted user" so other members' balances stay correct; a group where they were the only member is deleted. The profile row is kept after the sign-in is deleted, so `profiles.id` no longer references `auth.users`.
+- The API serves two public, script-free pages the stores require: `/privacy` and `/delete-account` (`backend/src/pages/`). Their text must stay true to what the app does (no automatic purge of old records and no self-serve data export exist, so they do not promise any); when behaviour changes, change the text and `POLICY_UPDATED` together. Deletion requests by email are carried out with the `delete-account` admin command.
 - LenaDena emails a person only when the owner asks (Send on their page) or has switched on a weekly or monthly reminder for them (off by default). Saving an entry and adding an address send nothing, and no prompt asks. Automatic group-debt reminders are off unless `ENABLE_GROUP_DEBT_REMINDERS=true`. The worker pass can run hosted on the API (`POST /internal/notifications/run`, shared secret, small batches) instead of a long-lived process.
 
 ## Runtime modes
