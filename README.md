@@ -120,6 +120,8 @@ The frontend uses Supabase for authentication. Financial mutations go through Fa
 
 Supabase Auth creates one profile per account. Financial rows continue to reference the immutable account ID when a user changes their display name or photo. `last_seen_at` distinguishes a recipient who has never opened LenaDena from an active recipient who still has a 72-hour review window.
 
+Optional push notifications (reminders from friends, group invitations) use Firebase Cloud Messaging: set `FIREBASE_SERVICE_ACCOUNT_JSON` in `backend/.env` and put the Android `google-services.json` at `frontend/google-services.json`. Without them everything else works and Remind falls back to sharing a message. Setup: [DEPLOYMENT.md](documentation/DEPLOYMENT.md), "Push notifications".
+
 `SMTP_HOST` is optional in development, where the worker renders messages to JSON instead of sending them. It is required when `NODE_ENV=production`. Any normal SMTP provider can be used; no AI service or AI API key is involved.
 
 ## Device features
@@ -163,4 +165,4 @@ Read [documentation/PROJECT_MEMORY.md](documentation/PROJECT_MEMORY.md) before c
 
 See [documentation/ARCHITECTURE.md](documentation/ARCHITECTURE.md) for component boundaries, request flows, API routes, data ownership, and the production checklist. See [documentation/DESIGN_SYSTEM.md](documentation/DESIGN_SYSTEM.md) for the visual direction and UI rules.
 
-See [documentation/DEPLOYMENT.md](documentation/DEPLOYMENT.md) for the Supabase, Render, and Expo environment wiring used by this repository.
+See [documentation/DEPLOYMENT.md](documentation/DEPLOYMENT.md) for the Supabase, Vercel, and Expo environment wiring used by this repository.

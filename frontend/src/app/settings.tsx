@@ -21,6 +21,8 @@ import { usePreferences } from "@/features/preferences/PreferencesProvider";
 import { useAppLock } from "@/features/security/AppLockProvider";
 import { authenticationFailureMessage, LOCK_DELAYS, lockDelayLabel, isLockDelay } from "@/features/security/lock-policy";
 import { AppearancePicker } from "@/features/settings/AppearancePicker";
+import { ExportCard } from "@/features/export/ExportCard";
+import { NotificationsSection } from "@/features/push/NotificationsSection";
 import { errorMessage } from "@/lib/api";
 import { VOICE_ENABLED } from "@/lib/features";
 import { formatLongDate } from "@/lib/format";
@@ -41,6 +43,7 @@ export default function SettingsScreen() {
   const [avatarUri, setAvatarUri] = useState<string | null>();
   const [avatarChanged, setAvatarChanged] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const accountCreatedAt = plan.user.createdAt ?? session?.user.created_at;
   const visibleAvatar = avatarChanged ? avatarUri : plan.user.avatarUrl;
 
@@ -127,6 +130,8 @@ export default function SettingsScreen() {
 
         {configured && session ? <SignInSection /> : null}
 
+        <NotificationsSection />
+
         <SecuritySection />
 
         <AppearancePicker />
@@ -167,7 +172,11 @@ export default function SettingsScreen() {
             }}
           />
         ) : null}
-        <Button label="Export my data" icon="download" variant="secondary" fullWidth onPress={() => toast.info("Export isn't available yet", "Data export arrives with the production email worker.")} />
+        {exportOpen ? (
+          <ExportCard onClose={() => setExportOpen(false)} />
+        ) : (
+          <Button label="Export my data" icon="download" variant="secondary" fullWidth onPress={() => setExportOpen(true)} />
+        )}
         <Button label="Privacy policy" icon="shield-check" variant="secondary" fullWidth onPress={openPrivacyPolicy} />
         <Button
           label="Delete account"

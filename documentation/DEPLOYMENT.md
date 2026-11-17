@@ -2,15 +2,16 @@
 
 ## Target
 
-- Supabase Free: authentication, PostgreSQL, and private image storage.
-- Render Free: Fastify API from the `main` branch using `render.yaml`.
-- Expo: local development builds receive the public API URL and Supabase publishable values from `frontend/.env.local`.
+- Supabase Free (Singapore): authentication, PostgreSQL, private image storage, and the scheduler (`pg_cron`) that triggers the email worker.
+- Vercel (project `lena-dena-backend`): the Fastify API at `https://lena-dena-backend.vercel.app`, deployed from the `main` branch (Vercel finds the default export of `backend/src/app.ts`), plus the public privacy policy and account deletion pages.
+- Render: a blueprint (`render.yaml`) exists but was never activated and is not used.
+- Android: built on the developer's Mac with Gradle and uploaded to Loadly (`frontend/scripts/build-and-upload-android.sh`). Pin the API address in the build command, `EXPO_PUBLIC_API_URL=https://lena-dena-backend.vercel.app`, so an APK never embeds a local address. Local development builds read the public API URL and Supabase publishable values from `frontend/.env.local`.
 
 ## Supabase
 
-The LenaDena Free project is provisioned in Supabase's Singapore region. The migrations through `202609130004` have been applied in filename order. The Auth site URL is `lenadena://`, with `lenadena://**` in the redirect allowlist.
+The LenaDena Free project is provisioned in Supabase's Singapore region. Every migration through `202611170013` is applied on the hosted project (checked against the database catalog on 2026-11-17); `202611170014_export_data.sql`, `202611170015_group_members.sql` and `202611170016_push_notifications.sql` are written but not applied (see "Data export", "Group management" and "Push notifications" below, in that order). For a fresh project apply every file in filename order; the notes that follow say what the ones that need care switch on. The Auth site URL is `lenadena://`, with `lenadena://**` in the redirect allowlist.
 
-Apply `202609140005_pgcrypto_search_path.sql` next (SQL editor or Supabase CLI). Supabase keeps pgcrypto in the `extensions` schema, and until this runs every financial write function fails with `function digest(text, unknown) does not exist`.
+`202609140005_pgcrypto_search_path.sql` (SQL editor or Supabase CLI) matters on a fresh project. Supabase keeps pgcrypto in the `extensions` schema, and until this runs every financial write function fails with `function digest(text, unknown) does not exist`.
 
 Then apply `202609180007_people.sql` (it includes 0006's column, so 0006 is optional before it; running 0006 first is also fine) (People: saved people, `person_id` on individual entries, backfilled from existing counterparties). 0007 needs 0006. If the new functions still answer "not found" afterwards, run `notify pgrst, 'reload schema';`. Until 0007 is applied the app keeps working: the plan returns no people and saving a person reports that the database needs the update.
 
@@ -48,7 +49,27 @@ Each call sends at most 3 emails, so a minute-by-minute schedule is about 180 an
 
 ### Edit and delete
 
-Apply `supabase/migrations/202611170013_edit_delete_entries.sql` (SQL editor or Supabase CLI) to switch on editing and deleting of expenses and individual balances. It is safe to re-run. Until it is applied the app shows no Edit or Delete and the API answers 503 `edit_unavailable` for those routes. Deploy the API first, then apply the migration, then release the app; or apply the migration first, since the older API simply ignores the new fields.
+`supabase/migrations/202611170013_edit_delete_entries.sql` switches on editing and deleting of expenses and individual balances (applied on the hosted project on 2026-11-17; safe to re-run). On a database without it the app shows no Edit or Delete and the API answers 503 `edit_unavailable` for those routes. Deploy the API first, then apply the migration, then release the app; or apply the migration first, since the older API simply ignores the new fields.
+
+### Data export
+
+Apply `supabase/migrations/202611170014_export_data.sql` (SQL editor or Supabase CLI; safe to re-run) to switch on Settings -> Export my data. It adds one read-only function, `app_export_data`, that builds the person's own records as a single document; the API turns it into a JSON or CSV file (`GET /v1/me/export?format=json|csv`). Until it is applied the route answers 503 `export_unavailable` and the app shows an error when someone taps Export. Deploy the API first or apply the migration first: either order is safe. The app needs a new build (it uses `expo-file-system`).
+
+### Group management
+
+Apply `supabase/migrations/202611170015_group_members.sql` (safe to re-run) to switch on adding people by email with an in-app accept or decline, the members list, leaving, removing and renaming. Until it is applied the routes answer 503 `groups_unavailable` and the new screens say so. It adds the balance helpers it needs (`private.group_balance`, `member_is_settled`, `pair_balance`) and works on top of the earlier files. Apply it before releasing the app that has the Manage members screen; the API can be deployed before or after.
+
+### Push notifications (Firebase Cloud Messaging, free)
+
+Apply `supabase/migrations/202611170016_push_notifications.sql` (safe to re-run; apply 0014 and 0015 first, since reminders use 0015's balance helper; it also redefines `app_export_data` and `app_delete_account` to cover devices and reminders). Then set up Firebase. Nothing here costs money: FCM has no charge and the Spark plan needs no card.
+
+1. **Firebase project.** console.firebase.google.com -> Add project (Google Analytics can stay off).
+2. **Android app.** In the project, add an Android app with the package name `com.lenadena.app` (no SHA-1 is needed for notifications). Download `google-services.json` and put it at `frontend/google-services.json`. It is git-ignored; it holds identifiers, not secrets, but the file belongs on the Mac that builds the APK (`GOOGLE_SERVICES_JSON=/path/to/file` points the build elsewhere).
+3. **Service account for the API.** Project settings -> Service accounts -> Generate new private key. In Vercel (Project -> Settings -> Environment Variables) add `FIREBASE_SERVICE_ACCOUNT_JSON` with the whole JSON (or the same JSON in base64: `base64 -i key.json | tr -d '\n'`), then redeploy. It is a secret: never commit it and delete the downloaded file afterwards. Check that "Firebase Cloud Messaging API (V1)" is enabled for the project (Project settings -> Cloud Messaging; it is on by default in new projects).
+4. **A new APK.** The app needs a native rebuild because it gained a native module and notification permission: with `frontend/google-services.json` in place, build and upload as usual (`frontend/scripts/build-and-upload-android.sh`, with `EXPO_PUBLIC_API_URL=https://lena-dena-backend.vercel.app` pinned). A build without that file is exactly the app as before: no notification permission, and no Notifications card in Settings. iOS and Expo Go never show it.
+5. **Try it with two phones.** On phone B: Settings -> Notifications -> turn on "Reminders from friends" and allow the permission. On phone A, in a group where B owes A money: Group -> Manage members -> Remind next to B. B should get "A sent you a reminder"; tapping it opens the group. Also invite B's email from A's Members screen: B gets "A invited you to ..." and sees the invitation in the app.
+6. **If it does not work.** No Notifications card: the build has no `google-services.json`, or it is iOS / Expo Go. The switch says the server isn't set up: `FIREBASE_SERVICE_ACCOUNT_JSON` is missing or unusable (Vercel logs show "FIREBASE_SERVICE_ACCOUNT_JSON is set but is not a usable service account key" at start). Remind says it couldn't send: Google refused the service account (is it from the same Firebase project as `google-services.json`, and is the V1 API enabled?); the reminder is undone, so trying again later is fine. Remind offers the share sheet and says the person isn't getting notifications: they have not switched them on, or their token was reported dead and deleted.
+7. **Limits and privacy.** One reminder per person per group per day, 15 a day. Reminder records are deleted after a week. A notification shows the amount and group on the lock screen. The policy page (`/privacy`) names Firebase Cloud Messaging and describes all of this.
 
 ### Privacy policy and account deletion pages
 
@@ -106,9 +127,9 @@ The frontend receives only:
 
 Never place the secret key in the frontend or commit either local environment file.
 
-## Render
+## Render (not used)
 
-Create a Blueprint from this repository. `render.yaml` installs the pnpm workspace, builds only the backend, starts the compiled Fastify server, and checks `/health`.
+The API runs on Vercel. This section only matters if Render is ever used instead. Create a Blueprint from this repository. `render.yaml` installs the pnpm workspace, builds only the backend, starts the compiled Fastify server, and checks `/health`.
 
 Render activation is currently deferred after card verification was declined. This does not affect local development against the hosted Supabase project.
 
@@ -133,13 +154,13 @@ pnpm --filter @lenadena/frontend exec expo start --clear
 Verify the API:
 
 ```bash
-curl https://YOUR-RENDER-SERVICE.onrender.com/health
+curl https://lena-dena-backend.vercel.app/health
 ```
 
 The expected response contains `"status":"ok"`.
 
 ## Free-tier behavior
 
-Render Free sleeps after 15 minutes without inbound traffic, so the first API call after idle can take about one minute. Supabase Free projects can pause after a week without activity. These plans are appropriate for development and friend-group testing, not an availability guarantee.
+A Vercel function that has been idle starts cold, so the first call after a quiet period can take a moment. Supabase Free projects can pause after a week without activity and do not promise backups. These plans are appropriate for development and friend-group testing, not an availability guarantee.
 
-The current notification worker uses SMTP. Render Free blocks outbound SMTP ports 25, 465, and 587 and does not offer free background workers. Email delivery therefore needs either a paid worker, an SMTP provider supporting an allowed port such as 2525, or a future HTTPS email adapter.
+The notification worker sends over SMTP (Brevo, port 587), which works from a Vercel function; the hosted pass is triggered every minute by Supabase's scheduler (see "Hosted email worker"). Render Free blocks outbound SMTP ports and has no free background workers, which is why it is not used.

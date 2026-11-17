@@ -4,3 +4,5 @@
 
 expo-env.d.ts
 # @end expo-cli
+# Firebase client config for push notifications: kept on the machine that builds the app (see DEPLOYMENT.md)
+google-services.json

@@ -4,6 +4,7 @@ import type { SupabaseClient, Session } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
 import { useToast } from "@/components/ui/Toast";
 import { describeAuthError } from "@/features/auth/authErrors";
+import { forgetThisDevice } from "@/features/push/pushDevice";
 import { parseAuthLink } from "@/features/auth/authLinks";
 import { apiRequest } from "@/lib/api";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
@@ -251,6 +252,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     const client = supabase;
     if (!client) return;
+    // This phone stops getting this account's reminders: it has to be asked while the session still works, and it must
+    // never hold up signing out (a few seconds at most, errors ignored).
+    let giveUp: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      forgetThisDevice().catch(() => undefined),
+      new Promise<void>((resolve) => { giveUp = setTimeout(resolve, 4000); }),
+    ]);
+    if (giveUp) clearTimeout(giveUp);
     const { error } = await client.auth.signOut();
     // supabase-js clears the local session even when revoking fails, except when an expired session
     // cannot be refreshed offline; only then is the person still signed in.

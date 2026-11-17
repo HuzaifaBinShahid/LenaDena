@@ -1,4 +1,5 @@
 import { cleanConfiguredDownloadUrl } from "./domain/people.js";
+import { parseFirebaseCredentials, type FirebaseCredentials } from "./push/fcm.js";
 
 export type AppConfig = {
   nodeEnv: "development" | "test" | "production";
@@ -22,6 +23,13 @@ export type AppConfig = {
   supportEmail?: string;
   /** Who runs the app, as named on those pages (OPERATOR_NAME). Unset reads "the LenaDena team". */
   operatorName?: string;
+  /**
+   * Firebase service account for push notifications, from FIREBASE_SERVICE_ACCOUNT_JSON (the key file's JSON, or that
+   * JSON in base64). Unset means pushes are off: the app falls back to sharing a message. Server-only, never exposed.
+   */
+  firebase?: FirebaseCredentials;
+  /** FIREBASE_SERVICE_ACCOUNT_JSON is set but is not a usable key (app.ts warns in production; pushes stay off). */
+  firebaseInvalid?: boolean;
 };
 
 /** The same loose shape the app uses for typed addresses: no spaces or markup characters, one @, a dot in the domain. */
@@ -44,6 +52,9 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const rawSupportEmail = (overrides.supportEmail ?? process.env.SUPPORT_EMAIL)?.trim();
   const supportEmail = rawSupportEmail && rawSupportEmail.length <= 254 && emailAddress.test(rawSupportEmail) ? rawSupportEmail : undefined;
   const operatorName = (overrides.operatorName ?? process.env.OPERATOR_NAME)?.trim().slice(0, 80);
+  // Like the two above, a bad value must never stop the API from starting: pushes simply stay off.
+  const rawFirebase = overrides.firebase ? undefined : process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+  const firebase = overrides.firebase ?? parseFirebaseCredentials(rawFirebase);
   const config: AppConfig = {
     nodeEnv,
     host: overrides.host ?? process.env.HOST ?? "0.0.0.0",
@@ -58,6 +69,8 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     ...(notificationsCronSecret ? { notificationsCronSecret } : {}),
     ...(supportEmail ? { supportEmail } : {}),
     ...(operatorName ? { operatorName } : {}),
+    ...(firebase ? { firebase } : {}),
+    ...(rawFirebase && !firebase ? { firebaseInvalid: true } : {}),
   };
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
     throw new Error("PORT must be an integer between 1 and 65535");

@@ -62,6 +62,16 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
   return payload as T;
 }
 
+/** A download: the response body as text (a file), with the same sign-in headers and error handling as `apiRequest`. */
+export async function apiText(path: string): Promise<string> {
+  const response = await fetch(`${apiUrl}${path}`, { headers: await authHeaders() });
+  if (!response.ok) {
+    const error = (await response.json().catch(() => null)) as { message?: string; code?: string; details?: unknown } | null;
+    throw new ApiError(error?.message ?? "Request failed", response.status, error?.code, error?.details);
+  }
+  return response.text();
+}
+
 export function newIdempotencyKey() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }

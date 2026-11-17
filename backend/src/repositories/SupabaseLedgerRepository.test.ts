@@ -508,3 +508,212 @@ describe("SupabaseLedgerRepository editing and deleting", () => {
     expect(byId.c).toMatchObject({ canEdit: false, canDelete: false });
   });
 });
+
+describe("SupabaseLedgerRepository export", () => {
+  const document = { format: "lenadena-export", version: 1, exportedAt: "2026-11-17T10:00:00Z", account: { name: "Huzaifa", email: "h@example.com", createdAt: "2026-09-01T00:00:00Z" }, groups: [], expenses: [], payments: [], individualBalances: [], people: [], activity: [], emails: [] };
+
+  it("asks the database for the person's own document and passes it through", async () => {
+    const { fake, repository } = await setup({ app_export_data: () => ({ status: 200, body: document }) });
+    expect(await repository.exportData(USER)).toEqual(document);
+    expect(fake.rpcCalls.at(-1)).toEqual({ name: "app_export_data", args: { p_actor: USER } });
+  });
+
+  it("says export is not switched on yet when the database has not been updated", async () => {
+    const { repository } = await setup({});
+    await expect(repository.exportData(USER)).rejects.toMatchObject({ statusCode: 503, code: "export_unavailable" });
+  });
+
+  it("maps a missing profile to 'not found' and any other failure to a database error", async () => {
+    const missing = await setup({ app_export_data: () => raised("profile_not_found") });
+    await expect(missing.repository.exportData(USER)).rejects.toMatchObject({ statusCode: 404, code: "not_found" });
+    const broken = await setup({ app_export_data: () => raised("something else broke") });
+    await expect(broken.repository.exportData(USER)).rejects.toMatchObject({ statusCode: 500, code: "database_error" });
+  });
+});
+
+describe("SupabaseLedgerRepository group management", () => {
+  const GROUP = "1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d";
+  const INVITE = "2c3d4e5f-6071-4b8c-9d0e-1f2a3b4c5d6e";
+  const OTHER = "3d4e5f60-7182-4c9d-8e1f-2a3b4c5d6e7f";
+
+  it("invites by email through the database function and returns its link", async () => {
+    const { fake, repository } = await setup({ app_invite_member: () => ({ status: 200, body: { url: "lenadena://invite/abc", expiresAt: "2026-11-24T10:00:00Z" } }) });
+    expect(await repository.inviteMember(USER, GROUP, "friend@example.com")).toEqual({ url: "lenadena://invite/abc", expiresAt: "2026-11-24T10:00:00Z" });
+    expect(fake.rpcCalls.at(-1)).toEqual({ name: "app_invite_member", args: { p_actor: USER, p_group: GROUP, p_email: "friend@example.com" } });
+  });
+
+  it("lists open invitations, and accepting one returns the group", async () => {
+    const invitations = [{ id: INVITE, groupId: GROUP, groupName: "Crew", invitedBy: "Sara", createdAt: "2026-11-17T10:00:00Z", expiresAt: "2026-11-24T10:00:00Z" }];
+    const { fake, repository } = await setup({
+      ...planHandlers,
+      app_get_plan: () => ({ status: 200, body: { user: { id: USER, name: "Huzaifa", email: "h@example.com" }, totals: [], groups: [{ id: GROUP, name: "Crew", currency: "PKR", accent: "#6848E6", balanceMinor: 0, role: "member", members: [] }], reviews: [], claims: [], activity: [] } }),
+      app_list_invitations: () => ({ status: 200, body: invitations }),
+      app_accept_invitation: () => ({ status: 200, body: GROUP }),
+      app_get_people: () => ({ status: 200, body: [] }),
+    });
+    expect(await repository.listInvitations(USER)).toEqual(invitations);
+    const group = await repository.acceptInvitation(USER, INVITE);
+    expect(group).toMatchObject({ id: GROUP, name: "Crew" });
+    expect(fake.rpcCalls.find((call) => call.name === "app_accept_invitation")!.args).toEqual({ p_actor: USER, p_invite: INVITE });
+  });
+
+  it("declines, leaves, removes and renames through their functions", async () => {
+    const ok = () => ({ status: 204 });
+    const { fake, repository } = await setup({ app_decline_invitation: ok, app_leave_group: ok, app_remove_member: ok, app_rename_group: ok });
+    await repository.declineInvitation(USER, INVITE);
+    await repository.leaveGroup(USER, GROUP);
+    await repository.removeMember(USER, GROUP, OTHER);
+    await repository.renameGroup(USER, GROUP, "New name");
+    expect(fake.rpcCalls.map((call) => [call.name, call.args])).toEqual([
+      ["app_decline_invitation", { p_actor: USER, p_invite: INVITE }],
+      ["app_leave_group", { p_actor: USER, p_group: GROUP }],
+      ["app_remove_member", { p_actor: USER, p_group: GROUP, p_member: OTHER }],
+      ["app_rename_group", { p_actor: USER, p_group: GROUP, p_name: "New name" }],
+    ]);
+  });
+
+  it("serves the member list with photos signed, and never the storage path", async () => {
+    const people = { canManage: true, members: [{ id: USER, name: "Huzaifa", avatarPath: `${USER}/me.jpg`, role: "owner", settled: true, joinedAt: "2026-09-01T00:00:00Z" }, { id: OTHER, name: "Sara", role: "member", settled: false, joinedAt: "2026-09-02T00:00:00Z" }], invitations: [] };
+    const { fake, repository } = await setup({ app_get_group_people: () => ({ status: 200, body: people }) });
+    const result = await repository.getGroupPeople(USER, GROUP);
+    expect(result.members[0]).toMatchObject({ name: "Huzaifa", avatarUrl: fake.signed(`${USER}/me.jpg`) });
+    expect(JSON.stringify(result)).not.toContain("avatarPath");
+    expect(result.members[1]).not.toHaveProperty("avatarUrl");
+    expect(result.canManage).toBe(true);
+  });
+
+  it("treats malformed ids as 'not found' without asking the database", async () => {
+    const { fake, repository } = await setup({});
+    await expect(repository.inviteMember(USER, "nope", "a@example.com")).rejects.toMatchObject({ statusCode: 404 });
+    await expect(repository.acceptInvitation(USER, "nope")).rejects.toMatchObject({ statusCode: 404, code: "not_found" });
+    await expect(repository.declineInvitation(USER, "nope")).rejects.toMatchObject({ statusCode: 404 });
+    await expect(repository.getGroupPeople(USER, "../x")).rejects.toMatchObject({ statusCode: 404 });
+    await expect(repository.leaveGroup(USER, "1; drop")).rejects.toMatchObject({ statusCode: 404 });
+    await expect(repository.removeMember(USER, GROUP, "nope")).rejects.toMatchObject({ statusCode: 404 });
+    await expect(repository.renameGroup(USER, "nope", "Name")).rejects.toMatchObject({ statusCode: 404 });
+    expect(fake.rpcCalls).toEqual([]);
+  });
+
+  it("maps what the database raises to clear errors", async () => {
+    const cases: Array<[string, string, (repository: SupabaseLedgerRepository) => Promise<unknown>, Record<string, unknown>]> = [
+      ["app_invite_member", "already_member", (r) => r.inviteMember(USER, GROUP, "a@example.com"), { statusCode: 409 }],
+      ["app_invite_member", "already_invited", (r) => r.inviteMember(USER, GROUP, "a@example.com"), { statusCode: 409, code: "already_invited" }],
+      ["app_invite_member", "invite_limit_reached", (r) => r.inviteMember(USER, GROUP, "a@example.com"), { statusCode: 429, code: "invite_limit_reached" }],
+      ["app_invite_member", "invalid_email", (r) => r.inviteMember(USER, GROUP, "x"), { statusCode: 400, code: "invalid_email" }],
+      ["app_invite_member", "group membership required", (r) => r.inviteMember(USER, GROUP, "a@example.com"), { statusCode: 404 }],
+      ["app_accept_invitation", "invitation_not_found", (r) => r.acceptInvitation(USER, INVITE), { statusCode: 404 }],
+      ["app_leave_group", "not_settled", (r) => r.leaveGroup(USER, GROUP), { statusCode: 409, code: "not_settled" }],
+      ["app_leave_group", "owner_cannot_leave", (r) => r.leaveGroup(USER, GROUP), { statusCode: 409, code: "owner_cannot_leave" }],
+      ["app_remove_member", "not_allowed", (r) => r.removeMember(USER, GROUP, OTHER), { statusCode: 403 }],
+      ["app_remove_member", "cannot_remove_owner", (r) => r.removeMember(USER, GROUP, OTHER), { statusCode: 409, code: "cannot_remove_owner" }],
+      ["app_remove_member", "use_leave", (r) => r.removeMember(USER, GROUP, OTHER), { statusCode: 400, code: "use_leave" }],
+      ["app_remove_member", "member_not_found", (r) => r.removeMember(USER, GROUP, OTHER), { statusCode: 404 }],
+      ["app_rename_group", "invalid_group_name", (r) => r.renameGroup(USER, GROUP, "x"), { statusCode: 400, code: "invalid_group_name" }],
+      ["app_get_group_people", "group_not_found", (r) => r.getGroupPeople(USER, GROUP), { statusCode: 404 }],
+    ];
+    for (const [rpc, message, call, expected] of cases) {
+      const { repository } = await setup({ [rpc]: () => raised(message) });
+      await expect(call(repository)).rejects.toMatchObject(expected);
+    }
+  });
+
+  it("says group management is not switched on yet when the database has not been updated", async () => {
+    const { repository } = await setup({});
+    const unavailable = { statusCode: 503, code: "groups_unavailable" };
+    await expect(repository.inviteMember(USER, GROUP, "a@example.com")).rejects.toMatchObject(unavailable);
+    await expect(repository.listInvitations(USER)).rejects.toMatchObject(unavailable);
+    await expect(repository.acceptInvitation(USER, INVITE)).rejects.toMatchObject(unavailable);
+    await expect(repository.declineInvitation(USER, INVITE)).rejects.toMatchObject(unavailable);
+    await expect(repository.getGroupPeople(USER, GROUP)).rejects.toMatchObject(unavailable);
+    await expect(repository.leaveGroup(USER, GROUP)).rejects.toMatchObject(unavailable);
+    await expect(repository.removeMember(USER, GROUP, OTHER)).rejects.toMatchObject(unavailable);
+    await expect(repository.renameGroup(USER, GROUP, "Name")).rejects.toMatchObject(unavailable);
+  });
+});
+
+describe("SupabaseLedgerRepository push notifications", () => {
+  const GROUP = "1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d";
+  const OTHER = "3d4e5f60-7182-4c9d-8e1f-2a3b4c5d6e7f";
+  const NUDGE = "4e5f6071-8293-4dae-9f20-3b4c5d6e7f80";
+  const TOKEN = "device-token-aaaaaaaaaaaaaaaa";
+  const ok = () => ({ status: 204 });
+  const delivery = { nudgeId: NUDGE, senderName: "Huzaifa", recipientName: "Hamza", amountMinor: "30000", currency: "PKR", groupId: GROUP, groupName: "Crew", tokens: [TOKEN] };
+
+  it("registers, removes and drops tokens through their functions", async () => {
+    const { fake, repository } = await setup({ app_register_push_token: ok, app_remove_push_token: ok, app_drop_push_tokens: ok });
+    await repository.registerPushToken(USER, TOKEN, "android");
+    await repository.removePushToken(USER, TOKEN);
+    await repository.dropPushTokens([TOKEN, "other-token-aaaaaaaaaaaaaaaaaa"]);
+    await repository.dropPushTokens([]);
+    expect(fake.rpcCalls.map((call) => [call.name, call.args])).toEqual([
+      ["app_register_push_token", { p_actor: USER, p_token: TOKEN, p_platform: "android" }],
+      ["app_remove_push_token", { p_actor: USER, p_token: TOKEN }],
+      ["app_drop_push_tokens", { p_tokens: [TOKEN, "other-token-aaaaaaaaaaaaaaaaaa"] }],
+    ]);
+  });
+
+  it("creates a reminder and hands back what is needed to send it, with the amount as a number", async () => {
+    const { fake, repository } = await setup({ app_create_nudge: () => ({ status: 200, body: delivery }) });
+    expect(await repository.createNudge(USER, GROUP, OTHER)).toEqual({ ...delivery, amountMinor: 30000 });
+    expect(fake.rpcCalls.at(-1)).toEqual({ name: "app_create_nudge", args: { p_actor: USER, p_group: GROUP, p_member: OTHER } });
+  });
+
+  it("treats a missing token list as none", async () => {
+    const { repository } = await setup({ app_create_nudge: () => ({ status: 200, body: { ...delivery, nudgeId: null, tokens: null } }) });
+    expect(await repository.createNudge(USER, GROUP, OTHER)).toMatchObject({ nudgeId: null, tokens: [] });
+  });
+
+  it("undoes a reminder, and asks the database for an invitation's push target", async () => {
+    const target = { tokens: [TOKEN], inviterName: "Huzaifa", groupName: "Crew", groupId: GROUP };
+    const { fake, repository } = await setup({ app_undo_nudge: ok, app_get_invitation_push_target: () => ({ status: 200, body: target }) });
+    await repository.undoNudge(USER, NUDGE);
+    expect(await repository.getInvitationPushTarget(USER, GROUP, "sara@example.com")).toEqual(target);
+    expect(fake.rpcCalls.map((call) => [call.name, call.args])).toEqual([
+      ["app_undo_nudge", { p_actor: USER, p_nudge: NUDGE }],
+      ["app_get_invitation_push_target", { p_actor: USER, p_group: GROUP, p_email: "sara@example.com" }],
+    ]);
+  });
+
+  it("answers null when there is nobody to push", async () => {
+    const { repository } = await setup({ app_get_invitation_push_target: () => ({ status: 200, body: null }) });
+    expect(await repository.getInvitationPushTarget(USER, GROUP, "nobody@example.com")).toBeNull();
+  });
+
+  it("does not ask the database about ids that cannot be ids", async () => {
+    const { fake, repository } = await setup({});
+    await expect(repository.createNudge(USER, "not-a-uuid", OTHER)).rejects.toMatchObject({ statusCode: 404 });
+    await expect(repository.createNudge(USER, GROUP, "not-a-uuid")).rejects.toMatchObject({ statusCode: 404 });
+    await repository.undoNudge(USER, "not-a-uuid");
+    expect(await repository.getInvitationPushTarget(USER, "not-a-uuid", "a@example.com")).toBeNull();
+    expect(fake.rpcCalls).toEqual([]);
+  });
+
+  it("turns what the database raises into clear errors", async () => {
+    const cases: Array<[string, string, (r: Awaited<ReturnType<typeof setup>>["repository"]) => Promise<unknown>, Record<string, unknown>]> = [
+      ["app_create_nudge", "group_not_found", (r) => r.createNudge(USER, GROUP, OTHER), { statusCode: 404 }],
+      ["app_create_nudge", "member_not_found", (r) => r.createNudge(USER, GROUP, OTHER), { statusCode: 404 }],
+      ["app_create_nudge", "cannot_nudge_yourself", (r) => r.createNudge(USER, GROUP, OTHER), { statusCode: 400, code: "cannot_nudge_yourself" }],
+      ["app_create_nudge", "nothing_owed", (r) => r.createNudge(USER, GROUP, OTHER), { statusCode: 409, code: "nothing_owed" }],
+      ["app_create_nudge", "nudge_cooldown", (r) => r.createNudge(USER, GROUP, OTHER), { statusCode: 429, code: "nudge_cooldown" }],
+      ["app_create_nudge", "nudge_limit_reached", (r) => r.createNudge(USER, GROUP, OTHER), { statusCode: 429, code: "nudge_limit_reached" }],
+      ["app_register_push_token", "invalid_platform", (r) => r.registerPushToken(USER, TOKEN, "android"), { statusCode: 400, code: "invalid_platform" }],
+      ["app_register_push_token", "invalid_token", (r) => r.registerPushToken(USER, TOKEN, "android"), { statusCode: 400, code: "invalid_token" }],
+      ["app_register_push_token", "profile_not_found", (r) => r.registerPushToken(USER, TOKEN, "android"), { statusCode: 404 }],
+    ];
+    for (const [rpc, message, call, expected] of cases) {
+      const { repository } = await setup({ [rpc]: () => raised(message) });
+      await expect(call(repository)).rejects.toMatchObject(expected);
+    }
+  });
+
+  it("says notifications are not switched on yet when the database has not been updated", async () => {
+    const { repository } = await setup({});
+    const unavailable = { statusCode: 503, code: "push_unavailable" };
+    await expect(repository.registerPushToken(USER, TOKEN, "android")).rejects.toMatchObject(unavailable);
+    await expect(repository.removePushToken(USER, TOKEN)).rejects.toMatchObject(unavailable);
+    await expect(repository.dropPushTokens([TOKEN])).rejects.toMatchObject(unavailable);
+    await expect(repository.createNudge(USER, GROUP, OTHER)).rejects.toMatchObject(unavailable);
+    await expect(repository.undoNudge(USER, NUDGE)).rejects.toMatchObject(unavailable);
+    await expect(repository.getInvitationPushTarget(USER, GROUP, "a@example.com")).rejects.toMatchObject(unavailable);
+  });
+});

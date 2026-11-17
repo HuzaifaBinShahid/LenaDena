@@ -16,6 +16,7 @@ import { AuthProvider, useAuth } from "@/features/auth/AuthProvider";
 import { LedgerProvider } from "@/features/ledger/LedgerProvider";
 import { SplashTransition } from "@/components/brand/SplashTransition";
 import { PreferencesProvider } from "@/features/preferences/PreferencesProvider";
+import { PushBridge } from "@/features/push/PushBridge";
 import { AppLockProvider } from "@/features/security/AppLockProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 import { useTheme } from "@/theme/ThemeProvider";
@@ -57,6 +58,7 @@ export default function RootLayout() {
                   <AppLockProvider canPrompt={!showTransition}>
                     <StatusBar style="auto" />
                     <RecoveryRedirect />
+                    <PushBridge />
                     <ThemedStack />
                   </AppLockProvider>
                 </LedgerProvider>

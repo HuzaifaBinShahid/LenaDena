@@ -5,6 +5,7 @@ import { useLedger } from "@/features/ledger/LedgerProvider";
 import type { Person, TransactionItem } from "@/features/ledger/types";
 import { useAppLock } from "@/features/security/AppLockProvider";
 import { errorMessage } from "@/lib/api";
+import { reminderShareMessage } from "@/features/push/pushRules";
 import { buildEntryShareMessage, buildStatementShareMessage, entryShareTitle, statementShareTitle } from "./message";
 
 /**
@@ -48,5 +49,12 @@ export function useShare() {
     [open, ownerName],
   );
 
-  return { shareEntry, shareStatement, sharing };
+  /** The words of a reminder, through the share sheet: for someone who gets no notifications, or when one can't be sent. */
+  const shareReminder = useCallback(
+    (input: { memberId: string; memberName: string; amountMinor: number; currency: string; groupName: string }) =>
+      open(`reminder:${input.memberId}`, `Reminder · ${input.groupName}`, reminderShareMessage(input), "Send a reminder"),
+    [open],
+  );
+
+  return { shareEntry, shareStatement, shareReminder, sharing };
 }

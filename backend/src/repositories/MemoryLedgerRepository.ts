@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../domain/errors.js";
+import type { ExportDocument } from "../domain/export.js";
+import { toGroupError, type GroupPeople, type Invitation } from "../domain/groups.js";
+import { toPushError, type InvitationPushTarget, type NudgeDelivery, type PushPlatform } from "../domain/push.js";
 import { amountBelowPaid, entryHasPayments, entryNotFound, entrySettled, expenseNotFound, invalidAmount, notAllowedToDeleteExpense, notAllowedToEditExpense } from "../domain/edit.js";
 import { pairKey, validateShares } from "../domain/money.js";
 import { cleanNewPerson, cleanPersonChanges, cleanPersonName, DAILY_PERSON_EMAIL_LIMIT, EmailLimitReachedError, EmailRecentlySentError, InviteRecentlySentError, PERSON_INVITE_COOLDOWN_MS, PersonExistsError, PersonHasNoEntriesError, PersonHasNoEmailError, PersonNotFoundError, personNameKey, STATEMENT_COOLDOWN_MS } from "../domain/people.js";
@@ -152,7 +155,12 @@ export class MemoryLedgerRepository implements LedgerRepository {
     { id: demoPersonAliId, ownerId: demoUser.id, name: "Ali", email: "ali@example.com", emailUpdates: true, reminderFrequency: "off", createdAt: "2026-09-08T17:45:00.000Z" },
   ];
   private readonly idempotency = new Map<string, unknown>();
+  /** Invitations by email (the demo twin of public.group_invites rows that have an address). */
+  private readonly invitations: Array<{ id: string; groupId: string; email: string; invitedBy: string; token: string; createdAt: string; expiresAt: string; accepted?: boolean; revoked?: boolean }> = [];
   private readonly invites = new Map<string, { groupId: string; email?: string; expiresAt: string; accepted: boolean }>();
+  /** Registered phones and recorded reminders (the demo twins of public.push_tokens and public.nudges). */
+  private pushTokens: Array<{ userId: string; token: string; platform: PushPlatform; createdAt: string; lastSeenAt: string }> = [];
+  private readonly nudges: Array<{ id: string; groupId: string; senderId: string; recipientId: string; createdAt: string }> = [];
   private readonly lastSeenAt = new Map<string, string>([[demoUser.id, new Date().toISOString()], [hamza.id, new Date().toISOString()]]);
 
   async getPlan(userId: string): Promise<Plan> {
@@ -509,6 +517,284 @@ export class MemoryLedgerRepository implements LedgerRepository {
     this.personalTransactions.splice(index, 1);
   }
 
+  async inviteMember(userId: string, groupId: string, email: string): Promise<InviteLink> {
+    const group = this.groups.get(groupId);
+    if (!group || !group.members.some((member) => member.id === userId)) throw toGroupError("group_not_found");
+    const address = email.trim().toLowerCase();
+    if (address.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw toGroupError("invalid_email");
+    if (group.members.some((member) => member.email.toLowerCase() === address)) throw toGroupError("already_member");
+    const now = Date.now();
+    if (this.invitations.some((item) => item.groupId === groupId && item.email === address && !item.accepted && !item.revoked && Date.parse(item.expiresAt) > now && now - Date.parse(item.createdAt) < 12 * 3600 * 1000)) throw toGroupError("already_invited");
+    if (this.invitations.filter((item) => item.invitedBy === userId && now - Date.parse(item.createdAt) < 24 * 3600 * 1000).length >= 30) throw toGroupError("invite_limit_reached");
+    const link = await this.createInvite(userId, groupId, address);
+    this.invitations.push({ id: randomUUID(), groupId, email: address, invitedBy: userId, token: link.url.split("/").pop() ?? "", createdAt: new Date(now).toISOString(), expiresAt: link.expiresAt });
+    return link;
+  }
+
+  private openInvitationsFor(address: string) {
+    const now = Date.now();
+    return this.invitations.filter((item) => item.email === address && !item.accepted && !item.revoked && Date.parse(item.expiresAt) > now && this.groups.has(item.groupId));
+  }
+
+  async listInvitations(userId: string): Promise<Invitation[]> {
+    const me = this.users.get(userId);
+    if (!me) throw toGroupError("profile_not_found");
+    return this.openInvitationsFor(me.email.toLowerCase())
+      .filter((item) => !this.groups.get(item.groupId)!.members.some((member) => member.id === userId))
+      .map((item) => ({ id: item.id, groupId: item.groupId, groupName: this.groups.get(item.groupId)!.name, invitedBy: this.users.get(item.invitedBy)?.name ?? "Someone", createdAt: item.createdAt, expiresAt: item.expiresAt }))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async acceptInvitation(userId: string, invitationId: string): Promise<Group> {
+    const me = this.users.get(userId);
+    if (!me) throw toGroupError("profile_not_found");
+    const item = this.openInvitationsFor(me.email.toLowerCase()).find((candidate) => candidate.id === invitationId);
+    if (!item) throw toGroupError("invitation_not_found");
+    const group = this.groups.get(item.groupId)!;
+    if (!group.members.some((member) => member.id === userId)) group.members.push(me);
+    item.accepted = true;
+    const invite = this.invites.get(item.token);
+    if (invite) invite.accepted = true;
+    this.activity.unshift({ id: randomUUID(), groupId: group.id, icon: "users", title: `${me.name} joined ${group.name}`, detail: `${group.members.length} members`, createdAt: new Date().toISOString(), tone: "positive" });
+    return this.getGroup(userId, group.id);
+  }
+
+  async declineInvitation(userId: string, invitationId: string): Promise<void> {
+    const me = this.users.get(userId);
+    if (!me) throw toGroupError("profile_not_found");
+    const item = this.openInvitationsFor(me.email.toLowerCase()).find((candidate) => candidate.id === invitationId);
+    if (!item) throw toGroupError("invitation_not_found");
+    item.revoked = true;
+  }
+
+  /** What `debtor` owes `creditor` in a group, like private.pair_balance: negative when it is the other way round. */
+  private pairOwed(groupId: string, creditor: string, debtor: string) {
+    return (this.getPairwiseDebts(groupId).get(pairKey(debtor, creditor)) ?? 0) - (this.getPairwiseDebts(groupId).get(pairKey(creditor, debtor)) ?? 0);
+  }
+
+  /** Settled and nothing waiting for review, like private.member_is_settled. */
+  private memberIsSettled(groupId: string, memberId: string) {
+    return this.getGroupBalance(groupId, memberId) === 0
+      && !this.settlements.some((settlement) => settlement.groupId === groupId && settlement.status === "awaiting_review" && (settlement.debtor.id === memberId || settlement.recipient.id === memberId));
+  }
+
+  async getGroupPeople(userId: string, groupId: string): Promise<GroupPeople> {
+    const group = this.groups.get(groupId);
+    if (!group || !group.members.some((member) => member.id === userId)) throw toGroupError("group_not_found");
+    const owner = group.members[0]?.id;
+    return {
+      canManage: owner === userId,
+      members: group.members.map((member) => ({
+        id: member.id,
+        name: member.name,
+        ...(member.avatarUrl ? { avatarUrl: member.avatarUrl } : {}),
+        role: member.id === owner ? "owner" as const : "member" as const,
+        settled: this.memberIsSettled(groupId, member.id),
+        owesYouMinor: member.id === userId ? 0 : this.pairOwed(groupId, userId, member.id),
+        joinedAt: member.createdAt ?? new Date(0).toISOString(),
+      })),
+      invitations: this.invitations
+        .filter((item) => item.groupId === groupId && !item.accepted && !item.revoked && Date.parse(item.expiresAt) > Date.now() && !group.members.some((member) => member.email.toLowerCase() === item.email))
+        .map((item) => ({ id: item.id, email: item.email, invitedBy: this.users.get(item.invitedBy)?.name ?? "Someone", createdAt: item.createdAt, expiresAt: item.expiresAt })),
+    };
+  }
+
+  async leaveGroup(userId: string, groupId: string): Promise<void> {
+    const group = this.groups.get(groupId);
+    if (!group || !group.members.some((member) => member.id === userId)) throw toGroupError("group_not_found");
+    if (group.members[0]?.id === userId && group.members.length > 1) throw toGroupError("owner_cannot_leave");
+    if (!this.memberIsSettled(groupId, userId)) throw toGroupError("not_settled");
+    const name = this.users.get(userId)?.name ?? "Someone";
+    group.members = group.members.filter((member) => member.id !== userId);
+    if (group.members.length === 0) this.groups.delete(groupId);
+    else this.activity.unshift({ id: randomUUID(), groupId, icon: "users", title: `${name} left ${group.name}`, detail: `${group.members.length} members`, createdAt: new Date().toISOString(), tone: "neutral" });
+  }
+
+  async removeMember(userId: string, groupId: string, memberId: string): Promise<void> {
+    const group = this.groups.get(groupId);
+    if (!group || !group.members.some((member) => member.id === userId)) throw toGroupError("group_not_found");
+    if (group.members[0]?.id !== userId) throw toGroupError("not_allowed");
+    if (memberId === userId) throw toGroupError("use_leave");
+    const target = group.members.find((member) => member.id === memberId);
+    if (!target) throw toGroupError("member_not_found");
+    if (!this.memberIsSettled(groupId, memberId)) throw toGroupError("not_settled");
+    group.members = group.members.filter((member) => member.id !== memberId);
+    this.activity.unshift({ id: randomUUID(), groupId, icon: "users", title: `${target.name} was removed from ${group.name}`, detail: `${group.members.length} members`, createdAt: new Date().toISOString(), tone: "warning" });
+  }
+
+  async renameGroup(userId: string, groupId: string, name: string): Promise<void> {
+    const group = this.groups.get(groupId);
+    if (!group || !group.members.some((member) => member.id === userId)) throw toGroupError("group_not_found");
+    if (group.members[0]?.id !== userId) throw toGroupError("not_allowed");
+    const next = name.trim();
+    if (next.length < 2 || next.length > 80) throw toGroupError("invalid_group_name");
+    if (next === group.name) return;
+    const previous = group.name;
+    group.name = next;
+    this.activity.unshift({ id: randomUUID(), groupId, icon: "users", title: next, detail: `Renamed from ${previous}`, createdAt: new Date().toISOString(), tone: "neutral" });
+  }
+
+  private tokensOf(userId: string) {
+    return this.pushTokens.filter((item) => item.userId === userId).sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt)).map((item) => item.token);
+  }
+
+  async registerPushToken(userId: string, token: string, platform: PushPlatform): Promise<void> {
+    if (!this.users.get(userId)) throw toPushError("profile_not_found");
+    if (!["android", "ios", "web"].includes(platform)) throw toPushError("invalid_platform");
+    if (token.length < 20 || token.length > 4096) throw toPushError("invalid_token");
+    const now = this.now().toISOString();
+    const existing = this.pushTokens.find((item) => item.token === token);
+    if (existing) Object.assign(existing, { userId, platform, lastSeenAt: now });
+    else this.pushTokens.push({ userId, token, platform, createdAt: now, lastSeenAt: now });
+    // The token just registered stays; of the person's other phones the nine most recently seen stay with it.
+    const keep = new Set(this.pushTokens.filter((item) => item.userId === userId && item.token !== token).sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt)).slice(0, 9).map((item) => item.token));
+    this.pushTokens = this.pushTokens.filter((item) => item.userId !== userId || item.token === token || keep.has(item.token));
+  }
+
+  async removePushToken(userId: string, token: string): Promise<void> {
+    this.pushTokens = this.pushTokens.filter((item) => !(item.userId === userId && item.token === token));
+  }
+
+  async dropPushTokens(tokens: string[]): Promise<void> {
+    this.pushTokens = this.pushTokens.filter((item) => !tokens.includes(item.token));
+  }
+
+  async createNudge(userId: string, groupId: string, memberId: string): Promise<NudgeDelivery> {
+    const group = this.groups.get(groupId);
+    if (!group || !group.members.some((member) => member.id === userId)) throw toPushError("group_not_found");
+    if (memberId === userId) throw toPushError("cannot_nudge_yourself");
+    const recipient = group.members.find((member) => member.id === memberId);
+    if (!recipient) throw toPushError("member_not_found");
+    const owed = this.pairOwed(groupId, userId, memberId);
+    if (owed <= 0) throw toPushError("nothing_owed");
+    const now = this.now().getTime();
+    const dayAgo = now - 24 * 3600 * 1000;
+    if (this.nudges.some((item) => item.senderId === userId && item.recipientId === memberId && item.groupId === groupId && Date.parse(item.createdAt) > dayAgo)) throw toPushError("nudge_cooldown");
+    if (this.nudges.filter((item) => item.senderId === userId && Date.parse(item.createdAt) > dayAgo).length >= 15) throw toPushError("nudge_limit_reached");
+    const tokens = this.tokensOf(memberId);
+    let nudgeId: string | null = null;
+    if (tokens.length > 0) {
+      nudgeId = randomUUID();
+      this.nudges.push({ id: nudgeId, groupId, senderId: userId, recipientId: memberId, createdAt: new Date(now).toISOString() });
+    }
+    return {
+      nudgeId, senderName: this.users.get(userId)?.name ?? "Someone", recipientName: recipient.name, amountMinor: owed,
+      currency: group.currency, groupId, groupName: group.name, tokens,
+    };
+  }
+
+  async undoNudge(userId: string, nudgeId: string): Promise<void> {
+    const index = this.nudges.findIndex((item) => item.id === nudgeId && item.senderId === userId);
+    if (index >= 0) this.nudges.splice(index, 1);
+  }
+
+  async getInvitationPushTarget(userId: string, groupId: string, email: string): Promise<InvitationPushTarget | null> {
+    const group = this.groups.get(groupId);
+    if (!group || !group.members.some((member) => member.id === userId)) return null;
+    const address = email.trim().toLowerCase();
+    const fresh = this.invitations.some((item) => item.groupId === groupId && item.invitedBy === userId && item.email === address && !item.accepted && !item.revoked && this.now().getTime() - Date.parse(item.createdAt) < 5 * 60 * 1000);
+    if (!fresh) return null;
+    const target = Array.from(this.users.values()).find((user) => user.email.toLowerCase() === address);
+    if (!target || group.members.some((member) => member.id === target.id)) return null;
+    const tokens = this.tokensOf(target.id);
+    if (tokens.length === 0) return null;
+    return { tokens, inviterName: this.users.get(userId)?.name ?? "Someone", groupName: group.name, groupId };
+  }
+
+  async exportData(userId: string): Promise<ExportDocument> {
+    const me = this.users.get(userId);
+    if (!me) throw new NotFoundError("Profile not found");
+    const nameOf = (id: string) => this.users.get(id)?.name ?? "Deleted user";
+    const myGroups = Array.from(this.groups.values()).filter((group) => group.members.some((member) => member.id === userId));
+    const myGroupIds = new Set(myGroups.map((group) => group.id));
+    const groupName = (id: string) => this.groups.get(id)?.name ?? "Group";
+    const myPeople = this.people.filter((person) => person.ownerId === userId);
+    return {
+      format: "lenadena-export",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      account: { name: me.name, email: me.email, createdAt: me.createdAt ?? new Date(0).toISOString() },
+      groups: myGroups.map((group) => ({
+        name: group.name,
+        currency: group.currency,
+        role: group.members[0]?.id === userId ? "owner" : "member",
+        joinedAt: me.createdAt ?? new Date(0).toISOString(),
+        archived: false,
+        members: group.members.map((member) => ({ name: member.name })),
+      })),
+      expenses: this.expenses
+        .filter((expense) => myGroupIds.has(expense.groupId) && (expense.paidByMemberId === userId || expense.shares.some((share) => share.memberId === userId)))
+        .map((expense) => ({
+          group: groupName(expense.groupId),
+          title: expense.eventName,
+          date: expense.eventDate,
+          amountMinor: expense.amountMinor,
+          currency: expense.currency,
+          paidBy: nameOf(expense.paidByMemberId),
+          paidByMe: expense.paidByMemberId === userId,
+          splitMethod: expense.splitMethod,
+          ...(expense.note ? { note: expense.note } : {}),
+          hasReceipt: Boolean(expense.receiptPath),
+          createdAt: expense.createdAt,
+          ...(expense.editedAt ? { editedAt: expense.editedAt } : {}),
+          shares: expense.shares.map((share) => ({
+            person: nameOf(share.memberId),
+            isMe: share.memberId === userId,
+            amountMinor: share.amountMinor,
+            ...(share.percentageBasisPoints !== undefined ? { percentageBasisPoints: share.percentageBasisPoints } : {}),
+          })),
+        })),
+      payments: this.settlements
+        .filter((settlement) => settlement.debtor.id === userId || settlement.recipient.id === userId)
+        .map((settlement) => ({
+          group: groupName(settlement.groupId),
+          from: settlement.debtor.name,
+          to: settlement.recipient.name,
+          fromMe: settlement.debtor.id === userId,
+          amountMinor: settlement.amountMinor,
+          currency: settlement.currency,
+          status: settlement.status,
+          ...(settlement.note ? { note: settlement.note } : {}),
+          hasProof: Boolean(settlement.proofUri),
+          ...(settlement.confirmationMethod ? { confirmationMethod: settlement.confirmationMethod } : {}),
+          createdAt: settlement.createdAt,
+        })),
+      individualBalances: this.personalTransactions
+        .filter((entry) => entry.userId === userId)
+        .map((entry) => ({
+          title: entry.title,
+          date: entry.eventDate,
+          person: entry.counterparty ?? "",
+          kind: entry.kind,
+          direction: entry.direction,
+          amountMinor: entry.amountMinor,
+          currency: entry.currency,
+          paidMinor: entry.settledAmountMinor ?? 0,
+          status: entry.status ?? "open",
+          ...(entry.settledAt ? { settledAt: entry.settledAt } : {}),
+          ...(entry.note ? { note: entry.note } : {}),
+          hasReceipt: Boolean(entry.receiptUri),
+          createdAt: entry.createdAt,
+        })),
+      people: myPeople.map((person) => ({
+        name: person.name,
+        ...(person.email ? { email: person.email } : {}),
+        reminders: person.reminderFrequency ?? "off",
+        hasPhoto: Boolean(person.avatarPath),
+        createdAt: person.createdAt,
+      })),
+      activity: this.activity
+        .filter((item) => myGroupIds.has(item.groupId))
+        .map((item) => ({ group: groupName(item.groupId), kind: item.icon, title: item.title, detail: item.detail, createdAt: item.createdAt })),
+      emails: this.personEmails
+        .filter((email) => email.ownerId === userId)
+        .map((email) => ({ type: email.kind, to: email.email, createdAt: email.queuedAt })),
+      notificationDevices: this.pushTokens
+        .filter((item) => item.userId === userId)
+        .map((item) => ({ platform: item.platform, registeredAt: item.createdAt })),
+    };
+  }
+
   async deleteAccount(userId: string): Promise<void> {
     const user = this.users.get(userId);
     if (!user) return;
@@ -525,6 +811,10 @@ export class MemoryLedgerRepository implements LedgerRepository {
     }
     for (let index = this.personInvites.length - 1; index >= 0; index -= 1) {
       if (this.personInvites[index]?.ownerId === userId) this.personInvites.splice(index, 1);
+    }
+    this.pushTokens = this.pushTokens.filter((item) => item.userId !== userId);
+    for (let index = this.nudges.length - 1; index >= 0; index -= 1) {
+      if (this.nudges[index]?.senderId === userId || this.nudges[index]?.recipientId === userId) this.nudges.splice(index, 1);
     }
     this.users.set(userId, { id: userId, name: "Deleted user", email: "" });
     this.lastSeenAt.delete(userId);

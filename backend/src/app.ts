@@ -16,9 +16,13 @@ import { authPlugin } from "./plugins/auth.js";
 import { repositoryPlugin } from "./plugins/repository.js";
 import { accountRoutes } from "./routes/account.js";
 import { healthRoutes } from "./routes/health.js";
+import { exportRoutes } from "./routes/export.js";
+import { groupRoutes } from "./routes/groups.js";
 import { notificationRoutes } from "./routes/notifications.js";
+import { pushRoutes } from "./routes/push.js";
 import { pageRoutes } from "./routes/pages.js";
 import type { NotificationRunner } from "./notifications/runner.js";
+import { FcmPushSender, type PushSender } from "./push/fcm.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { peopleRoutes } from "./routes/people.js";
 import { voiceRoutes } from "./routes/voice.js";
@@ -30,6 +34,10 @@ type BuildOptions = {
   voiceTranscriber?: VoiceTranscriber;
   /** Tests pass a stand-in for the hosted email worker pass. */
   notificationRunner?: NotificationRunner;
+  /** Tests pass a stand-in for Firebase Cloud Messaging; otherwise one is made from FIREBASE_SERVICE_ACCOUNT_JSON, if set. */
+  pushSender?: PushSender;
+  /** Tests set 0 to skip the invitation's fixed minimum duration (see routes/groups.ts). */
+  inviteFloorMs?: number;
 };
 
 export async function buildApp(options: BuildOptions = {}) {
@@ -86,6 +94,13 @@ export async function buildApp(options: BuildOptions = {}) {
   await app.register(notificationRoutes, { config, ...(options.notificationRunner ? { runner: options.notificationRunner } : {}) });
   await app.register(ledgerRoutes, { prefix: "/v1" });
   await app.register(accountRoutes, { prefix: "/v1", config });
+  await app.register(exportRoutes, { prefix: "/v1" });
+  const pushSender = options.pushSender ?? (config.firebase ? new FcmPushSender(config.firebase) : undefined);
+  if (config.nodeEnv === "production" && config.firebaseInvalid) {
+    app.log.warn("FIREBASE_SERVICE_ACCOUNT_JSON is set but is not a usable service account key: push notifications stay off");
+  }
+  await app.register(groupRoutes, { prefix: "/v1", ...(pushSender ? { pushSender } : {}), ...(options.inviteFloorMs !== undefined ? { inviteFloorMs: options.inviteFloorMs } : {}) });
+  await app.register(pushRoutes, { prefix: "/v1", ...(pushSender ? { sender: pushSender } : {}) });
   await app.register(peopleRoutes, { prefix: "/v1", config });
   await app.register(voiceRoutes, { prefix: "/v1", config, ...(options.voiceTranscriber ? { transcriber: options.voiceTranscriber } : {}) });
 

@@ -117,10 +117,36 @@ describe("what the pages promise", () => {
 
   it("does not claim what the app does not do", async () => {
     const body = (await get(await appWith({ supportEmail: "help@example.com" }), "/privacy")).body;
-    // There is no automatic purge of proofs and no download button for personal data yet.
+    // There is no automatic purge of old records or proofs.
     expect(body).not.toMatch(/30 days after/i);
     expect(body).not.toMatch(/automatically (delete|remove|purge)/i);
-    expect(body).toContain("The app has no download button for your data yet");
+  });
+
+  it("describes the data export as it is: records in the app, no photos, photos by email", async () => {
+    const body = (await get(await appWith({ supportEmail: "help@example.com" }), "/privacy")).body;
+    expect(body).toContain("Settings, then Export my data");
+    expect(body).toContain("spreadsheet (CSV)");
+    expect(body).toContain("complete file (JSON)");
+    expect(body).toContain("shows other people by name only");
+    expect(body).toContain("Photos and receipt images are not in it");
+    expect(body).toContain("To get those photos, to have something corrected");
+    // The old stub is gone.
+    expect(body).not.toContain("no download button");
+    expect(body).not.toContain("we send it to you by email");
+  });
+
+  it("describes notifications as they are: opt-in, what is kept, who delivers them and how long", async () => {
+    const privacy = (await get(await appWith({ supportEmail: "help@example.com" }), "/privacy")).body;
+    expect(privacy).toContain("are off until you switch them on in Settings");
+    expect(privacy).toContain("Notifications (only if you switch them on)");
+    expect(privacy).toContain("a device token");
+    expect(privacy).toContain("Google Firebase Cloud Messaging");
+    expect(privacy).toContain("for about a week");
+    expect(privacy).toContain("The text of a notification is not kept");
+    expect(privacy).toContain("the amount and the group");
+    expect(privacy).toContain("but not their codes");
+    const deletion = (await get(await appWith({ supportEmail: "help@example.com" }), "/delete-account")).body;
+    expect(deletion).toContain("The notification codes of your phones, and the reminders you sent or received");
   });
 
   it("says what editing and deleting do, and what they leave in the group's activity", async () => {

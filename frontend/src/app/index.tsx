@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Redirect, router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useLocalSearchParams, type Href } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { ExpenseScopeModal } from "@/components/expense/ExpenseScopeModal";
@@ -13,6 +13,7 @@ import { ActivityView } from "@/features/home/ActivityView";
 import { GroupsView } from "@/features/home/GroupsView";
 import { homeChrome } from "@/features/home/homeChrome";
 import { PlanView } from "@/features/home/PlanView";
+import { InvitationsBanner } from "@/features/groups/InvitationsBanner";
 import { ReviewsView } from "@/features/home/ReviewsView";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import { getPlanState, isNewAccount } from "@/features/ledger/planState";
@@ -29,7 +30,7 @@ const TITLES: Record<Exclude<TabKey, "plan">, { eyebrow: string; title: string }
 
 export default function HomeScreen() {
   const params = useLocalSearchParams<{ tab?: string }>();
-  const { plan, connection } = useLedger();
+  const { plan, connection, invitations } = useLedger();
   const { configured, ready, session } = useAuth();
   const { colors: c, isDark } = useTheme();
   const insets = useSafeAreaInsets();
@@ -120,6 +121,11 @@ export default function HomeScreen() {
             <AppHeader {...headerProps} />
           </View>
         </View>
+        {invitations.length > 0 ? (
+          <View style={[styles.headerColumn, { width: column, marginTop: 12 }]}>
+            <InvitationsBanner count={invitations.length} onPress={() => router.push("/invitations" as Href)} />
+          </View>
+        ) : null}
         {tab === "plan" ? <PlanView onAddEntry={openAddEntry} onChangeTab={changeTab} /> : null}
         {tab === "groups" ? <GroupsView onAddEntry={openAddEntry} onChangeTab={changeTab} /> : null}
         {tab === "reviews" ? <ReviewsView onAddEntry={openAddEntry} onChangeTab={changeTab} /> : null}

@@ -3,8 +3,8 @@ import { emailLink, escapeHtml, POLICY_UPDATED, renderPage, type PageContact } f
 /**
  * The privacy policy served at /privacy. Written from what the app actually does (see documentation/ARCHITECTURE.md and
  * PROJECT_MEMORY.md): when the app starts collecting something new, or stops, change this text and POLICY_UPDATED in
- * the same commit. Nothing here may promise more than the code does (there is no automatic purge of old records and no
- * self-serve data export yet, so the text does not say there is).
+ * the same commit. Nothing here may promise more than the code does (there is no automatic purge of old records, so the
+ * text does not say there is; the data export in Settings covers records but not photos, and the text says so).
  */
 export function privacyPage(contact: PageContact): string {
   const operator = escapeHtml(contact.operator);
@@ -25,6 +25,7 @@ export function privacyPage(contact: PageContact): string {
 <li>We show no ads, we do not sell or rent your information, and the app has no analytics or tracking software in it.</li>
 <li>People in a group can see what is added to that group. Your individual entries and your saved people are private to you.</li>
 <li>LenaDena only emails a friend when you tap Send, or when you switch on reminders for that person.</li>
+<li>Notifications on your phone (a friend's reminder, an invitation to a group) are off until you switch them on in Settings.</li>
 <li>You can delete your account from inside the app at any time.</li>
 </ul>
 </div>
@@ -46,6 +47,7 @@ export function privacyPage(contact: PageContact): string {
 <li>Payment claims, confirmations and notes, plus a payment-proof photo if you add one. A payment proof is visible only to the two people in that payment.</li>
 <li>The activity feed of each group. When an expense is edited or deleted, the feed notes it with the expense's name and its new or old amount.</li>
 <li>Invitations, including the email address that was invited.</li>
+<li>Reminders: when a member of a group taps Remind on someone who owes them, we keep who sent it, who it was for, which group and when, for about a week. That is only so that one person cannot be reminded more than once a day. The text of a notification is not kept.</li>
 </ul>
 
 <h3>Individual entries and saved people</h3>
@@ -53,6 +55,12 @@ export function privacyPage(contact: PageContact): string {
 <li>Balances you track on your own: the title, amount, date, the person's name, a note and an optional receipt photo.</li>
 <li>People you save: a name, and optionally an email address and a photo, and the email settings you choose for them.</li>
 <li>These are private to you. Other LenaDena users cannot see them.</li>
+</ul>
+
+<h3>Notifications (only if you switch them on)</h3>
+<ul>
+<li>A code that identifies your phone to Google's Firebase Cloud Messaging service (a device token), the kind of phone (Android) and when it was registered. Without it nothing can be sent to your phone.</li>
+<li>We remove it when you switch notifications off, when you sign out and when you delete your account, and we delete it if Google tells us the phone no longer exists.</li>
 </ul>
 
 <h3>Emails sent for you</h3>
@@ -70,6 +78,7 @@ export function privacyPage(contact: PageContact): string {
 <h3>On your phone only</h3>
 <ul>
 <li>Your signed-in session and your settings are stored on your phone.</li>
+<li>If you switch on notifications, your phone asks your permission first. A notification shows who it is from, and for a reminder the amount and the group, so it is visible on your lock screen unless your phone hides previews.</li>
 <li>If you turn on Face ID or fingerprint sign-in, your password is kept in your phone's secure storage and released only after your phone checks your face or finger. We never receive your face or fingerprint data: your phone's system handles it.</li>
 <li>Reading text from a receipt photo happens on your phone.</li>
 <li>The app asks for the camera and your photo library only when you choose to add a photo. It does not ask for your contacts or your location, and this version does not use the microphone.</li>
@@ -89,23 +98,25 @@ export function privacyPage(contact: PageContact): string {
 <ul>
 <li><strong>Other people in your groups</strong> see what you add to a shared group, including your name and photo.</li>
 <li><strong>People you email</strong> receive what you send them.</li>
-<li><strong>Our service providers</strong> handle information only to run LenaDena for us: Supabase (sign-in, database and private file storage), Vercel (runs our server) and Brevo (delivers emails).</li>
+<li><strong>The person you remind or invite</strong> gets a notification on their phone, if they switched notifications on. It names you (first name), the group and, for a reminder, the amount they owe you.</li>
+<li><strong>Our service providers</strong> handle information only to run LenaDena for us: Supabase (sign-in, database and private file storage), Vercel (runs our server), Brevo (delivers emails) and, only if you switch notifications on, Google Firebase Cloud Messaging (delivers notifications to phones: it receives your phone's device token and the text of each notification).</li>
 <li><strong>No one else.</strong> We do not sell or rent your information and we do not give it to advertisers. We would share it only if the law required us to.</li>
 </ul>
 
 <h2 id="where">4. Where it is kept</h2>
-<p>Your records and files are kept by Supabase in Singapore. Our server and our email provider may handle information in other countries while they deliver the service. If you live somewhere else, this means your information is transferred to those places.</p>
+<p>Your records and files are kept by Supabase in Singapore. Our server, our email provider and Google's notification service may handle information in other countries while they deliver the service. If you live somewhere else, this means your information is transferred to those places.</p>
 
 <h2 id="how-long">5. How long we keep it</h2>
-<p>We keep your account and records until you delete your account. What happens then is described on the <a href="/delete-account#what-happens">account deletion page</a>. Logs kept by our providers are short-lived and expire on their own schedule. An email that has already been delivered stays in the mailbox it was sent to.</p>
+<p>We keep your account and records until you delete your account. What happens then is described on the <a href="/delete-account#what-happens">account deletion page</a>. Reminder records are kept for about a week. Logs kept by our providers are short-lived and expire on their own schedule. An email that has already been delivered stays in the mailbox it was sent to.</p>
 
 <h2 id="choices">6. Your choices</h2>
 <ul>
 <li>Change your name, photo and settings in the app, and change your password there too.</li>
 <li>Edit or delete the expenses and balances you add. An individual balance can always be changed, with one limit: once a payment is recorded on it, who owes whom and the currency stay as they are. A shared expense can be changed by the person who added or paid it, and deleted by them or by the group's owner or admin.</li>
-<li>Switch email reminders off for any person you saved, and switch the app lock off.</li>
+<li>Switch email reminders off for any person you saved, switch notifications off (Settings, then Notifications) and switch the app lock off.</li>
 <li><strong>Delete your account</strong> in the app, or ask us to do it: see <a href="/delete-account">how to delete your account</a>.</li>
-<li>To get a copy of your information, to correct it or to ask a question about it, write to ${write}. The app has no download button for your data yet, so we send it to you by email. We aim to answer within 30 days.</li>
+<li><strong>Download a copy of your records</strong> in the app: Settings, then Export my data, as a spreadsheet (CSV) or as a complete file (JSON). It holds your own records (including which phones are registered for notifications, but not their codes) and shows other people by name only. Photos and receipt images are not in it.</li>
+<li>To get those photos, to have something corrected or to ask a question about your information, write to ${write}. We aim to answer within 30 days.</li>
 <li>Depending on where you live, you may also be able to object to or restrict some uses of your information, and to complain to your local data protection authority.</li>
 </ul>
 

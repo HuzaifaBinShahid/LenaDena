@@ -215,6 +215,26 @@ export type CreateGroupInput = {
   inviteEmails: string[];
 };
 
+/** An invitation to a group, addressed to the signed-in person's own email. */
+export type Invitation = { id: string; groupId: string; groupName: string; invitedBy: string; createdAt: string; expiresAt: string };
+
+export type GroupPerson = {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+  role: "owner" | "admin" | "member";
+  /** Settled and nothing waiting for review, so they can leave or be removed. */
+  settled: boolean;
+  /** What this person owes you in this group; negative means you owe them. */
+  owesYouMinor: number;
+  joinedAt: string;
+};
+
+/** An invitation the group has sent that nobody has answered yet. */
+export type PendingInvitation = { id: string; email: string; invitedBy: string; createdAt: string; expiresAt: string };
+
+export type GroupPeople = { canManage: boolean; members: GroupPerson[]; invitations: PendingInvitation[] };
+
 export type InviteLink = {
   url: string;
   expiresAt: string;

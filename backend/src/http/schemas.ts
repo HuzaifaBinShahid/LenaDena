@@ -172,6 +172,29 @@ export const UpdatePersonalTransactionSchema = Type.Object({
   receiptUri: ReceiptChangeSchema,
 }, { additionalProperties: false });
 
+export const InvitationSchema = Type.Object({
+  id: Type.String(), groupId: Type.String(), groupName: Type.String(), invitedBy: Type.String(), createdAt: Type.String(), expiresAt: Type.String(),
+});
+
+export const InviteByEmailSchema = Type.Object({ email: Type.String({ minLength: 3, maxLength: 254 }) }, { additionalProperties: false });
+export const RenameGroupSchema = Type.Object({ name: Type.String({ minLength: 2, maxLength: 80 }) }, { additionalProperties: false });
+export const MemberParamsSchema = Type.Object({ id: Type.String({ minLength: 1 }), memberId: Type.String({ minLength: 1 }) });
+
+export const GroupPeopleSchema = Type.Object({
+  canManage: Type.Boolean(),
+  members: Type.Array(Type.Object({
+    id: Type.String(), name: Type.String(), avatarUrl: Type.Optional(Type.String()),
+    role: Type.Union([Type.Literal("owner"), Type.Literal("admin"), Type.Literal("member")]),
+    settled: Type.Boolean(), owesYouMinor: Type.Integer(), joinedAt: Type.String(),
+  })),
+  invitations: Type.Array(Type.Object({ id: Type.String(), email: Type.String(), invitedBy: Type.String(), createdAt: Type.String(), expiresAt: Type.String() })),
+});
+
+/** `format` defaults to json. */
+export const ExportQuerySchema = Type.Object({
+  format: Type.Optional(Type.Union([Type.Literal("json"), Type.Literal("csv")])),
+});
+
 export const ExpenseDetailSchema = Type.Object({
   id: Type.String(),
   groupId: Type.String(),
@@ -276,4 +299,14 @@ export const VoiceTranscribeResponseSchema = Type.Object({
   transcript: Type.String(),
   provider: Type.Literal("deepgram"),
   language: Type.Union([Type.Literal("en"), Type.Literal("ur")]),
+});
+
+export const PushTokenSchema = Type.Object({
+  token: Type.String({ minLength: 20, maxLength: 4096 }),
+  platform: Type.Union([Type.Literal("android"), Type.Literal("ios"), Type.Literal("web")]),
+}, { additionalProperties: false });
+export const RemovePushTokenSchema = Type.Object({ token: Type.String({ minLength: 20, maxLength: 4096 }) }, { additionalProperties: false });
+export const NudgeBodySchema = Type.Object({ memberId: Type.String({ minLength: 1 }) }, { additionalProperties: false });
+export const NudgeResultSchema = Type.Object({
+  status: Type.Union([Type.Literal("sent"), Type.Literal("no_device"), Type.Literal("failed"), Type.Literal("unavailable")]),
 });

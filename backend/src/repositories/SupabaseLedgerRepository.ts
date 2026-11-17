@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../domain/errors.js";
 import { AccountDeletionFailedError, AccountDeletionUnavailableError, ownStoragePaths } from "../domain/account.js";
+import { ExportUnavailableError, type ExportDocument } from "../domain/export.js";
+import { GroupsUnavailableError, toGroupError, type GroupPeople, type Invitation } from "../domain/groups.js";
+import { PushUnavailableError, toPushError, type InvitationPushTarget, type NudgeDelivery, type PushPlatform } from "../domain/push.js";
 import { amountBelowPaid, EditUnavailableError, entryHasPayments, entryNotFound, entrySettled, expenseNotFound, invalidAmount, invalidReceipt, notAllowedToDeleteExpense, notAllowedToEditExpense, participantLeft } from "../domain/edit.js";
 import { cleanNewPerson, cleanPersonChanges, EmailLimitReachedError, EmailRecentlySentError, EmailUnavailableError, invalidAvatarPath, invalidPersonEmail, invalidPersonName, invalidReminderFrequency, InviteRecentlySentError, isUuid, PeopleUnavailableError, PersonExistsError, PersonHasNoEmailError, PersonHasNoEntriesError, PersonNotFoundError } from "../domain/people.js";
 import type { CreatedPersonalTransaction, CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, ExpenseDetail, Group, InviteLink, Member, Person, PersonUpdate, Plan, SettlementStatus, TransactionItem, UpdateExpenseInput, UpdatePersonalTransactionInput, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
@@ -32,6 +35,15 @@ function toEditError(error: RpcError, action: "edit" | "delete" = "edit"): Domai
   if (text.includes("invalid_amount")) return invalidAmount();
   if (text.includes("person_not_found")) return new PersonNotFoundError();
   return new DomainError(text, 400, "database_error");
+}
+
+/** The group-management RPCs (supabase/migrations/202611170015_group_members.sql). */
+function toGroupRpcError(error: RpcError): DomainError {
+  return isMissingFunction(error) ? new GroupsUnavailableError() : toGroupError(error.message);
+}
+
+function toPushRpcError(error: RpcError): DomainError {
+  return isMissingFunction(error) ? new PushUnavailableError() : toPushError(error.message);
 }
 
 /** A receipt change travels as a payload key only when the caller sent one: absent keeps the photo, null removes it. */
@@ -238,6 +250,114 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     const { data, error } = await this.client.rpc("app_delete_personal_transaction", { p_actor: userId, p_id: transactionId });
     if (error) throw toEditError(error, "delete");
     await this.removeReceipt((data as { receiptPath?: string | null } | null)?.receiptPath);
+  }
+
+  async inviteMember(userId: string, groupId: string, email: string): Promise<InviteLink> {
+    if (!isUuid(groupId)) throw toGroupError("group_not_found");
+    const { data, error } = await this.client.rpc("app_invite_member", { p_actor: userId, p_group: groupId, p_email: email });
+    if (error) throw toGroupRpcError(error);
+    return data as InviteLink;
+  }
+
+  async listInvitations(userId: string): Promise<Invitation[]> {
+    const { data, error } = await this.client.rpc("app_list_invitations", { p_actor: userId });
+    if (error) throw toGroupRpcError(error);
+    return (data ?? []) as Invitation[];
+  }
+
+  async acceptInvitation(userId: string, invitationId: string): Promise<Group> {
+    if (!isUuid(invitationId)) throw toGroupError("invitation_not_found");
+    const { data, error } = await this.client.rpc("app_accept_invitation", { p_actor: userId, p_invite: invitationId });
+    if (error) throw toGroupRpcError(error);
+    return this.getGroup(userId, String(data));
+  }
+
+  async declineInvitation(userId: string, invitationId: string): Promise<void> {
+    if (!isUuid(invitationId)) throw toGroupError("invitation_not_found");
+    const { error } = await this.client.rpc("app_decline_invitation", { p_actor: userId, p_invite: invitationId });
+    if (error) throw toGroupRpcError(error);
+  }
+
+  async getGroupPeople(userId: string, groupId: string): Promise<GroupPeople> {
+    if (!isUuid(groupId)) throw toGroupError("group_not_found");
+    const { data, error } = await this.client.rpc("app_get_group_people", { p_actor: userId, p_group: groupId });
+    if (error) throw toGroupRpcError(error);
+    const people = data as GroupPeople;
+    const signed = await this.signAvatarPaths(people.members.map((member) => member.avatarPath));
+    return {
+      ...people,
+      members: people.members.map(({ avatarPath, ...member }) => {
+        const avatarUrl = avatarPath ? signed.get(avatarPath) : undefined;
+        return avatarUrl ? { ...member, avatarUrl } : member;
+      }),
+    };
+  }
+
+  async leaveGroup(userId: string, groupId: string): Promise<void> {
+    if (!isUuid(groupId)) throw toGroupError("group_not_found");
+    const { error } = await this.client.rpc("app_leave_group", { p_actor: userId, p_group: groupId });
+    if (error) throw toGroupRpcError(error);
+  }
+
+  async removeMember(userId: string, groupId: string, memberId: string): Promise<void> {
+    if (!isUuid(groupId)) throw toGroupError("group_not_found");
+    if (!isUuid(memberId)) throw toGroupError("member_not_found");
+    const { error } = await this.client.rpc("app_remove_member", { p_actor: userId, p_group: groupId, p_member: memberId });
+    if (error) throw toGroupRpcError(error);
+  }
+
+  async renameGroup(userId: string, groupId: string, name: string): Promise<void> {
+    if (!isUuid(groupId)) throw toGroupError("group_not_found");
+    const { error } = await this.client.rpc("app_rename_group", { p_actor: userId, p_group: groupId, p_name: name });
+    if (error) throw toGroupRpcError(error);
+  }
+
+  async registerPushToken(userId: string, token: string, platform: PushPlatform): Promise<void> {
+    const { error } = await this.client.rpc("app_register_push_token", { p_actor: userId, p_token: token, p_platform: platform });
+    if (error) throw toPushRpcError(error);
+  }
+
+  async removePushToken(userId: string, token: string): Promise<void> {
+    const { error } = await this.client.rpc("app_remove_push_token", { p_actor: userId, p_token: token });
+    if (error) throw toPushRpcError(error);
+  }
+
+  async dropPushTokens(tokens: string[]): Promise<void> {
+    if (tokens.length === 0) return;
+    const { error } = await this.client.rpc("app_drop_push_tokens", { p_tokens: tokens });
+    if (error) throw toPushRpcError(error);
+  }
+
+  async createNudge(userId: string, groupId: string, memberId: string): Promise<NudgeDelivery> {
+    if (!isUuid(groupId)) throw toPushError("group_not_found");
+    if (!isUuid(memberId)) throw toPushError("member_not_found");
+    const { data, error } = await this.client.rpc("app_create_nudge", { p_actor: userId, p_group: groupId, p_member: memberId });
+    if (error) throw toPushRpcError(error);
+    const delivery = data as NudgeDelivery;
+    return { ...delivery, amountMinor: Number(delivery.amountMinor), tokens: delivery.tokens ?? [] };
+  }
+
+  async undoNudge(userId: string, nudgeId: string): Promise<void> {
+    if (!isUuid(nudgeId)) return;
+    const { error } = await this.client.rpc("app_undo_nudge", { p_actor: userId, p_nudge: nudgeId });
+    if (error) throw toPushRpcError(error);
+  }
+
+  async getInvitationPushTarget(userId: string, groupId: string, email: string): Promise<InvitationPushTarget | null> {
+    if (!isUuid(groupId)) return null;
+    const { data, error } = await this.client.rpc("app_get_invitation_push_target", { p_actor: userId, p_group: groupId, p_email: email });
+    if (error) throw toPushRpcError(error);
+    return (data as InvitationPushTarget | null) ?? null;
+  }
+
+  async exportData(userId: string): Promise<ExportDocument> {
+    const { data, error } = await this.client.rpc("app_export_data", { p_actor: userId });
+    if (error) {
+      if (isMissingFunction(error)) throw new ExportUnavailableError();
+      if (error.message.includes("profile_not_found")) throw new NotFoundError("Profile not found");
+      throw new DomainError(error.message, 500, "database_error");
+    }
+    return data as ExportDocument;
   }
 
   async deleteAccount(userId: string): Promise<void> {

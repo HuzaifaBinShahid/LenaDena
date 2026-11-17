@@ -100,6 +100,32 @@ Migration `202611170013_edit_delete_entries.sql` adds the rules; the API (`GET|P
 - **Who sees what:** each transaction row carries `canEdit`, `canDelete` and (expenses) `editedAt`; payments are never editable. The app shows edit and delete only when the flags are true, so a database without the migration simply shows neither, and the routes answer 503 `edit_unavailable`.
 - **Where in the app:** group expense rows (group screen, Groups tab, Activity) open `/expense/new?expenseId=`; the Edit button on an individual balance (person screen, Activity) opens `/transaction/new?id=`. Both are the add forms in edit mode, with Delete at the end.
 
+### Data export (2026-11-17)
+
+Settings -> Export my data (migration `202611170014_export_data.sql`). `app_export_data` builds one document of the caller's own records: the account, the groups they belong to (with the other members' display names), every expense they paid or share, every payment they sent or received, their private individual balances (with what is paid so far), their saved people, the activity feed of the groups they are in, and the emails LenaDena queued for them or their people. **Never** in it: other people's emails or ids, anything private to someone else, deleted expenses, photos and receipt images (the rows only say whether one exists). The API serves it as `lenadena-export-<date>.json` (the document) or `.csv` (balances, expenses and payments in one table, newest first, with a byte-order mark for Excel; text that starts with `=`, `+`, `-` or `@` gets a leading apostrophe so a spreadsheet cannot run something another group member typed as a formula). It is not cached, limited to 5 requests a minute and to about 4 MB. The app writes the file to its cache with `expo-file-system` and opens the share sheet (a browser download on web); earlier exports are removed from the cache first. Migration 0016 adds `notificationDevices` (platform and date of each phone registered for notifications; never a token).
+
+### Group management (2026-11-17)
+
+Migration `202611170015_group_members.sql`; a database without it answers 503 `groups_unavailable` and the new buttons stay hidden.
+
+1. **Add someone by email.** Any member can (as with link invites): `POST /v1/groups/:id/invitations` -> `app_invite_member`. The answer is the same invitation link whether or not the address has an account, so nothing tells the inviter who uses LenaDena; an email is queued either way. One invitation per address per 12 hours (409 `already_invited`), 30 a day per person (429 `invite_limit_reached`), and an address that is already a member is refused (409).
+2. **Accept or decline in the app.** An account whose profile email matches sees the invitation inside the app (`GET /v1/me/invitations`: group, who invited them, expiry; never the link's secret) as a banner on the home screen and on `/invitations`, and answers it (`POST /v1/me/invitations/:id/accept` or `/decline`). Nobody is added without saying yes. Only the addressed account can answer; accepting twice is harmless; the group's activity records `member_joined`.
+3. **Members screen** (`/group/members?groupId=`, "Manage members" on the group page): roles, what each member owes you (`owesYouMinor`, from `private.pair_balance`: positive when they owe the caller in this group, negative the other way), invitations still waiting, rename (owner or admin), leave, remove.
+4. **Leaving and removing** are refused while money is open: the person must be settled (`private.member_is_settled`: balance 0 and no payment awaiting review; 409 `not_settled`). The owner cannot leave while others remain (409 `owner_cannot_leave`); the owner removes anyone but themselves, an admin removes ordinary members, nobody removes the owner. The activity feed records it, and past expenses stay on the books.
+
+### Push notifications and reminders (2026-11-17)
+
+Migration `202611170016_push_notifications.sql` plus Firebase Cloud Messaging (free). Setup is in DEPLOYMENT.md, "Push notifications".
+
+1. **Opt-in on the phone.** Settings -> Notifications -> "Reminders from friends" (Android builds made with a Firebase `google-services.json`; the card is hidden otherwise). Turning it on asks the phone's permission, gets the FCM device token (`getDevicePushTokenAsync`) and sends it to `POST /v1/me/push-token`. `app_register_push_token` keeps one row per token (it moves to whoever registers it last, so a phone changing hands is safe) and at most 10 phones per person.
+2. **Taking it back.** Switching off and signing out (asked before the session ends, 4 seconds at most) call `POST /v1/me/push-token/remove`; deleting the account removes tokens and reminders; a token Firebase reports as gone (`404 UNREGISTERED`) is deleted by the API (`app_drop_push_tokens`).
+3. **Remind.** On the Members screen, a member who owes you shows "owes you Rs ..." and a Remind button: `POST /v1/groups/:id/nudges {memberId}` -> `app_create_nudge` checks that both are in the (unarchived) group, that it is not yourself, that they really owe you (`pair_balance > 0`, else 409 `nothing_owed`), one reminder per person per group per 24 hours (429 `nudge_cooldown`) and 15 a day (429 `nudge_limit_reached`). It records the reminder only when the person has a phone registered, and returns the names, amount and tokens. The API sends through FCM and answers `{ status }`: `sent` (at least one phone got it), `no_device` (none registered, or all dead), `failed` (nothing got through: the record is undone so the day is not used up) or `unavailable` (the server has no Firebase credentials: the database is not touched). For anything but `sent` the app opens the share sheet with the same words, so a tap always ends with the reminder reaching them one way or another.
+4. **Invitation push.** After an invitation is sent, the API asks `app_get_invitation_push_target` (only for an invitation the caller sent in the last five minutes, to an account that is not in the group and has a phone) and pushes "Sara invited you to Weekend crew". Best effort: it never changes the answer, gives up after 3 seconds, and when pushes are configured an invitation always takes at least 0.8 seconds, so the time it took says little about whether the address has an account.
+5. **FCM from the API.** `backend/src/push/fcm.ts`: HTTP v1 (`messages:send`) with a service-account JWT (RS256, `node:crypto`) exchanged at Google's token endpoint, the access token cached until five minutes before it ends. No Firebase SDK. `FIREBASE_SERVICE_ACCOUNT_JSON` (the key file's JSON, or that JSON in base64) turns it on; a value that is not a usable key leaves pushes off and logs a warning in production instead of stopping the API.
+6. **A tap** carries `{ type, groupId }`; `PushBridge` opens `/group/<id>` or `/invitations` (also when the tap launched the app), after `targetForNotification` has checked the id so data can never steer to another screen.
+7. **What is kept.** Tokens until switched off, signed out or deleted; reminder records (sender, recipient, group, time) for a week, only to enforce the limits; no notification text. The export lists `notificationDevices` (platform and date), never a token. A notification shows the amount and group on the lock screen, which the Settings card says.
+8. **Not covered.** iOS is not offered (it needs an Apple push key in Firebase and a native FCM token), and nothing is sent to web.
+
 ### Voice balance draft
 
 1. The user selects English or Urdu, records a short private-balance command, and stops recording.
@@ -155,10 +181,22 @@ Migration `202611170013_edit_delete_entries.sql` adds the rules; the API (`GET|P
 | GET | `/delete-account` | Public page for the stores: how to delete an account in the app or by email, and what is deleted or kept |
 | GET | `/v1/me/plan` | Private member dashboard |
 | PATCH | `/v1/me/profile` | Update display name and optional profile photo |
+| GET | `/v1/me/export` | Download the person's own records as a file: `?format=json` (everything) or `?format=csv` (balances, expenses and payments); 5 per minute; 503 `export_unavailable` until migration 0014 is applied |
 | POST | `/v1/me/delete` | Permanently delete the account. Body `{ "confirm": "DELETE" }`; needs a password sign-in from the last 10 minutes (403 `recent_sign_in_required`); 204 |
 | GET | `/v1/groups/:id` | Authorized group summary |
 | POST | `/v1/groups` | Create a group and email invites |
 | POST | `/v1/groups/:id/invites` | Generate an optional email-bound invite |
+| POST | `/v1/groups/:id/invitations` | Invite an email address (members; same answer whether or not it has an account; 20 an hour, 30 a day; 409 `already_invited`, `conflict` for a member). When pushes are on, also notifies an account with a phone, best effort |
+| GET | `/v1/me/invitations` | Open invitations addressed to the caller's own email (group, who invited, expiry; no secret) |
+| POST | `/v1/me/invitations/:id/accept` | Join the group (the addressed account only); returns the group |
+| POST | `/v1/me/invitations/:id/decline` | Decline it; 204 |
+| GET | `/v1/groups/:id/members` | Members with roles, `settled`, `owesYouMinor`, the open invitations and `canManage`; 404 for a non-member |
+| DELETE | `/v1/groups/:id/members/:memberId` | Remove a member (owner anyone but themselves; admin ordinary members); 409 `not_settled` / `cannot_remove_owner`; 204 |
+| POST | `/v1/groups/:id/leave` | Leave; 409 `not_settled` / `owner_cannot_leave`; 204 |
+| PATCH | `/v1/groups/:id` | Rename (owner or admin); 204 |
+| POST | `/v1/me/push-token` | Register this phone `{ token, platform }`; 204; 503 `push_unavailable` when the server has no Firebase credentials or the database lacks migration 0016 |
+| POST | `/v1/me/push-token/remove` | Forget one of the caller's own tokens `{ token }`; 204; works without Firebase credentials so sign-out can always clean up |
+| POST | `/v1/groups/:id/nudges` | Remind a member who owes the caller `{ memberId }`; 200 `{ status: sent / no_device / failed / unavailable }`; 409 `nothing_owed`, 429 `nudge_cooldown` (24 h per person and group) / `nudge_limit_reached` (15 a day) |
 | POST | `/v1/invites/:token/accept` | Accept a single-use invite |
 | POST | `/v1/uploads/:kind` | Store a private receipt, proof, or profile image |
 | POST | `/v1/voice/transcribe` | Transcribe one authenticated short command via the server-only Deepgram key; returns text only and never writes a ledger record |

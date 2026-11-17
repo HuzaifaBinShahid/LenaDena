@@ -12,6 +12,8 @@ import type {
   CreatePersonInput,
   ExpenseDetail,
   Group,
+  GroupPeople,
+  Invitation,
   InviteLink,
   Person,
   Plan,
@@ -22,6 +24,7 @@ import type {
 } from "@/features/ledger/types";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { APP_DOWNLOAD_URL } from "@/features/people/invite";
+import type { NudgeStatus } from "@/features/push/pushRules";
 import { isHistoryPersonId, peopleErrorMessage } from "@/features/people/people";
 
 type ConnectionState = "loading" | "live" | "demo" | "error";
@@ -39,6 +42,8 @@ const emptyPlan: Plan = {
 
 type LedgerContextValue = {
   plan: Plan;
+  /** Invitations to groups, addressed to this account's own email; they are answered in the app. */
+  invitations: Invitation[];
   connection: ConnectionState;
   refresh: () => Promise<void>;
   createGroup: (input: CreateGroupInput) => Promise<void>;
@@ -76,6 +81,17 @@ type LedgerContextValue = {
   reviewSettlement: (id: string, status: Extract<SettlementStatus, "confirmed" | "needs_attention">, note?: string) => Promise<void>;
   selfConfirmSettlement: (id: string) => Promise<void>;
   createInvite: (groupId: string, email?: string) => Promise<InviteLink>;
+  /** Invites an email address. The same answer whether or not it has an account; an account also sees it in the app. */
+  inviteByEmail: (groupId: string, email: string) => Promise<InviteLink>;
+  acceptInvitation: (id: string) => Promise<Group>;
+  declineInvitation: (id: string) => Promise<void>;
+  /** Members with roles, who can leave or be removed now, and the open invitations. */
+  getGroupPeople: (groupId: string) => Promise<GroupPeople>;
+  leaveGroup: (groupId: string) => Promise<void>;
+  removeMember: (groupId: string, memberId: string) => Promise<void>;
+  renameGroup: (groupId: string, name: string) => Promise<void>;
+  /** Asks the server to send a push reminder to someone who owes you here. `no_device`, `failed` and `unavailable` mean the app should offer the share sheet instead. */
+  remindMember: (groupId: string, memberId: string) => Promise<NudgeStatus>;
   acceptInvite: (token: string) => Promise<Group>;
 };
 
@@ -91,6 +107,7 @@ function friendlyPeopleError(error: unknown, options: { name?: string | undefine
 export function LedgerProvider({ children }: { children: ReactNode }) {
   const { configured, ready, session } = useAuth();
   const [plan, setPlan] = useState<Plan>(configured ? emptyPlan : demoPlan);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [connection, setConnection] = useState<ConnectionState>("loading");
   const userId = session?.user.id;
   const activeUserId = useRef(userId);
@@ -100,6 +117,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     activeUserId.current = userId;
     if (!configured) return;
     setPlan(emptyPlan);
+    setInvitations([]);
     setConnection("loading");
   }, [configured, userId]);
 
@@ -111,6 +129,10 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       // An API without People (older deploy) still yields a complete plan.
       setPlan({ ...value, people: value.people ?? [] });
       setConnection("live");
+      // Invitations are a convenience on top of the plan: a server without them (or a hiccup) must never break the home screen.
+      apiRequest<Invitation[]>("/v1/me/invitations")
+        .then((items) => { if (activeUserId.current === requestedFor) setInvitations(Array.isArray(items) ? items : []); })
+        .catch(() => { if (activeUserId.current === requestedFor) setInvitations([]); });
     } catch (error) {
       if (activeUserId.current !== requestedFor) return;
       // A deleted or revoked account keeps a signed-looking session until it expires. Confirm with Supabase
@@ -342,6 +364,44 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     body: { email },
   }), []);
 
+  const inviteByEmail = useCallback((groupId: string, email: string) => apiRequest<InviteLink>(`/v1/groups/${encodeURIComponent(groupId)}/invitations`, {
+    method: "POST",
+    body: { email },
+  }), []);
+
+  const acceptInvitation = useCallback(async (id: string) => {
+    const group = await apiRequest<Group>(`/v1/me/invitations/${encodeURIComponent(id)}/accept`, { method: "POST" });
+    await refresh();
+    return group;
+  }, [refresh]);
+
+  const declineInvitation = useCallback(async (id: string) => {
+    await apiRequest(`/v1/me/invitations/${encodeURIComponent(id)}/decline`, { method: "POST" });
+    setInvitations((current) => current.filter((item) => item.id !== id));
+  }, []);
+
+  const getGroupPeople = useCallback((groupId: string) => apiRequest<GroupPeople>(`/v1/groups/${encodeURIComponent(groupId)}/members`), []);
+
+  const leaveGroup = useCallback(async (groupId: string) => {
+    await apiRequest(`/v1/groups/${encodeURIComponent(groupId)}/leave`, { method: "POST" });
+    await refresh();
+  }, [refresh]);
+
+  const removeMember = useCallback(async (groupId: string, memberId: string) => {
+    await apiRequest(`/v1/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(memberId)}`, { method: "DELETE" });
+    await refresh();
+  }, [refresh]);
+
+  const renameGroup = useCallback(async (groupId: string, name: string) => {
+    await apiRequest(`/v1/groups/${encodeURIComponent(groupId)}`, { method: "PATCH", body: { name } });
+    await refresh();
+  }, [refresh]);
+
+  const remindMember = useCallback(async (groupId: string, memberId: string) => {
+    const result = await apiRequest<{ status: NudgeStatus }>(`/v1/groups/${encodeURIComponent(groupId)}/nudges`, { method: "POST", body: { memberId } });
+    return result.status;
+  }, []);
+
   const acceptInvite = useCallback(async (token: string) => {
     const group = await apiRequest<Group>(`/v1/invites/${encodeURIComponent(token)}/accept`, { method: "POST" });
     await refresh();
@@ -372,10 +432,19 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       claimSettlement,
       reviewSettlement,
       selfConfirmSettlement,
+      invitations,
       createInvite,
+      inviteByEmail,
+      acceptInvitation,
+      declineInvitation,
+      getGroupPeople,
+      leaveGroup,
+      removeMember,
+      renameGroup,
+      remindMember,
       acceptInvite,
     }),
-    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, getExpense, updateExpense, deleteExpense, updatePersonalTransaction, deletePersonalTransaction, settlePersonalTransaction, settlePersonalTransactions, createPerson, updatePerson, emailPerson, deletePerson, invitePerson, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, createInvite, acceptInvite],
+    [plan, connection, refresh, createGroup, createExpense, createPersonalTransaction, getExpense, updateExpense, deleteExpense, updatePersonalTransaction, deletePersonalTransaction, settlePersonalTransaction, settlePersonalTransactions, createPerson, updatePerson, emailPerson, deletePerson, invitePerson, updateProfile, claimSettlement, reviewSettlement, selfConfirmSettlement, invitations, createInvite, inviteByEmail, acceptInvitation, declineInvitation, getGroupPeople, leaveGroup, removeMember, renameGroup, remindMember, acceptInvite],
   );
 
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;

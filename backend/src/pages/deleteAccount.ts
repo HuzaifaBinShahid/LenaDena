@@ -42,6 +42,7 @@ ${byEmail}
 <li>The people you saved, their photos and the email settings you chose for them.</li>
 <li>Your individual entries and the receipt photos attached to them.</li>
 <li>Emails still waiting to be sent about you or your people, and invitations you sent or received that nobody accepted.</li>
+<li>The notification codes of your phones, and the reminders you sent or received.</li>
 <li>Any group that nobody else ever joined, with everything in it.</li>
 </ul>
 

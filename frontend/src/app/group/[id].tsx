@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { Text as NativeText, useWindowDimensions, View } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, type Href } from "expo-router";
 import {
   CARD,
   CardLoadingBody,
@@ -161,6 +161,16 @@ export default function GroupDetailScreen() {
         inviting={inviting}
         style={styles.members}
       />
+      <View style={styles.manage}>
+        <Button
+          label="Manage members"
+          icon="users"
+          variant="ghost"
+          size="sm"
+          onPress={() => router.push(`/group/members?groupId=${encodeURIComponent(group.id)}` as Href)}
+          accessibilityHint="Add people by email, remove members, rename or leave the group"
+        />
+      </View>
 
       <GroupExpenses
         group={group}
@@ -224,6 +234,10 @@ const useStyles = makeStyles((c, { isDark }) => ({
   members: {
     marginTop: 24,
     marginHorizontal: -SCREEN_GUTTER,
+  },
+  manage: {
+    marginTop: 4,
+    alignItems: "flex-start",
   },
   sectionGap: {
     marginTop: 28,

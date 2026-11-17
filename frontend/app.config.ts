@@ -1,7 +1,16 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import type { ExpoConfig } from "expo/config";
 
 // Voice entry is off (see src/lib/features.ts). Turning it on (EXPO_PUBLIC_VOICE_ENTRY=true) restores the microphone.
 const voiceEnabled = process.env.EXPO_PUBLIC_VOICE_ENTRY === "true";
+
+// Push notifications (Firebase Cloud Messaging) are on only for a build made with the Firebase file for the Android app
+// (Firebase console -> Project settings -> Your apps -> google-services.json, kept at frontend/google-services.json, or
+// at the path in GOOGLE_SERVICES_JSON). Without it the build is exactly as before: no notification permission, no
+// Firebase code, and the app hides the Settings switch and shares a message when someone taps Remind.
+const googleServicesFile = process.env.GOOGLE_SERVICES_JSON?.trim() || "./google-services.json";
+const pushEnabled = existsSync(resolve(process.cwd(), googleServicesFile));
 
 // Permissions that libraries add to the Android manifest on their own. With voice off nothing here is used, and each one
 // would otherwise be shown on the store page and need an explanation: the microphone (expo-audio and
@@ -40,6 +49,7 @@ const config: ExpoConfig = {
     package: "com.lenadena.app",
     // Resize the activity, then let KeyboardAwareScrollView move only the focused form field.
     softwareKeyboardLayoutMode: "resize",
+    ...(pushEnabled ? { googleServicesFile } : {}),
     permissions: voiceEnabled ? ["RECORD_AUDIO"] : [],
     blockedPermissions: blockedAndroidPermissions,
     adaptiveIcon: {
@@ -105,7 +115,21 @@ const config: ExpoConfig = {
     "expo-secure-store",
     ["expo-build-properties", { ios: { deploymentTarget: "16.4", useFrameworks: "static" } }],
     "expo-sqlite",
+    ...(pushEnabled
+      ? [[
+        "expo-notifications",
+        {
+          // The status-bar icon must be a white silhouette on transparent: the themed-icon layer is exactly that.
+          icon: "./assets/adaptive-monochrome.png",
+          color: "#6848E6",
+          // Messages that arrive while the app is closed go to this channel (the app creates it, and the server names it).
+          defaultChannel: "reminders",
+        },
+      ] as [string, Record<string, unknown>]]
+      : []),
   ],
+  // Read by the app at run time (features/push/pushDevice.ts) to know whether this build can receive pushes.
+  extra: { pushEnabled },
   experiments: {
     typedRoutes: true,
   },
