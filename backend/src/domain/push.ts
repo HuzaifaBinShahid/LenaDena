@@ -24,6 +24,36 @@ export type NudgeDelivery = {
 export type InvitationPushTarget = { tokens: string[]; inviterName: string; groupName: string; groupId: string };
 
 /**
+ * The four moments of a payment that someone else hears about:
+ *   claimed          the payer says they paid: the recipient is asked to confirm
+ *   confirmed        the recipient confirmed: the payer hears it is settled
+ *   needs_attention  the recipient says something is wrong: the payer is asked to look
+ *   self_confirmed   the payer marked it settled after the review window: the recipient is told
+ */
+export type PaymentPushEvent = "claimed" | "confirmed" | "needs_attention" | "self_confirmed";
+
+/**
+ * Who to push after a payment step the caller just took, from `app_get_payment_push_target`. `actorName` is the
+ * person who took the step (the one the notification is about), not the one receiving it.
+ */
+export type PaymentPushTarget = {
+  tokens: string[];
+  event: PaymentPushEvent;
+  actorName: string;
+  amountMinor: number;
+  currency: string;
+  groupId: string;
+  groupName: string;
+  settlementId: string;
+};
+
+/** What the health function reports: the database answered, and which features' functions it lacks. */
+export type DatabaseHealth = {
+  /** Names of features whose migration is not applied yet. Null when the health function itself is not installed. */
+  missing: string[] | null;
+};
+
+/**
  * What the app is told after asking for a reminder.
  *   sent         at least one device got it
  *   no_device    the person has no device registered (or only dead ones), so the app offers to share a message instead

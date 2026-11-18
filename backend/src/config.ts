@@ -30,7 +30,14 @@ export type AppConfig = {
   firebase?: FirebaseCredentials;
   /** FIREBASE_SERVICE_ACCOUNT_JSON is set but is not a usable key (app.ts warns in production; pushes stay off). */
   firebaseInvalid?: boolean;
+  /**
+   * A request at least this many milliseconds slow is logged as a warning with the calls that took the time
+   * (SLOW_REQUEST_MS, default 1500, at least 100). Vercel stops a function after 10 seconds on the free plan.
+   */
+  slowRequestMs: number;
 };
+
+const DEFAULT_SLOW_REQUEST_MS = 1500;
 
 /** The same loose shape the app uses for typed addresses: no spaces or markup characters, one @, a dot in the domain. */
 const emailAddress = /^[^\s@<>"'`]+@[^\s@<>"'`]+\.[^\s@<>"'`]+$/;
@@ -55,8 +62,12 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   // Like the two above, a bad value must never stop the API from starting: pushes simply stay off.
   const rawFirebase = overrides.firebase ? undefined : process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
   const firebase = overrides.firebase ?? parseFirebaseCredentials(rawFirebase);
+  // A threshold is only a logging aid, so a bad value falls back to the default instead of stopping the API.
+  const rawSlow = Number(overrides.slowRequestMs ?? process.env.SLOW_REQUEST_MS);
+  const slowRequestMs = Number.isFinite(rawSlow) && rawSlow >= 100 ? Math.round(rawSlow) : DEFAULT_SLOW_REQUEST_MS;
   const config: AppConfig = {
     nodeEnv,
+    slowRequestMs,
     host: overrides.host ?? process.env.HOST ?? "0.0.0.0",
     port: overrides.port ?? Number(process.env.PORT || 3000),
     corsOrigin: overrides.corsOrigin ?? process.env.CORS_ORIGIN ?? "*",

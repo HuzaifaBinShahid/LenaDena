@@ -33,14 +33,14 @@ export function NotificationsSection() {
       if (!next) {
         await disablePush(userId);
         setOn(false);
-        toast.success("Reminders are off", "This phone won't get reminders or group invitations.");
+        toast.success("Reminders are off", "This phone won't get reminders, payment updates or group invitations.");
         return;
       }
       const result = await enablePush(userId);
       if (result.ok) {
         setOn(true);
         setBlocked(false);
-        toast.success("Reminders are on", "You'll get a notification when a friend reminds you, or invites you to a group.");
+        toast.success("Reminders are on", "You'll get a notification when a friend reminds you, pays you, or invites you to a group.");
         return;
       }
       if (result.reason === "denied") {
@@ -68,7 +68,7 @@ export function NotificationsSection() {
           </View>
           <View className="min-w-0 flex-1">
             <Text className="text-[15px] font-bold text-ink">Reminders from friends</Text>
-            <Text className="mt-0.5 text-xs leading-4 text-slate">A notification when someone in a group asks you to settle up, or invites you to join.</Text>
+            <Text className="mt-0.5 text-xs leading-4 text-slate">A notification when a friend reminds you to settle up, says they have paid you, or invites you to a group.</Text>
           </View>
           <Switch value={on} onValueChange={(next) => void toggle(next)} busy={busy} accessibilityLabel="Reminders from friends" />
         </View>

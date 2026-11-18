@@ -64,16 +64,32 @@ export function reminderShareMessage(input: { memberName: string; amountMinor: n
   ].join("\n");
 }
 
-export type NotificationTarget = { kind: "group"; groupId: string } | { kind: "invitations" };
+export type NotificationTarget = { kind: "group"; groupId: string } | { kind: "invitations" } | { kind: "reviews" };
 
 /** A group id is a UUID or a short slug (demo data): letters, digits and hyphens only, so it can never steer to another route. */
 const GROUP_ID = /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/;
 
-/** Where a tapped notification goes, from the `data` the server sent. Anything unexpected goes nowhere. */
+/**
+ * Where a tapped notification goes, from the `data` the server sent. Anything unexpected goes nowhere.
+ *   nudge, payment_confirmed, payment_needs_attention, payment_self_confirmed   the group
+ *   payment_claimed        the Payments tab, where the payment waits for the person to confirm it
+ *   group_invite           the invitations
+ */
 export function targetForNotification(data: unknown): NotificationTarget | null {
   if (!data || typeof data !== "object") return null;
   const { type, groupId } = data as { type?: unknown; groupId?: unknown };
   if (type === "group_invite") return { kind: "invitations" };
-  if (type === "nudge" && typeof groupId === "string" && GROUP_ID.test(groupId)) return { kind: "group", groupId };
+  if (type === "payment_claimed") return { kind: "reviews" };
+  const opensGroup = type === "nudge" || type === "payment_confirmed" || type === "payment_needs_attention" || type === "payment_self_confirmed";
+  if (opensGroup && typeof groupId === "string" && GROUP_ID.test(groupId)) return { kind: "group", groupId };
   return null;
+}
+
+/**
+ * Whether to show the one-time "Get reminders from friends?" sheet: only on a build that can receive pushes, for a
+ * signed-in person who has not switched them on, was never asked on this phone, and has not blocked notifications in
+ * the phone's own settings (asking then could only fail). Settings keeps the switch whatever they answered.
+ */
+export function shouldOfferPushPrompt(input: { available: boolean; signedIn: boolean; alreadyOn: boolean; alreadyAsked: boolean; blockedInPhoneSettings: boolean }): boolean {
+  return input.available && input.signedIn && !input.alreadyOn && !input.alreadyAsked && !input.blockedInPhoneSettings;
 }

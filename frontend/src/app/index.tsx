@@ -14,6 +14,7 @@ import { GroupsView } from "@/features/home/GroupsView";
 import { homeChrome } from "@/features/home/homeChrome";
 import { PlanView } from "@/features/home/PlanView";
 import { InvitationsBanner } from "@/features/groups/InvitationsBanner";
+import { PushPrompt } from "@/features/push/PushPrompt";
 import { ReviewsView } from "@/features/home/ReviewsView";
 import { useLedger } from "@/features/ledger/LedgerProvider";
 import { getPlanState, isNewAccount } from "@/features/ledger/planState";
@@ -161,6 +162,7 @@ export default function HomeScreen() {
           router.push({ pathname: "/transaction/new", params: { voice: "1" } });
         }}
       />
+      <PushPrompt enabled={!placeholder && !scopeVisible} />
     </View>
   );
 }

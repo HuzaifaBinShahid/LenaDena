@@ -9,7 +9,7 @@
 
 ## Supabase
 
-The LenaDena Free project is provisioned in Supabase's Singapore region. Every migration through `202611170013` is applied on the hosted project (checked against the database catalog on 2026-11-17); `202611170014_export_data.sql`, `202611170015_group_members.sql` and `202611170016_push_notifications.sql` are written but not applied (see "Data export", "Group management" and "Push notifications" below, in that order). For a fresh project apply every file in filename order; the notes that follow say what the ones that need care switch on. The Auth site URL is `lenadena://`, with `lenadena://**` in the redirect allowlist.
+The LenaDena Free project is provisioned in Supabase's Singapore region. Every migration through `202611170013` was checked against the database catalog on 2026-11-17. The owner applied `202611170014`, `202611170015` and `202611170016` afterwards (reported, not checked from the repository) and `202611180017_payment_push_and_health.sql` is written but not applied (see "Data export", "Group management", "Push notifications" and "Payment notifications and the health check" below). Once 0017 is applied, `GET /health/ready` names whichever migration is still missing in the log, so check it instead of querying the catalog by hand. For a fresh project apply every file in filename order; the notes that follow say what the ones that need care switch on. The Auth site URL is `lenadena://`, with `lenadena://**` in the redirect allowlist.
 
 `202609140005_pgcrypto_search_path.sql` (SQL editor or Supabase CLI) matters on a fresh project. Supabase keeps pgcrypto in the `extensions` schema, and until this runs every financial write function fails with `function digest(text, unknown) does not exist`.
 
@@ -70,6 +70,20 @@ Apply `supabase/migrations/202611170016_push_notifications.sql` (safe to re-run;
 5. **Try it with two phones.** On phone B: Settings -> Notifications -> turn on "Reminders from friends" and allow the permission. On phone A, in a group where B owes A money: Group -> Manage members -> Remind next to B. B should get "A sent you a reminder"; tapping it opens the group. Also invite B's email from A's Members screen: B gets "A invited you to ..." and sees the invitation in the app.
 6. **If it does not work.** No Notifications card: the build has no `google-services.json`, or it is iOS / Expo Go. The switch says the server isn't set up: `FIREBASE_SERVICE_ACCOUNT_JSON` is missing or unusable (Vercel logs show "FIREBASE_SERVICE_ACCOUNT_JSON is set but is not a usable service account key" at start). Remind says it couldn't send: Google refused the service account (is it from the same Firebase project as `google-services.json`, and is the V1 API enabled?); the reminder is undone, so trying again later is fine. Remind offers the share sheet and says the person isn't getting notifications: they have not switched them on, or their token was reported dead and deleted.
 7. **Limits and privacy.** One reminder per person per group per day, 15 a day. Reminder records are deleted after a week. A notification shows the amount and group on the lock screen. The policy page (`/privacy`) names Firebase Cloud Messaging and describes all of this.
+
+### Payment notifications and the health check (migration 0017)
+
+Apply `supabase/migrations/202611180017_payment_push_and_health.sql` in the SQL editor (safe to re-run; apply 0016 first). It adds `push_events` (one row per payment step that was announced, deleted after a week), `app_get_payment_push_target` and `app_health_check`, both executable by the service role only. No new Vercel variable and no new APK is needed for the server side: once the API is deployed, a payer saying "I paid", a recipient confirming or flagging it, and the payer settling it after the review window each send a notification to the other person if they switched notifications on. The prompt that asks people to switch them on and the tap that opens the Payments tab are in the app, so they arrive with the next APK. Until 0017 is applied the API still works; each payment step then logs a warning ("payment push failed") and the health check reports `migrations: "unknown"`.
+
+Then check it: `curl -s https://lena-dena-backend.vercel.app/health/ready` should say `"status":"ok"` with `"migrations":"ok"`.
+
+### Health check and monitoring
+
+Two endpoints, both public and cheap: `GET /health` (the function runs; always 200) and `GET /health/ready` (the database and Supabase Auth answer, every migration is applied, a Firebase key that is set is usable). `/health/ready` answers 200 with `"status":"ok"` or `"degraded"` (it works but something needs attention), and **503** with `"status":"down"` when the database or Auth does not answer. Its body only says which kind of thing is wrong (`checks.database`, `auth`, `migrations`, `push`); the details are in the Vercel logs as "health: ..." warnings. It looks at most once every 10 seconds, so it is safe to poll every minute.
+
+To be told when it breaks, point a free uptime monitor at it (UptimeRobot, Better Stack, cron-job.org with e-mail on failure all work): URL `https://lena-dena-backend.vercel.app/health/ready`, check every 5 minutes, alert on a status other than 200, and (optional) alert when the page does not contain `"status":"ok"` so a `degraded` shows up too.
+
+**Reading the logs** (Vercel -> the project -> Logs, or `vercel logs`): every request is one line, `request`, with `route`, `status`, `ms` (the whole request) and `upstreamMs` (time spent waiting on the database, Supabase Auth and Firebase). Search for `slow request` (took at least `SLOW_REQUEST_MS`, default 1500) and `failed call to another service` first; the `upstream` field lists the slowest calls, for example `db rpc app_get_plan 212ms`, `auth user 640ms`, `fcm send 180ms`. If `ms` is large and `upstreamMs` is small the time went here (a cold start, a big response); if they are close, it went to the other service. Set `SLOW_REQUEST_MS` in Vercel to change the threshold.
 
 ### Privacy policy and account deletion pages
 
@@ -155,9 +169,10 @@ Verify the API:
 
 ```bash
 curl https://lena-dena-backend.vercel.app/health
+curl https://lena-dena-backend.vercel.app/health/ready
 ```
 
-The expected response contains `"status":"ok"`.
+The first (liveness) contains `"status":"ok"`; the second (database, Auth, migrations, push) contains `"status":"ok"` when everything is in order.
 
 ## Free-tier behavior
 

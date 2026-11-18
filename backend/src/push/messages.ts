@@ -1,4 +1,4 @@
-import type { InvitationPushTarget, NudgeDelivery } from "../domain/push.js";
+import type { InvitationPushTarget, NudgeDelivery, PaymentPushTarget } from "../domain/push.js";
 import { cleanText, firstName, formatMoney } from "../notifications/format.js";
 import type { PushMessage } from "./fcm.js";
 
@@ -25,6 +25,28 @@ export function invitationMessage(target: Pick<InvitationPushTarget, "inviterNam
     title: `${inviter} invited you to ${group}`,
     body: "Open LenaDena to accept or decline.",
     data: { type: "group_invite", groupId: target.groupId },
+    channelId: PUSH_CHANNEL,
+  };
+}
+
+/**
+ * The four payment moments (see PaymentPushEvent). Each is about what another person just did, so it names them and
+ * the amount and group, like a reminder does. The data carries the event and the group so a tap opens the right place.
+ */
+export function paymentMessage(target: Pick<PaymentPushTarget, "event" | "actorName" | "amountMinor" | "currency" | "groupId" | "groupName" | "settlementId">): PushMessage {
+  const who = cleanText(firstName(target.actorName), 40) ?? "A friend";
+  const group = cleanText(target.groupName, 80) ?? "your group";
+  const amount = formatMoney(target.amountMinor, target.currency);
+  const detail = amount ? `${amount} in ${group}` : group;
+  const words = {
+    claimed: { title: `${who} says they paid you`, body: `${detail}. Tap to confirm it.` },
+    confirmed: { title: `${who} confirmed your payment`, body: `${detail} is settled.` },
+    needs_attention: { title: `${who} says your payment needs a look`, body: `${detail}. Tap to open the group.` },
+    self_confirmed: { title: `${who} marked a payment as settled`, body: `${detail}. Open the group to check it.` },
+  }[target.event];
+  return {
+    ...words,
+    data: { type: `payment_${target.event}`, groupId: target.groupId, settlementId: target.settlementId },
     channelId: PUSH_CHANNEL,
   };
 }

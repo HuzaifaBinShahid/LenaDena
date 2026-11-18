@@ -25,7 +25,7 @@ export function privacyPage(contact: PageContact): string {
 <li>We show no ads, we do not sell or rent your information, and the app has no analytics or tracking software in it.</li>
 <li>People in a group can see what is added to that group. Your individual entries and your saved people are private to you.</li>
 <li>LenaDena only emails a friend when you tap Send, or when you switch on reminders for that person.</li>
-<li>Notifications on your phone (a friend's reminder, an invitation to a group) are off until you switch them on in Settings.</li>
+<li>Notifications on your phone (a friend's reminder, an update about a payment, an invitation to a group) are off until you switch them on. The app asks once, and you can change your mind in Settings.</li>
 <li>You can delete your account from inside the app at any time.</li>
 </ul>
 </div>
@@ -48,6 +48,7 @@ export function privacyPage(contact: PageContact): string {
 <li>The activity feed of each group. When an expense is edited or deleted, the feed notes it with the expense's name and its new or old amount.</li>
 <li>Invitations, including the email address that was invited.</li>
 <li>Reminders: when a member of a group taps Remind on someone who owes them, we keep who sent it, who it was for, which group and when, for about a week. That is only so that one person cannot be reminded more than once a day. The text of a notification is not kept.</li>
+<li>Payment notifications: so that each step of a payment (someone says they paid, it is confirmed, it needs attention, the payer marks it settled) is announced only once, we keep the payment's code, the kind of step and when it happened, for about a week. That record holds no names, amounts or notification text.</li>
 </ul>
 
 <h3>Individual entries and saved people</h3>
@@ -78,7 +79,7 @@ export function privacyPage(contact: PageContact): string {
 <h3>On your phone only</h3>
 <ul>
 <li>Your signed-in session and your settings are stored on your phone.</li>
-<li>If you switch on notifications, your phone asks your permission first. A notification shows who it is from, and for a reminder the amount and the group, so it is visible on your lock screen unless your phone hides previews.</li>
+<li>If you switch on notifications, your phone asks your permission first. A notification shows who it is from, and for a reminder or a payment update the amount and the group, so it is visible on your lock screen unless your phone hides previews.</li>
 <li>If you turn on Face ID or fingerprint sign-in, your password is kept in your phone's secure storage and released only after your phone checks your face or finger. We never receive your face or fingerprint data: your phone's system handles it.</li>
 <li>Reading text from a receipt photo happens on your phone.</li>
 <li>The app asks for the camera and your photo library only when you choose to add a photo. It does not ask for your contacts or your location, and this version does not use the microphone.</li>
@@ -98,7 +99,7 @@ export function privacyPage(contact: PageContact): string {
 <ul>
 <li><strong>Other people in your groups</strong> see what you add to a shared group, including your name and photo.</li>
 <li><strong>People you email</strong> receive what you send them.</li>
-<li><strong>The person you remind or invite</strong> gets a notification on their phone, if they switched notifications on. It names you (first name), the group and, for a reminder, the amount they owe you.</li>
+<li><strong>The person you remind, invite or pay</strong> gets a notification on their phone, if they switched notifications on. It names you (first name), the group and, for a reminder or a payment, the amount. The same goes for the person who reviews your payment: you are told when they confirm it or say it needs attention.</li>
 <li><strong>Our service providers</strong> handle information only to run LenaDena for us: Supabase (sign-in, database and private file storage), Vercel (runs our server), Brevo (delivers emails) and, only if you switch notifications on, Google Firebase Cloud Messaging (delivers notifications to phones: it receives your phone's device token and the text of each notification).</li>
 <li><strong>No one else.</strong> We do not sell or rent your information and we do not give it to advertisers. We would share it only if the law required us to.</li>
 </ul>

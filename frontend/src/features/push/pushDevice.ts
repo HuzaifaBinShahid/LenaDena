@@ -21,6 +21,7 @@ export const PUSH_AVAILABLE = pushSupported({
 
 const tokenKey = "lenadena.push.token";
 const preferenceKey = (userId: string) => `lenadena.push.on.${userId}`;
+const askedKey = (userId: string) => `lenadena.push.asked.${userId}`;
 
 type Notifications = typeof import("expo-notifications");
 const loadNotifications = (): Promise<Notifications> => import("expo-notifications");
@@ -33,10 +34,28 @@ export async function isPushOn(userId: string): Promise<boolean> {
   }
 }
 
+/** Whether the one-time "Get reminders from friends?" sheet was already answered on this phone for this account. */
+export async function wasAskedAboutPush(userId: string): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(askedKey(userId))) === "1";
+  } catch {
+    // If the phone's storage cannot be read, do not risk asking again and again.
+    return true;
+  }
+}
+
+export async function markAskedAboutPush(userId: string): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(askedKey(userId), "1");
+  } catch {
+    // Not fatal: at worst the sheet shows once more.
+  }
+}
+
 async function ensureChannel(notifications: Notifications) {
   await notifications.setNotificationChannelAsync(PUSH_CHANNEL_ID, {
     name: "Reminders from friends",
-    description: "Reminders to settle up, and invitations to groups.",
+    description: "Reminders to settle up, payments to confirm, and invitations to groups.",
     importance: notifications.AndroidImportance.HIGH,
   });
 }

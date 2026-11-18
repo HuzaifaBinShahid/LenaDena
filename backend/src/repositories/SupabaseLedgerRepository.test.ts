@@ -717,3 +717,55 @@ describe("SupabaseLedgerRepository push notifications", () => {
     await expect(repository.getInvitationPushTarget(USER, GROUP, "a@example.com")).rejects.toMatchObject(unavailable);
   });
 });
+
+describe("SupabaseLedgerRepository: payment notifications and the health check", () => {
+  const SETTLEMENT = "7f8091a2-b3c4-4d5e-8f60-718293a4b5c6";
+  const GROUP = "2c3d4e5f-6071-4829-9a0b-1c2d3e4f5061";
+  const TOKEN = "device-token-aaaaaaaaaaaaaaaa";
+  const target = { tokens: [TOKEN], event: "claimed", actorName: "Hamza", amountMinor: "110000", currency: "PKR", groupId: GROUP, groupName: "Crew", settlementId: SETTLEMENT };
+
+  it("asks the database who to notify and hands back the amount as a number", async () => {
+    const { fake, repository } = await setup({ app_get_payment_push_target: () => ({ status: 200, body: target }) });
+    expect(await repository.getPaymentPushTarget(USER, SETTLEMENT, "claimed")).toEqual({ ...target, amountMinor: 110000 });
+    expect(fake.rpcCalls).toEqual([{ name: "app_get_payment_push_target", args: { p_actor: USER, p_settlement: SETTLEMENT, p_event: "claimed" } }]);
+  });
+
+  it("answers null when there is nobody to notify, and treats a missing token list as none", async () => {
+    expect(await (await setup({ app_get_payment_push_target: () => ({ status: 200, body: null }) })).repository.getPaymentPushTarget(USER, SETTLEMENT, "confirmed")).toBeNull();
+    const { repository } = await setup({ app_get_payment_push_target: () => ({ status: 200, body: { ...target, tokens: null } }) });
+    expect(await repository.getPaymentPushTarget(USER, SETTLEMENT, "claimed")).toMatchObject({ tokens: [] });
+  });
+
+  it("does not ask the database about an id that cannot be one", async () => {
+    const { fake, repository } = await setup({});
+    expect(await repository.getPaymentPushTarget(USER, "review-1", "claimed")).toBeNull();
+    expect(fake.rpcCalls).toEqual([]);
+  });
+
+  it("says notifications are not switched on when the database has not been updated, and passes other errors on", async () => {
+    await expect((await setup({})).repository.getPaymentPushTarget(USER, SETTLEMENT, "claimed")).rejects.toMatchObject({ statusCode: 503, code: "push_unavailable" });
+    const { repository } = await setup({ app_get_payment_push_target: () => raised("something else broke") });
+    await expect(repository.getPaymentPushTarget(USER, SETTLEMENT, "claimed")).rejects.toBeDefined();
+  });
+
+  it("reports which features the database lacks", async () => {
+    const { fake, repository } = await setup({ app_health_check: () => ({ status: 200, body: { ok: true, missing: ["export", "payment_push"] } }) });
+    expect(await repository.checkHealth(2000)).toEqual({ missing: ["export", "payment_push"] });
+    expect(fake.rpcCalls[0]?.name).toBe("app_health_check");
+  });
+
+  it("reports an empty list when everything is there, and ignores anything that is not a list of names", async () => {
+    expect(await (await setup({ app_health_check: () => ({ status: 200, body: { ok: true, missing: [] } }) })).repository.checkHealth(2000)).toEqual({ missing: [] });
+    expect(await (await setup({ app_health_check: () => ({ status: 200, body: { ok: true, missing: [1, null, "groups"] } }) })).repository.checkHealth(2000)).toEqual({ missing: ["groups"] });
+    expect(await (await setup({ app_health_check: () => ({ status: 200, body: null }) })).repository.checkHealth(2000)).toEqual({ missing: [] });
+  });
+
+  it("is reachable but unknown while the health function is not installed yet", async () => {
+    expect(await (await setup({})).repository.checkHealth(2000)).toEqual({ missing: null });
+  });
+
+  it("throws when the database fails, so the health check can say it is down", async () => {
+    const { repository } = await setup({ app_health_check: () => ({ status: 500, body: { code: "XX000", message: "the database is down", details: null, hint: null } }) });
+    await expect(repository.checkHealth(2000)).rejects.toThrow("the database is down");
+  });
+});

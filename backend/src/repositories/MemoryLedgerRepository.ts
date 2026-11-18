@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../domain/errors.js";
 import type { ExportDocument } from "../domain/export.js";
 import { toGroupError, type GroupPeople, type Invitation } from "../domain/groups.js";
-import { toPushError, type InvitationPushTarget, type NudgeDelivery, type PushPlatform } from "../domain/push.js";
+import { toPushError, type DatabaseHealth, type InvitationPushTarget, type NudgeDelivery, type PaymentPushEvent, type PaymentPushTarget, type PushPlatform } from "../domain/push.js";
 import { amountBelowPaid, entryHasPayments, entryNotFound, entrySettled, expenseNotFound, invalidAmount, notAllowedToDeleteExpense, notAllowedToEditExpense } from "../domain/edit.js";
 import { pairKey, validateShares } from "../domain/money.js";
 import { cleanNewPerson, cleanPersonChanges, cleanPersonName, DAILY_PERSON_EMAIL_LIMIT, EmailLimitReachedError, EmailRecentlySentError, InviteRecentlySentError, PERSON_INVITE_COOLDOWN_MS, PersonExistsError, PersonHasNoEntriesError, PersonHasNoEmailError, PersonNotFoundError, personNameKey, STATEMENT_COOLDOWN_MS } from "../domain/people.js";
@@ -161,6 +161,8 @@ export class MemoryLedgerRepository implements LedgerRepository {
   /** Registered phones and recorded reminders (the demo twins of public.push_tokens and public.nudges). */
   private pushTokens: Array<{ userId: string; token: string; platform: PushPlatform; createdAt: string; lastSeenAt: string }> = [];
   private readonly nudges: Array<{ id: string; groupId: string; senderId: string; recipientId: string; createdAt: string }> = [];
+  /** `<settlement id>:<event>` for every payment notification already handed out, so a retry cannot send it twice. */
+  private readonly paymentPushes = new Set<string>();
   private readonly lastSeenAt = new Map<string, string>([[demoUser.id, new Date().toISOString()], [hamza.id, new Date().toISOString()]]);
 
   async getPlan(userId: string): Promise<Plan> {
@@ -699,6 +701,41 @@ export class MemoryLedgerRepository implements LedgerRepository {
     const tokens = this.tokensOf(target.id);
     if (tokens.length === 0) return null;
     return { tokens, inviterName: this.users.get(userId)?.name ?? "Someone", groupName: group.name, groupId };
+  }
+
+  /** Same rules as app_get_payment_push_target (202611180017): the step is the caller's and just happened, once, not flooded. */
+  async getPaymentPushTarget(userId: string, settlementId: string, event: PaymentPushEvent): Promise<PaymentPushTarget | null> {
+    const settlement = this.settlements.find((item) => item.id === settlementId);
+    if (!settlement) return null;
+    let recipientId: string;
+    if (event === "claimed") {
+      // createSettlement stamps real time, so freshness is measured against it too.
+      if (settlement.debtor.id !== userId || settlement.status !== "awaiting_review" || Date.now() - Date.parse(settlement.createdAt) > 10 * 60 * 1000) return null;
+      const hourAgo = Date.now() - 3600 * 1000;
+      const recent = this.settlements.filter((item) => item.debtor.id === settlement.debtor.id && item.recipient.id === settlement.recipient.id && Date.parse(item.createdAt) > hourAgo).length;
+      if (recent > 5) return null;
+      recipientId = settlement.recipient.id;
+    } else if (event === "confirmed" || event === "needs_attention") {
+      if (settlement.recipient.id !== userId || settlement.status !== event) return null;
+      if (event === "confirmed" && settlement.confirmationMethod !== "recipient_review") return null;
+      recipientId = settlement.debtor.id;
+    } else {
+      if (settlement.debtor.id !== userId || settlement.status !== "confirmed" || settlement.confirmationMethod !== "claimant_fallback") return null;
+      recipientId = settlement.recipient.id;
+    }
+    const tokens = this.tokensOf(recipientId);
+    if (tokens.length === 0) return null;
+    const key = `${settlementId}:${event}`;
+    if (this.paymentPushes.has(key)) return null;
+    this.paymentPushes.add(key);
+    return {
+      tokens, event, actorName: this.users.get(userId)?.name ?? "Someone", amountMinor: settlement.amountMinor, currency: settlement.currency,
+      groupId: settlement.groupId, groupName: this.groups.get(settlement.groupId)?.name ?? "your group", settlementId,
+    };
+  }
+
+  async checkHealth(): Promise<DatabaseHealth> {
+    return { missing: [] };
   }
 
   async exportData(userId: string): Promise<ExportDocument> {

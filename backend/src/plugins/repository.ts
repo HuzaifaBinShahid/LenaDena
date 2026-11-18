@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
 import { createClient } from "@supabase/supabase-js";
 import type { AppConfig } from "../config.js";
+import { supabaseCallName, traced } from "../observability/upstream.js";
 import type { LedgerRepository } from "../repositories/LedgerRepository.js";
 import { MemoryLedgerRepository } from "../repositories/MemoryLedgerRepository.js";
 import { SupabaseLedgerRepository } from "../repositories/SupabaseLedgerRepository.js";
@@ -17,7 +18,8 @@ export const repositoryPlugin = fp(async function repositoryPlugin(fastify, opti
     return;
   }
   if (options.config.authMode === "supabase" && options.config.supabaseUrl && options.config.supabaseSecretKey) {
-    const client = createClient(options.config.supabaseUrl, options.config.supabaseSecretKey, { auth: { autoRefreshToken: false, persistSession: false } });
+    // Every call to Supabase is timed and added to the request's trace (see observability/upstream.ts).
+    const client = createClient(options.config.supabaseUrl, options.config.supabaseSecretKey, { auth: { autoRefreshToken: false, persistSession: false }, global: { fetch: traced(fetch, supabaseCallName) } });
     fastify.decorate("ledger", new SupabaseLedgerRepository(client, fastify.log));
     return;
   }

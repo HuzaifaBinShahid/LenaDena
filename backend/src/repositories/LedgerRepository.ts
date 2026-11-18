@@ -1,6 +1,6 @@
 import type { ExportDocument } from "../domain/export.js";
 import type { GroupPeople, Invitation } from "../domain/groups.js";
-import type { InvitationPushTarget, NudgeDelivery, PushPlatform } from "../domain/push.js";
+import type { DatabaseHealth, InvitationPushTarget, NudgeDelivery, PaymentPushEvent, PaymentPushTarget, PushPlatform } from "../domain/push.js";
 import type { CreatedPersonalTransaction, CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, ExpenseDetail, Group, InviteLink, Member, Person, PersonUpdate, Plan, SettlementStatus, UpdateExpenseInput, UpdatePersonalTransactionInput, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
 
 export interface LedgerRepository {
@@ -49,6 +49,14 @@ export interface LedgerRepository {
   undoNudge(userId: string, nudgeId: string): Promise<void>;
   /** For an invitation the caller just sent: the devices to push, or null (also when there is no account, so it reveals nothing). */
   getInvitationPushTarget(userId: string, groupId: string, email: string): Promise<InvitationPushTarget | null>;
+  /**
+   * For a payment step the caller just took (`event`): the other person's devices, or null. Null when the step did not
+   * just happen, was not the caller's, the other person has no device, a notification for it already went out, or the
+   * payer is claiming payments too fast. Never throws for any of those, so it cannot break the payment itself.
+   */
+  getPaymentPushTarget(userId: string, settlementId: string, event: PaymentPushEvent): Promise<PaymentPushTarget | null>;
+  /** Asks the database a trivial question and which migrations it lacks (GET /health/ready). Throws when it cannot answer. */
+  checkHealth(timeoutMs: number): Promise<DatabaseHealth>;
   /** Everything that is the person's own, in one document (Settings -> Export my data). Never other people's emails. */
   exportData(userId: string): Promise<ExportDocument>;
   /**

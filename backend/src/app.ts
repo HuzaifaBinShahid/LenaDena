@@ -22,7 +22,9 @@ import { notificationRoutes } from "./routes/notifications.js";
 import { pushRoutes } from "./routes/push.js";
 import { pageRoutes } from "./routes/pages.js";
 import type { NotificationRunner } from "./notifications/runner.js";
-import { FcmPushSender, type PushSender } from "./push/fcm.js";
+import { FcmPushSender, type FcmFetcher, type PushSender } from "./push/fcm.js";
+import { googleCallName, traced } from "./observability/upstream.js";
+import { timingPlugin } from "./plugins/timing.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { peopleRoutes } from "./routes/people.js";
 import { voiceRoutes } from "./routes/voice.js";
@@ -46,9 +48,12 @@ export async function buildApp(options: BuildOptions = {}) {
     logger: config.nodeEnv === "test" ? false : { level: config.nodeEnv === "production" ? "info" : "debug", redact: ["req.headers.authorization", "req.headers.cookie"] },
     bodyLimit: 1024 * 1024,
     genReqId: () => randomUUID(),
-    logController: new LogController({ disableRequestLogging: (request) => request.url === "/health" }),
+    // plugins/timing.ts writes one line per request (route, status, time, time spent on other services) instead.
+    logController: new LogController({ disableRequestLogging: () => true }),
   });
 
+  // First, so that the calls made by the hooks registered after it (rate limiting, authentication) are timed too.
+  await app.register(timingPlugin, { slowMs: config.slowRequestMs });
   await app.register(sensible);
   await app.register(helmet, { contentSecurityPolicy: config.nodeEnv === "production" });
   await app.register(multipart, { limits: { files: 1, fileSize: 5 * 1024 * 1024, fields: 0, parts: 1 } });
@@ -86,19 +91,20 @@ export async function buildApp(options: BuildOptions = {}) {
 
   await app.register(repositoryPlugin, options.repository ? { config, repository: options.repository } : { config });
   await app.register(authPlugin, config);
-  await app.register(healthRoutes);
+  // Calls to Firebase are timed like the calls to Supabase (observability/upstream.ts).
+  const pushSender = options.pushSender ?? (config.firebase ? new FcmPushSender(config.firebase, { fetcher: traced(fetch as unknown as FcmFetcher, googleCallName) }) : undefined);
+  if (config.nodeEnv === "production" && config.firebaseInvalid) {
+    app.log.warn("FIREBASE_SERVICE_ACCOUNT_JSON is set but is not a usable service account key: push notifications stay off");
+  }
+  await app.register(healthRoutes, { config, pushOn: Boolean(pushSender) });
   await app.register(pageRoutes, { config });
   if (config.nodeEnv === "production" && !config.supportEmail) {
     app.log.warn("SUPPORT_EMAIL is not set (or is not an email address): the privacy and account deletion pages show no contact address");
   }
   await app.register(notificationRoutes, { config, ...(options.notificationRunner ? { runner: options.notificationRunner } : {}) });
-  await app.register(ledgerRoutes, { prefix: "/v1" });
+  await app.register(ledgerRoutes, { prefix: "/v1", ...(pushSender ? { pushSender } : {}) });
   await app.register(accountRoutes, { prefix: "/v1", config });
   await app.register(exportRoutes, { prefix: "/v1" });
-  const pushSender = options.pushSender ?? (config.firebase ? new FcmPushSender(config.firebase) : undefined);
-  if (config.nodeEnv === "production" && config.firebaseInvalid) {
-    app.log.warn("FIREBASE_SERVICE_ACCOUNT_JSON is set but is not a usable service account key: push notifications stay off");
-  }
   await app.register(groupRoutes, { prefix: "/v1", ...(pushSender ? { pushSender } : {}), ...(options.inviteFloorMs !== undefined ? { inviteFloorMs: options.inviteFloorMs } : {}) });
   await app.register(pushRoutes, { prefix: "/v1", ...(pushSender ? { sender: pushSender } : {}) });
   await app.register(peopleRoutes, { prefix: "/v1", config });

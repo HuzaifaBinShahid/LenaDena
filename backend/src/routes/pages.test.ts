@@ -137,7 +137,12 @@ describe("what the pages promise", () => {
 
   it("describes notifications as they are: opt-in, what is kept, who delivers them and how long", async () => {
     const privacy = (await get(await appWith({ supportEmail: "help@example.com" }), "/privacy")).body;
-    expect(privacy).toContain("are off until you switch them on in Settings");
+    expect(privacy).toContain("an update about a payment, an invitation to a group) are off until you switch them on");
+    expect(privacy).toContain("The app asks once, and you can change your mind in Settings");
+    expect(privacy).toContain("each step of a payment");
+    expect(privacy).toContain("That record holds no names, amounts or notification text");
+    expect(privacy).toContain("for a reminder or a payment update the amount and the group");
+    expect(privacy).toContain("The person you remind, invite or pay");
     expect(privacy).toContain("Notifications (only if you switch them on)");
     expect(privacy).toContain("a device token");
     expect(privacy).toContain("Google Firebase Cloud Messaging");

@@ -55,3 +55,29 @@ describe("Firebase credentials for push notifications", () => {
     expect(config.firebaseInvalid).toBe(true);
   });
 });
+
+describe("slow request threshold", () => {
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("defaults to 1.5 seconds", () => {
+    vi.stubEnv("SLOW_REQUEST_MS", "");
+    expect(loadConfig({ nodeEnv: "test" }).slowRequestMs).toBe(1500);
+  });
+
+  it("reads SLOW_REQUEST_MS", () => {
+    vi.stubEnv("SLOW_REQUEST_MS", "800");
+    expect(loadConfig({ nodeEnv: "test" }).slowRequestMs).toBe(800);
+  });
+
+  it("lets a test or caller override it", () => {
+    expect(loadConfig({ nodeEnv: "test", slowRequestMs: 250 }).slowRequestMs).toBe(250);
+  });
+
+  it("falls back to the default instead of stopping the API when the value is unusable or silly", () => {
+    for (const bad of ["abc", "-5", "0", "50", "NaN"]) {
+      vi.stubEnv("SLOW_REQUEST_MS", bad);
+      expect(() => loadConfig({ nodeEnv: "test" })).not.toThrow();
+      expect(loadConfig({ nodeEnv: "test" }).slowRequestMs).toBe(1500);
+    }
+  });
+});

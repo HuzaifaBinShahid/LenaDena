@@ -5,6 +5,7 @@ import {
 } from "../http/schemas.js";
 import type { PushSender } from "../push/fcm.js";
 import { invitationMessage } from "../push/messages.js";
+import { within } from "../push/within.js";
 
 type GroupRoutesOptions = {
   /** Firebase sender; unset means no push for invitations. */
@@ -17,15 +18,6 @@ type GroupRoutesOptions = {
 };
 
 const sleep = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
-/** Gives up on `work` after `ms` without cancelling it; a slow Firebase must not hold the invitation open. */
-const within = async <T>(work: Promise<T>, ms: number): Promise<T | undefined> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([work, new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), ms); })]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-};
 
 /**
  * Group management: invite by email (an account also sees it in the app and accepts or declines there), the member

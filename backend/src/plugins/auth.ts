@@ -3,6 +3,7 @@ import fp from "fastify-plugin";
 import { createClient, isAuthRetryableFetchError } from "@supabase/supabase-js";
 import type { AppConfig } from "../config.js";
 import { DomainError } from "../domain/errors.js";
+import { supabaseCallName, traced } from "../observability/upstream.js";
 
 /**
  * When the session behind a verified access token was opened with a password (unix seconds), from its `amr` claim.
@@ -29,7 +30,7 @@ function passwordSignInAt(token: string): number | undefined {
  */
 export const authPlugin = fp(async function authPlugin(fastify, config: AppConfig) {
   const supabase = config.authMode === "supabase" && config.supabaseUrl && config.supabaseSecretKey
-    ? createClient(config.supabaseUrl, config.supabaseSecretKey, { auth: { autoRefreshToken: false, persistSession: false } })
+    ? createClient(config.supabaseUrl, config.supabaseSecretKey, { auth: { autoRefreshToken: false, persistSession: false }, global: { fetch: traced(fetch, supabaseCallName) } })
     : null;
 
   fastify.decorateRequest("authUser");

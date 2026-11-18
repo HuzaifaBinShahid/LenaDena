@@ -23,7 +23,8 @@ export function PushBridge() {
     if (!userId) return;
     const target = targetForNotification(data);
     if (!target) return;
-    router.push((target.kind === "invitations" ? "/invitations" : `/group/${target.groupId}`) as Href);
+    if (target.kind === "reviews") router.push({ pathname: "/", params: { tab: "reviews" } } as Href);
+    else router.push((target.kind === "invitations" ? "/invitations" : `/group/${target.groupId}`) as Href);
   };
 
   useEffect(() => {

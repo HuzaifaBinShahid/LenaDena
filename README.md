@@ -120,7 +120,7 @@ The frontend uses Supabase for authentication. Financial mutations go through Fa
 
 Supabase Auth creates one profile per account. Financial rows continue to reference the immutable account ID when a user changes their display name or photo. `last_seen_at` distinguishes a recipient who has never opened LenaDena from an active recipient who still has a 72-hour review window.
 
-Optional push notifications (reminders from friends, group invitations) use Firebase Cloud Messaging: set `FIREBASE_SERVICE_ACCOUNT_JSON` in `backend/.env` and put the Android `google-services.json` at `frontend/google-services.json`. Without them everything else works and Remind falls back to sharing a message. Setup: [DEPLOYMENT.md](documentation/DEPLOYMENT.md), "Push notifications".
+Optional push notifications (reminders from friends, payment updates, group invitations) use Firebase Cloud Messaging: set `FIREBASE_SERVICE_ACCOUNT_JSON` in `backend/.env` and put the Android `google-services.json` at `frontend/google-services.json`. Without them everything else works and Remind falls back to sharing a message. Setup: [DEPLOYMENT.md](documentation/DEPLOYMENT.md), "Push notifications".
 
 `SMTP_HOST` is optional in development, where the worker renders messages to JSON instead of sending them. It is required when `NODE_ENV=production`. Any normal SMTP provider can be used; no AI service or AI API key is involved.
 

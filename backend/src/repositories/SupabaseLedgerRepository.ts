@@ -4,7 +4,7 @@ import { ConflictError, DomainError, ForbiddenError, NotFoundError } from "../do
 import { AccountDeletionFailedError, AccountDeletionUnavailableError, ownStoragePaths } from "../domain/account.js";
 import { ExportUnavailableError, type ExportDocument } from "../domain/export.js";
 import { GroupsUnavailableError, toGroupError, type GroupPeople, type Invitation } from "../domain/groups.js";
-import { PushUnavailableError, toPushError, type InvitationPushTarget, type NudgeDelivery, type PushPlatform } from "../domain/push.js";
+import { PushUnavailableError, toPushError, type DatabaseHealth, type InvitationPushTarget, type NudgeDelivery, type PaymentPushEvent, type PaymentPushTarget, type PushPlatform } from "../domain/push.js";
 import { amountBelowPaid, EditUnavailableError, entryHasPayments, entryNotFound, entrySettled, expenseNotFound, invalidAmount, invalidReceipt, notAllowedToDeleteExpense, notAllowedToEditExpense, participantLeft } from "../domain/edit.js";
 import { cleanNewPerson, cleanPersonChanges, EmailLimitReachedError, EmailRecentlySentError, EmailUnavailableError, invalidAvatarPath, invalidPersonEmail, invalidPersonName, invalidReminderFrequency, InviteRecentlySentError, isUuid, PeopleUnavailableError, PersonExistsError, PersonHasNoEmailError, PersonHasNoEntriesError, PersonNotFoundError } from "../domain/people.js";
 import type { CreatedPersonalTransaction, CreateExpenseInput, CreateGroupInput, CreatePersonalTransactionInput, CreatePersonInput, CreateSettlementInput, ExpenseDetail, Group, InviteLink, Member, Person, PersonUpdate, Plan, SettlementStatus, TransactionItem, UpdateExpenseInput, UpdatePersonalTransactionInput, UpdatePersonInput, UpdateProfileInput, UploadKind } from "../domain/types.js";
@@ -348,6 +348,25 @@ export class SupabaseLedgerRepository implements LedgerRepository {
     const { data, error } = await this.client.rpc("app_get_invitation_push_target", { p_actor: userId, p_group: groupId, p_email: email });
     if (error) throw toPushRpcError(error);
     return (data as InvitationPushTarget | null) ?? null;
+  }
+
+  async getPaymentPushTarget(userId: string, settlementId: string, event: PaymentPushEvent): Promise<PaymentPushTarget | null> {
+    if (!isUuid(settlementId)) return null;
+    const { data, error } = await this.client.rpc("app_get_payment_push_target", { p_actor: userId, p_settlement: settlementId, p_event: event });
+    if (error) throw toPushRpcError(error);
+    const target = data as PaymentPushTarget | null;
+    return target ? { ...target, amountMinor: Number(target.amountMinor), tokens: target.tokens ?? [] } : null;
+  }
+
+  async checkHealth(timeoutMs: number): Promise<DatabaseHealth> {
+    const { data, error } = await this.client.rpc("app_health_check").abortSignal(AbortSignal.timeout(timeoutMs));
+    if (error) {
+      // The database answered but the function is not there (migration 202611180017 is not applied): reachable, features unknown.
+      if (isMissingFunction(error)) return { missing: null };
+      throw new Error(error.message || "The database did not answer");
+    }
+    const missing = (data as { missing?: unknown } | null)?.missing;
+    return { missing: Array.isArray(missing) ? missing.filter((item): item is string => typeof item === "string") : [] };
   }
 
   async exportData(userId: string): Promise<ExportDocument> {

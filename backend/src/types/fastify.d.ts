@@ -1,8 +1,11 @@
 import "fastify";
+import type { UpstreamTrace } from "../observability/upstream.js";
 import type { LedgerRepository } from "../repositories/LedgerRepository.js";
 
 declare module "fastify" {
   interface FastifyRequest {
+    /** Calls this request made to other services and how long each took (plugins/timing.ts). */
+    upstream: UpstreamTrace;
     authUser: {
       id: string;
       email?: string;

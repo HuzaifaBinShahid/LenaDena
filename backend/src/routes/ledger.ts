@@ -27,6 +27,8 @@ import {
   TokenParamsSchema,
 } from "../http/schemas.js";
 import { DomainError } from "../domain/errors.js";
+import type { PushSender } from "../push/fcm.js";
+import { sendPaymentPush } from "../push/paymentPush.js";
 
 const mutationResponses = {
   400: ErrorSchema,
@@ -36,7 +38,12 @@ const mutationResponses = {
   409: ErrorSchema,
 };
 
-export const ledgerRoutes: FastifyPluginAsyncTypebox = async (fastify) => {
+type LedgerRoutesOptions = {
+  /** Firebase sender; unset means no push for payment steps. */
+  pushSender?: PushSender;
+};
+
+export const ledgerRoutes: FastifyPluginAsyncTypebox<LedgerRoutesOptions> = async (fastify, { pushSender }) => {
   fastify.post("/uploads/:kind", {
     schema: {
       tags: ["uploads"],
@@ -239,6 +246,7 @@ export const ledgerRoutes: FastifyPluginAsyncTypebox = async (fastify) => {
     },
   }, async (request, reply) => {
     const settlement = await fastify.ledger.createSettlement(request.authUser.id, request.body, request.headers["idempotency-key"]);
+    await sendPaymentPush({ ledger: fastify.ledger, sender: pushSender, log: request.log, userId: request.authUser.id, settlementId: settlement.id, event: "claimed" });
     return reply.code(201).send(settlement);
   });
 
@@ -253,6 +261,7 @@ export const ledgerRoutes: FastifyPluginAsyncTypebox = async (fastify) => {
     },
   }, async (request, reply) => {
     await fastify.ledger.reviewSettlement(request.authUser.id, request.params.id, "confirmed", request.body.note, request.headers["idempotency-key"]);
+    await sendPaymentPush({ ledger: fastify.ledger, sender: pushSender, log: request.log, userId: request.authUser.id, settlementId: request.params.id, event: "confirmed" });
     return reply.code(204).send(null);
   });
 
@@ -267,6 +276,7 @@ export const ledgerRoutes: FastifyPluginAsyncTypebox = async (fastify) => {
     },
   }, async (request, reply) => {
     await fastify.ledger.reviewSettlement(request.authUser.id, request.params.id, "needs_attention", request.body.note, request.headers["idempotency-key"]);
+    await sendPaymentPush({ ledger: fastify.ledger, sender: pushSender, log: request.log, userId: request.authUser.id, settlementId: request.params.id, event: "needs_attention" });
     return reply.code(204).send(null);
   });
 
@@ -280,6 +290,7 @@ export const ledgerRoutes: FastifyPluginAsyncTypebox = async (fastify) => {
     },
   }, async (request, reply) => {
     await fastify.ledger.selfConfirmSettlement(request.authUser.id, request.params.id, request.headers["idempotency-key"]);
+    await sendPaymentPush({ ledger: fastify.ledger, sender: pushSender, log: request.log, userId: request.authUser.id, settlementId: request.params.id, event: "self_confirmed" });
     return reply.code(204).send(null);
   });
 };
