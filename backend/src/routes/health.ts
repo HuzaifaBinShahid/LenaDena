@@ -34,7 +34,9 @@ const ReadySchema = Type.Object({
 type Ready = Static<typeof ReadySchema>;
 
 // Looks `fetch` up at call time, so a test can stand in for it.
-const tracedFetch = traced((url: string, init?: RequestInit) => fetch(url, init), supabaseCallName);
+// The build machine's typings for the global `Response` can be incomplete, so only the two members used here are declared.
+type AuthReply = { status: number; body?: { cancel(): Promise<unknown> } | null };
+const tracedFetch = traced((url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => fetch(url, init as never) as unknown as Promise<AuthReply>, supabaseCallName);
 
 /** Supabase Auth answers at all (any answer below 500: the service is up, whatever it thinks of our key). */
 async function authReachable(config: AppConfig): Promise<boolean> {
