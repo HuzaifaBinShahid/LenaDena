@@ -36,7 +36,7 @@ function record(call: UpstreamCall, trace: UpstreamTrace | undefined) {
 }
 
 /** Wraps a fetch-like function so each call is timed and recorded in the current request's trace (if there is one). */
-export function traced<A extends unknown[], R extends { status: number }>(
+export function traced<A extends unknown[], R>(
   base: (...args: A) => Promise<R>,
   nameOf: (...args: A) => string,
   now: () => number = () => performance.now(),
@@ -52,7 +52,9 @@ export function traced<A extends unknown[], R extends { status: number }>(
     }
     try {
       const response = await base(...args);
-      record({ name, ms: Math.round(now() - started), status: response.status }, trace);
+      // Read the status loosely: the Response types of different TypeScript / Node typings do not always line up.
+      const status = (response as { status?: unknown } | null)?.status;
+      record({ name, ms: Math.round(now() - started), status: typeof status === "number" ? status : 0 }, trace);
       return response;
     } catch (error) {
       record({ name, ms: Math.round(now() - started), status: "error" }, trace);
