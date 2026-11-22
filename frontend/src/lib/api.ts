@@ -19,6 +19,36 @@ export class ApiError extends Error {
   }
 }
 
+/** How long a request may take before the app gives up, so a stuck server never leaves a spinner running forever. */
+export const REQUEST_TIMEOUT_MS = 20_000;
+/** Uploads carry a photo, so they get longer. */
+export const UPLOAD_TIMEOUT_MS = 45_000;
+
+/** The server did not answer in time. The request may still have reached it, so a retry reuses its idempotency key. */
+export class RequestTimeoutError extends Error {
+  constructor() {
+    super("This is taking too long. Check your connection and try again.");
+  }
+}
+
+/** Rejects with `RequestTimeoutError` if `work` has not finished after `ms`; `onTimeout` stops the underlying request. */
+export async function withTimeout<T>(work: Promise<T>, ms: number, onTimeout?: () => void): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          onTimeout?.();
+          reject(new RequestTimeoutError());
+        }, ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /** A user-facing sentence for any thrown value; fetch failures become a connection hint. */
 export function errorMessage(error: unknown, fallback = "Please try again.") {
   if (error instanceof TypeError && /network request failed|failed to fetch|load failed/i.test(error.message)) {
@@ -30,7 +60,8 @@ export function errorMessage(error: unknown, fallback = "Please try again.") {
 async function authHeaders() {
   const headers: Record<string, string> = {};
   if (supabase) {
-    const { data } = await supabase.auth.getSession();
+    // Reading the session can wait on a token refresh over the network, so it is bounded too.
+    const { data } = await withTimeout(supabase.auth.getSession(), REQUEST_TIMEOUT_MS);
     if (data.session?.access_token) {
       headers.authorization = `Bearer ${data.session.access_token}`;
       return headers;
@@ -41,7 +72,31 @@ async function authHeaders() {
   return headers;
 }
 
+/**
+ * Keys of writes that got no answer (timeout, no connection), by what was sent. The server may have saved the entry
+ * anyway, so when the person taps Save again with the same details the same key is sent and the server answers with
+ * the entry it already has instead of adding a second one. Any answer from the server (success or error) clears it.
+ */
+const unanswered = new Map<string, string>();
+
 export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  if (options.idempotencyKey) {
+    const fingerprint = `${options.method ?? "GET"} ${path} ${JSON.stringify(options.body ?? null)}`;
+    const key = unanswered.get(fingerprint) ?? options.idempotencyKey;
+    try {
+      const result = await send<T>(path, { ...options, idempotencyKey: key });
+      unanswered.delete(fingerprint);
+      return result;
+    } catch (error) {
+      if (error instanceof ApiError) unanswered.delete(fingerprint);
+      else unanswered.set(fingerprint, key);
+      throw error;
+    }
+  }
+  return send<T>(path, options);
+}
+
+async function send<T>(path: string, options: ApiOptions): Promise<T> {
   const hasJsonBody = options.body !== undefined;
   const headers = {
     ...(hasJsonBody ? { "content-type": "application/json" } : {}),
@@ -49,12 +104,18 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
     ...(options.idempotencyKey ? { "idempotency-key": options.idempotencyKey } : {}),
     ...(options.headers ?? {}),
   };
-  const response = await fetch(`${apiUrl}${path}`, {
-    ...options,
-    headers,
-    body: hasJsonBody ? JSON.stringify(options.body) : undefined,
-  });
-  const payload = (await response.json().catch(() => null)) as T | { message?: string; code?: string; details?: unknown } | null;
+  const controller = new AbortController();
+  const response = await withTimeout(
+    fetch(`${apiUrl}${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+      body: hasJsonBody ? JSON.stringify(options.body) : undefined,
+    }),
+    REQUEST_TIMEOUT_MS,
+    () => controller.abort(),
+  );
+  const payload = (await withTimeout(response.json().catch(() => null), REQUEST_TIMEOUT_MS)) as T | { message?: string; code?: string; details?: unknown } | null;
   if (!response.ok) {
     const error = payload as { message?: string; code?: string; details?: unknown } | null;
     throw new ApiError(error?.message ?? "Request failed", response.status, error?.code, error?.details);
@@ -64,7 +125,8 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
 
 /** A download: the response body as text (a file), with the same sign-in headers and error handling as `apiRequest`. */
 export async function apiText(path: string): Promise<string> {
-  const response = await fetch(`${apiUrl}${path}`, { headers: await authHeaders() });
+  const controller = new AbortController();
+  const response = await withTimeout(fetch(`${apiUrl}${path}`, { headers: await authHeaders(), signal: controller.signal }), REQUEST_TIMEOUT_MS, () => controller.abort());
   if (!response.ok) {
     const error = (await response.json().catch(() => null)) as { message?: string; code?: string; details?: unknown } | null;
     throw new ApiError(error?.message ?? "Request failed", response.status, error?.code, error?.details);
@@ -88,7 +150,7 @@ export async function transcribeVoiceAudio(uri: string, language: VoiceTranscrip
   if (Platform.OS === "web") {
     const file = await fetch(uri).then((response) => response.blob());
     form.append("audio", file, "voice-command.webm");
-    const response = await fetch(url, { method: "POST", headers, body: form });
+    const response = await fetch(url, { method: "POST", headers, body: form, signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS) });
     status = response.status;
     text = await response.text();
   } else {
@@ -115,7 +177,7 @@ export async function uploadPrivateImage(kind: "receipt" | "payment-proof" | "av
   if (Platform.OS === "web") {
     const fileResponse = await fetch(uri);
     form.append("file", await fileResponse.blob(), `${kind}.${extension}`);
-    const response = await fetch(url, { method: "POST", headers, body: form });
+    const response = await fetch(url, { method: "POST", headers, body: form, signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS) });
     status = response.status;
     text = await response.text();
   } else {
@@ -139,6 +201,7 @@ function postNativeForm(url: string, headers: Record<string, string>, form: Form
   return new Promise<{ status: number; text: string }>((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", url);
+    request.timeout = UPLOAD_TIMEOUT_MS;
     for (const [name, value] of Object.entries(headers)) request.setRequestHeader(name, value);
     request.onload = () => resolve({ status: request.status, text: request.responseText });
     // Same message as a failed fetch, so errorMessage() shows the connection hint.

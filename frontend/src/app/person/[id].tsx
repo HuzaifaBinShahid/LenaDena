@@ -319,25 +319,33 @@ function EntryList({ items, today, settlingId, sharingId, onSettle, onCustom, on
                     onCustom={() => onCustom(item)}
                   />
                 ) : null}
-                {item.canEdit ? (
-                  <Button
-                    label="Edit"
-                    icon="edit"
-                    size="sm"
-                    variant="ghost"
-                    onPress={() => router.push({ pathname: "/transaction/new", params: { id: item.id } })}
-                    accessibilityHint={`Change or delete ${copy.title}`}
-                  />
-                ) : null}
-                <Button
-                  label="Share"
-                  icon="share"
-                  size="sm"
-                  variant="ghost"
-                  loading={sharingId === `entry:${item.id}`}
-                  onPress={() => onShare(item)}
-                  accessibilityHint={`Opens the share sheet with a message about ${copy.title}`}
-                />
+                <View style={shape.pairRow}>
+                  {item.canEdit ? (
+                    <View style={shape.pairCell}>
+                      <Button
+                        label="Edit"
+                        icon="edit"
+                        size="sm"
+                        variant="soft"
+                        fullWidth
+                        onPress={() => router.push({ pathname: "/transaction/new", params: { id: item.id } })}
+                        accessibilityHint={`Change or delete ${copy.title}`}
+                      />
+                    </View>
+                  ) : null}
+                  <View style={shape.pairCell}>
+                    <Button
+                      label="Share"
+                      icon="share"
+                      size="sm"
+                      variant="soft"
+                      fullWidth
+                      loading={sharingId === `entry:${item.id}`}
+                      onPress={() => onShare(item)}
+                      accessibilityHint={`Opens the share sheet with a message about ${copy.title}`}
+                    />
+                  </View>
+                </View>
               </View>
             )}
           />
@@ -504,7 +512,15 @@ const useStyles = makeStyles((c) => ({
 
 const shape = StyleSheet.create({
   entryFooter: {
-    gap: 2,
+    gap: 8,
+  },
+  // Edit and Share share one line, half the width each.
+  pairRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  pairCell: {
+    flex: 1,
   },
   identity: {
     alignItems: "center",

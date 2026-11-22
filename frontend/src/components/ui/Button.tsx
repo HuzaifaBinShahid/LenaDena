@@ -8,8 +8,8 @@ import { Touch } from "@/components/ui/Touch";
 import { useTheme } from "@/theme/ThemeProvider";
 import { colors } from "@/theme/tokens";
 
-/** `gradient` is the violet-to-blue call to action used on the dark space screens. */
-type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "bright" | "glass" | "gradient";
+/** `gradient` is the violet-to-blue call to action used on the dark space screens. `soft` is a quiet violet-tinted button for secondary actions on a light card. */
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "bright" | "glass" | "gradient" | "soft";
 type ButtonSize = "sm" | "md" | "lg" | "choice";
 
 type ButtonProps = {
@@ -37,6 +37,7 @@ const variantClasses: Record<ButtonVariant, string> = {
   bright: "bg-white border-white",
   glass: "bg-white/10 border-white/15",
   gradient: "overflow-hidden border-white/10",
+  soft: "bg-violet-soft border-transparent",
 };
 
 const labelClasses: Record<ButtonVariant, string> = {
@@ -47,6 +48,7 @@ const labelClasses: Record<ButtonVariant, string> = {
   bright: "text-violet-strong",
   glass: "text-white",
   gradient: "text-white",
+  soft: "text-violet",
 };
 
 const gradientColors = [colors.violetStrong, colors.violet, "#4F86D9"] as const;
@@ -77,14 +79,14 @@ export function Button({
   const blocked = disabled || loading;
   const onDark = variant === "primary" || variant === "glass" || variant === "gradient";
   // Ghost labels move to lavender in dark mode: violet text is only ~4.2:1 on the dark raised sheets.
-  const ghostOnDark = variant === "ghost" && isDark;
+  const ghostOnDark = (variant === "ghost" || variant === "soft") && isDark;
   const labelClass = ghostOnDark ? "text-lavender" : labelClasses[variant];
   // White stays static on the violet, glass and gradient fills, and `bright` is always a white fill, so its ink icon is static too.
   const iconColor = onDark
     ? colors.white
     : variant === "danger"
       ? c.coral
-      : variant === "ghost"
+      : variant === "ghost" || variant === "soft"
         ? (ghostOnDark ? colors.lavender : c.violet)
         : variant === "bright"
           ? colors.ink

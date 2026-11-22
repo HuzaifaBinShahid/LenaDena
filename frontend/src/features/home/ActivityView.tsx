@@ -640,25 +640,33 @@ export function ActivityView({ onAddEntry }: HomeTabProps) {
                             accessibilityHint={person.hint}
                           />
                         ) : null}
-                        {item.canEdit ? (
-                          <Button
-                            label="Edit"
-                            icon="edit"
-                            size="md"
-                            variant="ghost"
-                            onPress={() => router.push({ pathname: "/transaction/new", params: { id: item.id } })}
-                            accessibilityHint={`Change or delete ${copy.title}`}
-                          />
-                        ) : null}
-                        <Button
-                          label="Share"
-                          icon="share"
-                          size="md"
-                          variant="ghost"
-                          loading={sharing === `entry:${item.id}`}
-                          onPress={() => void shareEntry(item, item.counterparty)}
-                          accessibilityHint={`Opens the share sheet with a message about ${copy.title}`}
-                        />
+                        <View style={styles.pairRow}>
+                          {item.canEdit ? (
+                            <View style={styles.pairCell}>
+                              <Button
+                                label="Edit"
+                                icon="edit"
+                                size="md"
+                                variant="soft"
+                                fullWidth
+                                onPress={() => router.push({ pathname: "/transaction/new", params: { id: item.id } })}
+                                accessibilityHint={`Change or delete ${copy.title}`}
+                              />
+                            </View>
+                          ) : null}
+                          <View style={styles.pairCell}>
+                            <Button
+                              label="Share"
+                              icon="share"
+                              size="md"
+                              variant="soft"
+                              fullWidth
+                              loading={sharing === `entry:${item.id}`}
+                              onPress={() => void shareEntry(item, item.counterparty)}
+                              accessibilityHint={`Opens the share sheet with a message about ${copy.title}`}
+                            />
+                          </View>
+                        </View>
                       </View>
                     )}
                   />
@@ -987,10 +995,15 @@ const useStyles = makeStyles((c, { isDark }) => ({
     color: c.slate,
   },
   rowActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
     gap: 8,
+  },
+  // Edit and Share share one line, half the width each.
+  pairRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  pairCell: {
+    flex: 1,
   },
   olderFooter: {
     marginTop: 4,
