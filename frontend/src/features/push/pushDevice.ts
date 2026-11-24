@@ -60,12 +60,23 @@ async function ensureChannel(notifications: Notifications) {
   });
 }
 
-/** Gets this phone's current token and gives it to the server. The server keeps one row per token, so repeating is harmless. */
-async function registerCurrentToken(notifications: Notifications): Promise<void> {
+/**
+ * What this run of the app last told the server, so the same token is never sent twice in a row. Asking the phone for
+ * its token makes it announce the token again, the announcement used to trigger another registration, and the app
+ * ended up sending hundreds of requests a minute (2026-11-24). Two guards stop that: the same token is skipped, and
+ * a quiet registration is not repeated within a minute.
+ */
+let lastRegistered: { userId: string; token: string; at: number } | null = null;
+const QUIET_REPEAT_MS = 60_000;
+
+/** Gets this phone's current token and gives it to the server. The server keeps one row per token, so repeating is harmless but wasteful. */
+async function registerCurrentToken(notifications: Notifications, userId: string): Promise<void> {
   const device = await notifications.getDevicePushTokenAsync();
   const token = typeof device.data === "string" ? device.data : "";
   if (!token) throw new Error("This phone didn't give a notification token.");
+  if (lastRegistered && lastRegistered.userId === userId && lastRegistered.token === token) return;
   await apiRequest("/v1/me/push-token", { method: "POST", body: { token, platform: "android" } });
+  lastRegistered = { userId, token, at: Date.now() };
   await SecureStore.setItemAsync(tokenKey, token);
 }
 
@@ -82,7 +93,7 @@ export async function enablePush(userId: string): Promise<EnablePushResult> {
     let { status } = await notifications.getPermissionsAsync();
     if (status !== "granted") ({ status } = await notifications.requestPermissionsAsync());
     if (status !== "granted") return { ok: false, reason: "denied" };
-    await registerCurrentToken(notifications);
+    await registerCurrentToken(notifications, userId);
     await SecureStore.setItemAsync(preferenceKey(userId), "1");
     return { ok: true };
   } catch (error) {
@@ -93,6 +104,8 @@ export async function enablePush(userId: string): Promise<EnablePushResult> {
 
 /** Switch off: the server forgets this phone, the token is retired, and the switch stays off until the person turns it on. */
 export async function disablePush(userId: string): Promise<void> {
+  lastRegistered = null;
+  lastAttempt = null;
   await SecureStore.deleteItemAsync(preferenceKey(userId)).catch(() => undefined);
   await forgetThisDevice();
   try {
@@ -105,6 +118,7 @@ export async function disablePush(userId: string): Promise<void> {
 
 /** Takes this phone's token off the signed-in account. Called before signing out, while the session still works. */
 export async function forgetThisDevice(): Promise<void> {
+  lastRegistered = null;
   let token: string | null = null;
   try {
     token = await SecureStore.getItemAsync(tokenKey);
@@ -124,15 +138,26 @@ export async function forgetThisDevice(): Promise<void> {
  * On sign-in and app start, for an account that switched it on: makes sure the server has this phone's current token
  * (Firebase rotates tokens now and then). Quiet: it never asks for permission and never shows an error.
  */
+let syncing = false;
+/** When a quiet sync last ran for an account, successful or not, so a failing one cannot loop either. */
+let lastAttempt: { userId: string; at: number } | null = null;
+
 export async function syncPush(userId: string): Promise<void> {
-  if (!PUSH_AVAILABLE || !(await isPushOn(userId))) return;
+  if (!PUSH_AVAILABLE || syncing) return;
+  // Tried a moment ago for this account: nothing new to tell the server (the next app start tries again).
+  if (lastAttempt && lastAttempt.userId === userId && Date.now() - lastAttempt.at < QUIET_REPEAT_MS) return;
+  lastAttempt = { userId, at: Date.now() };
+  syncing = true;
   try {
+    if (!(await isPushOn(userId))) return;
     const notifications = await loadNotifications();
     if ((await notifications.getPermissionsAsync()).status !== "granted") return;
     await ensureChannel(notifications);
-    await registerCurrentToken(notifications);
+    await registerCurrentToken(notifications, userId);
   } catch {
     // Try again next time the app starts.
+  } finally {
+    syncing = false;
   }
 }
 
